@@ -154,8 +154,7 @@ def eps_temporal_intensity(
     # for the alignment steps (it stabilises the correlation) but no longer
     # sets the compared scale, so a low-level pedestal costs its own norm
     # once rather than twice (its norm plus the peak deficit it causes).
-    denom = max(float(np.linalg.norm(ir)) * float(np.linalg.norm(i0)),
-                _TINY)
+    denom = max(float(np.linalg.norm(ir)) * float(np.linalg.norm(i0)), _TINY)
     c = float(np.dot(ir, i0)) / denom
     return float(np.sqrt(max(0.0, 1.0 - c * c)))
 
