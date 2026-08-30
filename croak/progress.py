@@ -52,9 +52,10 @@ def detect_environment() -> str:
     """Return ``"notebook"``, ``"terminal"`` or ``"plain"`` (see module docs)."""
     # IPython is not a dependency; it is only importable in notebooks/IPython.
     with contextlib.suppress(Exception):
-        # get_ipython is public IPython API but pyright's bundled stubs flag the
-        # top-level re-export as private.
-        from IPython import get_ipython  # pyright: ignore[reportPrivateImportUsage]
+        # Blanket type-ignore: pyright's bundled stubs flag get_ipython's
+        # top-level re-export as private, and in environments without IPython
+        # installed (it is not a dependency) the import is unresolvable too.
+        from IPython import get_ipython  # type: ignore
 
         shell = get_ipython()
         if shell is not None and shell.__class__.__name__ == "ZMQInteractiveShell":
@@ -69,7 +70,8 @@ def detect_environment() -> str:
 def _have_ipywidgets() -> bool:
     """Whether ``ipywidgets`` is importable (needed for the notebook tqdm bar)."""
     try:
-        import ipywidgets  # noqa: F401 - imported to probe availability, not to use
+        # Probes availability only; unresolvable when not installed.
+        import ipywidgets  # noqa: F401  # type: ignore
     except Exception:
         return False
     return True
