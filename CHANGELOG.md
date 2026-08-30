@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-31
+
 ### Changed
 
 - **`warm-lbfgs` is now the default solver everywhere.** `croak.retrieve`
