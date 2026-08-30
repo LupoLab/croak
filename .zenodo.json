@@ -1,0 +1,34 @@
+{
+    "title": "croak: complete retrieval of ultrashort laser pulses from FROG traces",
+    "version": "0.1.0",
+    "upload_type": "software",
+    "license": "MIT",
+    "description": "croak reconstructs the full complex electric field of an ultrashort laser pulse — spectral amplitude and phase — from a delay-scanned nonlinear-process spectrum. It is a general retrieval package for the PNPS class of measurements, currently focused on FROG (SHG, SD and PG/transient-grating), with a differentiable forward model that includes dispersive propagation in the nonlinear medium, geometric delay smearing of the crossed-beam geometry, and the chromatic collection aperture — the physics needed for quantitative retrieval of few-femtosecond deep-ultraviolet pulses. Companion code to: J. C. Travers and C. Brahms, \"Extreme ultrashort pulse retrieval with differentiable physical forward models\" (to be published).",
+    "creators": [
+        {
+            "name": "Travers, John C.",
+            "affiliation": "Heriot-Watt University",
+            "orcid": "0000-0003-0350-9104"
+        },
+        {
+            "name": "Brahms, Christian",
+            "affiliation": "Heriot-Watt University",
+            "orcid": "0000-0002-8009-3547"
+        }
+    ],
+    "keywords": [
+        "ultrafast",
+        "FROG",
+        "pulse retrieval",
+        "frequency-resolved optical gating",
+        "transient grating",
+        "PNPS",
+        "ultrashort pulses",
+        "nonlinear optics"
+    ],
+    "grants": [
+        {
+            "id": "10.13039/501100000780::101001534"
+        }
+    ]
+}

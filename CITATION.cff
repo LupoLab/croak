@@ -4,17 +4,29 @@ message: >-
   (preferred-citation below). Cite this record for the software itself.
 type: software
 title: "croak: complete retrieval of ultrashort laser pulses from FROG traces"
+version: 0.1.0
 authors:
   - family-names: Travers
     given-names: John C.
-    # TODO: add orcid: "https://orcid.org/...."
+    orcid: "https://orcid.org/0000-0003-0350-9104"
+    affiliation: "Heriot-Watt University"
   - family-names: Brahms
     given-names: Christian
-    # TODO: add orcid: "https://orcid.org/...."
+    orcid: "https://orcid.org/0000-0002-8009-3547"
+    affiliation: "Heriot-Watt University"
 license: MIT
 repository-code: "https://github.com/LupoLab/croak"
 url: "https://croak.readthedocs.io"
-# TODO on Zenodo deposit: add
+keywords:
+  - ultrafast
+  - FROG
+  - pulse retrieval
+  - frequency-resolved optical gating
+  - transient grating
+  - PNPS
+  - ultrashort pulses
+  - nonlinear optics
+# TODO on Zenodo deposit: add the concept DOI, e.g.
 # doi: 10.5281/zenodo.XXXXXXX
 preferred-citation:
   type: article
@@ -22,8 +34,12 @@ preferred-citation:
   authors:
     - family-names: Travers
       given-names: John C.
+      orcid: "https://orcid.org/0000-0003-0350-9104"
+      affiliation: "Heriot-Watt University"
     - family-names: Brahms
       given-names: Christian
+      orcid: "https://orcid.org/0000-0002-8009-3547"
+      affiliation: "Heriot-Watt University"
   year: 2026
   # TODO on publication: add journal, volume, pages, doi
   notes: "to be published"
