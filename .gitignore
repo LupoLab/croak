@@ -1,0 +1,36 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv*/
+
+# example outputs (regenerate by running the scripts in examples/)
+retrieval.png
+retrieval.h5
+defringe_check.png
+baseline_check.png
+geometric_smearing.png
+thickness_uncertainty.png
+paper_thickness.png
+paper_rdw.png
+
+# local agent state
+.claude/
+
+# documentation build artifacts
+docs/_build/
+.jupyter_cache/
+*.ipynb_checkpoints/
+
+# tool caches
+.pytest_cache/
+.ruff_cache/
+
+.coverage
+.DS_Store
+qfile_*

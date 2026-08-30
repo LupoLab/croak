@@ -1,0 +1,494 @@
+"""Smoke tests for :mod:`croak.plotting` (Agg backend, no display)."""
+
+import matplotlib
+import numpy as np
+import pytest
+
+matplotlib.use("Agg")
+
+from croak import plotting, preprocess, processing
+from croak.forward import maketrace
+from croak.grid import Grid
+from croak.maths import wlfreq
+from croak.pulses import gaussian_pulse
+from croak.retrieve import retrieve
+
+
+@pytest.fixture
+def result_and_trace():
+    g = Grid(96, dt=0.5e-15)
+    omega0 = wlfreq(800e-9)
+    ew = gaussian_pulse(g, 7e-15, phases=[20e-30])
+    delays = np.linspace(-50e-15, 50e-15, 60)
+    trace = maketrace(g.omega, delays, ew, "pg")
+    res = retrieve(
+        trace,
+        g.omega,
+        delays,
+        "pg",
+        algorithm="copra",
+        maxiters=60,
+        guess=ew,
+        omega0=omega0,
+    )
+    return res, trace
+
+
+def test_colormaps():
+    assert plotting.cmap_white("viridis").N == 512
+    cm = plotting.cmap_negwhite("viridis", negfrac=0.1)
+    assert cm.N == 512
+
+
+def test_plot_retrieval_panel_count(result_and_trace):
+    res, trace = result_and_trace
+    fig = plotting.plot_retrieval(res, measured=trace, lam_min=700e-9, lam_max=950e-9)
+    # 12-panel mosaic
+    assert len(fig.axes) >= 12
+    fig.clf()
+
+
+def test_plot_retrieval_flim_bounds_the_trace_frequency_axis(result_and_trace):
+    """``flim`` (Hz) crops the trace/residual panels; the default shows the grid."""
+    res, trace = result_and_trace
+    f0 = res.omega0 / (2 * np.pi)
+    lo, hi = f0 - 0.05e15, f0 + 0.05e15
+
+    unbounded = plotting.plot_retrieval(res, measured=trace)
+    wide = [ax.get_ylim() for ax in unbounded.axes]
+    unbounded.clf()
+
+    fig = plotting.plot_retrieval(res, measured=trace, flim=(lo, hi))
+    # The limits are in PHz on the axis, i.e. Hz / 1e15 — at least one panel must
+    # now carry exactly the requested window, and none may be wider than before.
+    limits = [ax.get_ylim() for ax in fig.axes]
+    assert any(
+        np.isclose(a, lo / 1e15) and np.isclose(b, hi / 1e15) for a, b in limits
+    ), f"no panel bounded to {(lo / 1e15, hi / 1e15)}; got {limits}"
+    assert max(b - a for a, b in limits) <= max(b - a for a, b in wide)
+    fig.clf()
+
+
+def test_plot_simulated_trace(result_and_trace):
+    res, trace = result_and_trace
+    omega0_trace = res.omega0
+    fig = plotting.plot_simulated_trace(res.omega, res.delays, trace, omega0_trace)
+    assert len(fig.axes) >= 4
+
+
+def test_plot_frog_filter(experiment):
+    exp = experiment
+    td = preprocess.load_and_clean(
+        exp.trace,
+        exp.lam_nm * 1e-9,
+        exp.delay_fs * 1e-15,
+        exp.interaction,
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        input_unit="delay",
+        filter_fringes=False,
+        dtau_min=None,
+    )
+    fig = plotting.plot_frog_filter(td)
+    assert len(fig.axes) >= 6
+
+
+def test_frog_filter_view_reuses_artists(experiment):
+    """FrogFilterView.update mutates the existing images, not rebuild them."""
+    from matplotlib.figure import Figure
+
+    exp = experiment
+    common = dict(
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        input_unit="delay",
+        filter_fringes=False,
+        dtau_min=None,
+    )
+    td1 = preprocess.load_and_clean(
+        exp.trace, exp.lam_nm * 1e-9, exp.delay_fs * 1e-15, exp.interaction, **common
+    )
+    # a different crop -> different delay count, exercising set_extent/shape change
+    td2 = preprocess.load_and_clean(
+        exp.trace,
+        exp.lam_nm * 1e-9,
+        exp.delay_fs * 1e-15,
+        exp.interaction,
+        tau_crop=(-30e-15, 30e-15),
+        **common,
+    )
+
+    fig = Figure()
+    view = plotting.FrogFilterView()
+    view.attach(fig)
+    view.update(td1)
+    images_before = {k: (id(p), id(n)) for k, (p, n) in view.images.items()}
+    n_axes = len(fig.axes)
+
+    view.update(td2)  # must not recreate axes/images/colorbars
+    images_after = {k: (id(p), id(n)) for k, (p, n) in view.images.items()}
+    assert images_before == images_after
+    assert len(fig.axes) == n_axes
+    # the regridded panel's data tracks the new (cropped) delay count
+    assert view.images["e"][0].get_array().shape[0] == td2.delays.size
+    assert td2.delays.size != td1.delays.size  # the crop really changed it
+
+
+def test_single_axis_plotters(result_and_trace):
+    from matplotlib.figure import Figure
+
+    from croak.processing import process_result
+
+    res, trace = result_and_trace
+    pr = process_result(res, measured=trace)
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    plotting.plot_temporal(ax, pr)
+    fig2 = Figure()
+    plotting.plot_spectral(fig2.add_subplot(111), pr)
+    fig3 = Figure()
+    plotting.plot_convergence(fig3.add_subplot(111), res.errors)
+    assert True  # rendered without error
+
+
+def test_plot_temporal_absolute_power_axis(result_and_trace):
+    from matplotlib.figure import Figure
+
+    from croak.processing import process_result
+
+    res, trace = result_and_trace
+    # without energy: normalised axis
+    pr = process_result(res, measured=trace)
+    ax = Figure().add_subplot(111)
+    plotting.plot_temporal(ax, pr)
+    assert ax.get_ylabel() == "Power (a.u.)"
+    # with energy: SI-prefixed absolute power axis
+    pr_e = process_result(res, measured=trace, energy=100e-6)
+    ax_e = Figure().add_subplot(111)
+    plotting.plot_temporal(ax_e, pr_e)
+    assert ax_e.get_ylabel().startswith("Power (") and "W)" in ax_e.get_ylabel()
+    assert ax_e.get_ylabel() != "Power (a.u.)"
+
+
+def test_si_power_prefixes():
+    assert plotting.si_power(1.2e7) == (1e6, "MW")
+    assert plotting.si_power(2.0e12) == (1e12, "TW")
+    assert plotting.si_power(0.0) == (1.0, "W")  # unspecified falls back to W
+
+
+def test_resample_uniform_x_leaves_uniform_axis_unchanged():
+    x = np.linspace(200.0, 800.0, 64)
+    C = np.random.default_rng(0).random((10, 64))
+    xu, Cu = plotting._resample_uniform_x(x, C)
+    np.testing.assert_allclose(xu, x)
+    np.testing.assert_allclose(Cu, C)
+
+
+def test_resample_uniform_x_places_feature_at_true_wavelength():
+    """A λ axis from a uniform ω grid must not shift a feature's wavelength.
+
+    Regression for the simulated-trace preprocess panel painting a 260 nm signal
+    near 480 nm: imshow's linear extent assumes even spacing, so the strongly
+    non-uniform (ω-uniform) λ axis must be resampled first.
+    """
+    # uniform angular-frequency grid spanning 150–800 nm; descending ω gives an
+    # ascending (non-uniform) wavelength axis, as the simulated loader yields.
+    omega = np.linspace(wlfreq(150e-9), wlfreq(800e-9), 400)
+    lam_nm = wlfreq(omega) / 1e-9  # non-uniform, ascending (150 → 800 nm)
+    peak_nm = 260.0
+    row = np.exp(-0.5 * ((lam_nm - peak_nm) / 5.0) ** 2)  # narrow feature at 260 nm
+    C = np.tile(row, (8, 1))  # (ndelay, nlam)
+
+    xu, Cu = plotting._resample_uniform_x(lam_nm, C)
+    # on the uniform display axis the peak column maps linearly to its wavelength
+    j = int(np.argmax(Cu.sum(axis=0)))
+    wl = xu[0] + j / (xu.size - 1) * (xu[-1] - xu[0])
+    assert wl == pytest.approx(peak_nm, abs=3.0)
+    # the raw (non-uniform) axis would have mis-placed it far to the red
+    i = int(np.argmax(C.sum(axis=0)))
+    wl_raw = lam_nm[0] + i / (lam_nm.size - 1) * (lam_nm[-1] - lam_nm[0])
+    assert wl_raw > 400.0  # the bug being fixed
+
+
+def test_retrieval_annotations_carry_expected_precision(result_and_trace):
+    """The error is annotated to 2 dp (%) and GDD/TOD to 1 dp.
+
+    These read-outs are how a retrieval is judged by eye, so the digit counts are
+    part of the contract: 0.1% steps on the error hid genuine differences between
+    runs, and whole-fs² GDD hid the effect of small dispersion tweaks.
+    """
+    import re
+
+    res, trace = result_and_trace
+    fig = plotting.plot_retrieval(res, measured=trace, lam_min=700e-9, lam_max=950e-9)
+    texts = [t.get_text() for ax in fig.axes for t in ax.texts]
+
+    err = next(
+        t for t in texts if t.endswith(f"{res.trace.shape[0]}×{res.trace.shape[1]}")
+    )
+    assert re.fullmatch(r"-?\d+\.\d{2}%", err.splitlines()[0]), err
+
+    disp = next(t for t in texts if t.startswith("GDD:"))
+    gdd, tod = disp.splitlines()
+    assert re.fullmatch(r"GDD: -?\d+\.\d fs²", gdd), gdd
+    assert re.fullmatch(r"TOD: -?\d+\.\d fs³", tod), tod
+    fig.clf()
+
+
+def test_truth_overlay_legend_reports_its_fwhm(result_and_trace):
+    """The ground-truth overlay carries its FWHM, like the R and TL entries."""
+    import re
+
+    from croak.processing import TruthPulse
+
+    res, trace = result_and_trace
+    g = Grid(96, dt=0.5e-15)
+    truth = TruthPulse.from_spectrum(g, gaussian_pulse(g, 7e-15), float(wlfreq(800e-9)))
+    fig = plotting.plot_retrieval(
+        res, measured=trace, lam_min=700e-9, lam_max=950e-9, truth=truth
+    )
+    # panel "e" is the temporal one: it holds the R/TL curves and the truth overlay
+    labels = [
+        t.get_text()
+        for ax in fig.axes
+        if ax.get_legend() is not None
+        for t in ax.get_legend().get_texts()
+    ]
+    truth_label = next(t for t in labels if t.startswith("truth"))
+    # three significant digits (see plotting._FWHM_FMT)
+    assert re.fullmatch(r"truth \(\d+(\.\d+)? fs\)", truth_label), truth_label
+    # and it agrees with the truth's own FWHM
+    assert float(truth_label.split("(")[1].split()[0]) == pytest.approx(
+        truth.fwhm / 1e-15, abs=0.05
+    )
+    fig.clf()
+
+
+def test_truth_phase_lines_are_dotted_and_listed_in_both_legends(result_and_trace):
+    """Known temporal and spectral phases are visible and named in each panel."""
+    res, trace = result_and_trace
+    g = Grid(96, dt=0.5e-15)
+    truth = processing.TruthPulse.from_spectrum(
+        g,
+        gaussian_pulse(g, 7e-15, phases=[8e-30]),
+        float(wlfreq(800e-9)),
+    )
+    fig = plotting.plot_retrieval(
+        res, measured=trace, lam_min=700e-9, lam_max=950e-9, truth=truth
+    )
+    panels = [
+        ax for ax in fig.axes if ax.get_title() in {"Retrieved pulse", "Spectrum"}
+    ]
+    assert len(panels) == 2
+    for panel in panels:
+        labels = [text.get_text() for text in panel.get_legend().get_texts()]
+        assert "truth phase" in labels
+        phase_axis = next(
+            ax
+            for ax in fig.axes
+            if ax is not panel
+            and ax.get_position().bounds == pytest.approx(panel.get_position().bounds)
+            and any(line.get_label() == "truth phase" for line in ax.get_lines())
+        )
+        line = next(
+            line for line in phase_axis.get_lines() if line.get_label() == "truth phase"
+        )
+        assert line.get_linestyle() == ":"
+    fig.clf()
+
+
+def test_sig3_formats_three_significant_digits():
+    """Trailing zeros kept, no exponent — the read-outs must line up in a column."""
+    assert [plotting.sig3(v) for v in (9.512, 7.0, 0.85, 953.2, 1234.0)] == [
+        "9.51",
+        "7.00",
+        "0.850",
+        "953",
+        "1234",
+    ]
+    # _fs is the femtosecond wrapper the legends use; it must not drift from sig3
+    assert plotting._fs(9.512e-15) == plotting.sig3(9.512)
+    assert plotting.sig3(float("nan")) == "nan"
+
+
+def test_plot_retrieval_reuses_a_precomputed_processed_result(result_and_trace):
+    """Passing ``processed=`` skips the internal process_result entirely."""
+    res, trace = result_and_trace
+    pr = processing.process_result(res, measured=trace)
+
+    calls = []
+    real = plotting.process_result
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    plotting.process_result = counting
+    try:
+        fig = plotting.plot_retrieval(
+            res, measured=trace, lam_min=700e-9, lam_max=950e-9, processed=pr
+        )
+        assert not calls
+        assert len(fig.axes) >= 12
+        fig.clf()
+        # ...and it is still computed when not supplied
+        fig = plotting.plot_retrieval(
+            res, measured=trace, lam_min=700e-9, lam_max=950e-9
+        )
+        assert len(calls) == 1
+        fig.clf()
+    finally:
+        plotting.process_result = real
+
+
+def test_plot_retrieval_rejects_a_processed_result_from_another_retrieval(
+    result_and_trace,
+):
+    """Guards against drawing trace panels and pulse panels from different runs."""
+    res, trace = result_and_trace
+    other = processing.post_filter(res, lam_lims=(700e-9, 900e-9))
+    pr_other = processing.process_result(other, measured=trace)
+
+    with pytest.raises(ValueError, match="ProcessedResult of this result"):
+        plotting.plot_retrieval(res, measured=trace, processed=pr_other)
+
+
+def test_truth_overlay_uses_the_shared_peak_power(result_and_trace):
+    """The truth line's absolute scale comes from TruthPulse.peak_power."""
+    res, trace = result_and_trace
+    g = Grid(96, dt=0.5e-15)
+    truth = processing.TruthPulse.from_spectrum(
+        g, gaussian_pulse(g, 7e-15), float(wlfreq(800e-9))
+    )
+    energy = 2e-6
+    fig = plotting.plot_retrieval(
+        res,
+        measured=trace,
+        lam_min=700e-9,
+        lam_max=950e-9,
+        truth=truth,
+        energy=energy,
+    )
+    ax = next(a for a in fig.axes if a.get_title() == "Retrieved pulse")
+    line = next(ln for ln in ax.get_lines() if ln.get_label().startswith("truth"))
+    scale, _unit = plotting.si_power(
+        max(processing.process_result(res, measured=trace, energy=energy).peak_power, 0)
+    )
+    expected = truth.peak_power(energy) / scale
+    assert line.get_ydata().max() == pytest.approx(expected, rel=1e-9)
+    fig.clf()
+
+
+def test_filter_view_scale_ignores_out_of_band_negatives(experiment):
+    """A big out-of-band negative must not set the linear panels' positive scale.
+
+    Regression: the scale was ``max|·|`` over the three arrays, so an absolute
+    calibration curve amplifying background-subtracted noise outside the signal
+    band (measured: −5.7 at 1097 nm against a signal peak of +1) squashed every
+    linear panel's signal into the bottom 18 % of the colour range.
+    """
+    from dataclasses import replace as dc_replace
+
+    exp = experiment
+    td = preprocess.load_and_clean(
+        exp.trace,
+        exp.lam_nm * 1e-9,
+        exp.delay_fs * 1e-15,
+        exp.interaction,
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        lamm_lims=(exp.lam_min, exp.lam_max),
+        input_unit="delay",
+        filter_fringes=False,
+        dtau_min=None,
+    )
+    assert plotting.filter_view_vmax(td) == pytest.approx(1.0, rel=1e-9)
+
+    # plant a large negative outside lamm_lims, as the calibration curve does
+    meas = np.array(td.Ifrog_meas, dtype=float)
+    out_of_band = np.nonzero(td.lam_frog > exp.lam_max)[0]
+    assert out_of_band.size, "fixture must have rows outside the measurement window"
+    meas[out_of_band[-1], :] = -7.0
+    spoiled = dc_replace(td, Ifrog_meas=meas)
+
+    assert np.nanmax(np.abs(spoiled.Ifrog_meas)) == pytest.approx(7.0)
+    assert plotting.filter_view_vmax(spoiled) == pytest.approx(1.0, rel=1e-9)
+
+
+def test_filter_view_clims_follow_the_positive_scale(experiment):
+    """The linear panels take the positive scale; the dB row stays fixed."""
+    from matplotlib.figure import Figure
+
+    exp = experiment
+    td = preprocess.load_and_clean(
+        exp.trace,
+        exp.lam_nm * 1e-9,
+        exp.delay_fs * 1e-15,
+        exp.interaction,
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        input_unit="delay",
+        filter_fringes=False,
+        dtau_min=None,
+    )
+    view = plotting.FrogFilterView(tracedb=30.0)
+    view.attach(Figure())
+    view.update(td)
+    vmax = plotting.filter_view_vmax(td)
+    for key in ("c", "d", "f"):  # the linear row
+        for image in view.images[key]:
+            assert image.get_clim() == pytest.approx((0.0, vmax))
+    for key in ("a", "b", "e"):  # the dB row is on its own fixed scale
+        for image in view.images[key]:
+            assert image.get_clim() == pytest.approx((-30.0, 0.0))
+
+
+def test_filter_view_vmax_falls_back_when_nothing_is_positive():
+    """An all-negative trace still gets a usable, positive scale."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class _Stub:
+        Ifrog_meas: np.ndarray
+        Ifrog_filt: np.ndarray
+        trace: np.ndarray
+        lam_frog: np.ndarray
+        lamm_lims: tuple[float, float] | None
+
+    lam = np.linspace(200e-9, 400e-9, 8)
+    neg = -np.ones((8, 4))
+    stub = _Stub(neg, neg, neg, lam, None)
+    assert plotting.filter_view_vmax(stub) == pytest.approx(1.0)
+    stub_zero = _Stub(np.zeros((8, 4)), np.zeros((8, 4)), np.zeros((8, 4)), lam, None)
+    assert plotting.filter_view_vmax(stub_zero) == pytest.approx(1.0)
+
+
+def test_plot_convergence_marks_a_stage_handover():
+    """A spliced two-stage curve gets a rule where the algorithm changed.
+
+    ``warm-lbfgs`` counts COPRA iterations before the join and L-BFGS function
+    evaluations after it; unmarked, the kink there reads as convergence
+    behaviour rather than as a change of algorithm.
+    """
+    from matplotlib.figure import Figure
+
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    plotting.plot_convergence(ax, [0.5, 0.3, 0.2, 0.1, 0.05], boundaries=[3])
+    lines = [ln.get_xdata()[0] for ln in ax.lines if ln.get_linestyle() == "--"]
+    assert lines == [3.5]  # between the third and fourth points
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert "stage handover" in labels
+    fig.clf()
+
+
+def test_plot_convergence_ignores_out_of_range_boundaries():
+    """A boundary at or past the end of the log draws nothing (and no legend)."""
+    from matplotlib.figure import Figure
+
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    plotting.plot_convergence(ax, [0.5, 0.3], boundaries=[0, 2, 9])
+    assert not [ln for ln in ax.lines if ln.get_linestyle() == "--"]
+    assert ax.get_legend() is None
+    fig.clf()

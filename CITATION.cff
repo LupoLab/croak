@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: >-
+  If you use croak in published work, please cite the companion paper
+  (preferred-citation below). Cite this record for the software itself.
+type: software
+title: "croak: complete retrieval of ultrashort laser pulses from FROG traces"
+authors:
+  - family-names: Travers
+    given-names: John C.
+    # TODO: add orcid: "https://orcid.org/...."
+  - family-names: Brahms
+    given-names: Christian
+    # TODO: add orcid: "https://orcid.org/...."
+license: MIT
+repository-code: "https://github.com/LupoLab/croak"
+url: "https://croak.readthedocs.io"
+# TODO on Zenodo deposit: add
+# doi: 10.5281/zenodo.XXXXXXX
+preferred-citation:
+  type: article
+  title: "Extreme ultrashort pulse retrieval with differentiable physical forward models"
+  authors:
+    - family-names: Travers
+      given-names: John C.
+    - family-names: Brahms
+      given-names: Christian
+  year: 2026
+  # TODO on publication: add journal, volume, pages, doi
+  notes: "to be published"

@@ -1,0 +1,157 @@
+[project]
+name = "croak"
+version = "0.1.0"
+description = "Complete retrieval of ultrashort laser pulses from FROG traces — amplitude and phase, with dispersive media, geometric smearing and uncertainty"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "John Travers" }, { name = "Christian Brahms" }]
+keywords = [
+    "ultrafast",
+    "FROG",
+    "pulse-retrieval",
+    "pulse characterisation",
+    "frequency-resolved optical gating",
+    "transient grating",
+    "PNPS",
+    "ultrashort pulses",
+    "nonlinear optics",
+    "attosecond",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "finufft>=2.2",
+    "h5py>=3.16.0",
+    "jax>=0.10.1",
+    "lineax>=0.1.1",
+    "matplotlib>=3.10.9",
+    "nlopt>=2.10.0",
+    "numpy>=2.4.6",
+    "optimistix>=0.1.0",
+    "scipy>=1.17.1",
+    "tomli-w>=1.2.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+# The Qt wizard. Everything else — retrieval, preprocessing, processing,
+# uncertainty, plotting, the `croak` CLI — is headless, so compute nodes and
+# scripted pipelines install without Qt: `pip install croak` (or
+# `uv sync --no-dev`). The GUI needs `pip install "croak[gui]"`; launching
+# `croak-gui` without it raises a message saying exactly that.
+gui = ["pyqt6>=6.11.0", "superqt>=0.8.2"]
+# Browse arbitrary materials from refractiveindex.info in the dispersion tool.
+# Downloads the full database (~hundreds of MB) to ~/.refractiveindex.info-database
+# on first use.
+ridb = ["refractiveindex>=1.0.2"]
+# Global-search retriever (the 'cma-es' algorithm): CMA-ES / Sep-CMA-ES / DE.
+# JAX-native evolution strategies; reuses the existing jax install.
+evo = ["evosax>=0.2.0"]
+
+[project.scripts]
+croak = "croak.cli:main"
+
+# The wizard is a windowed app: gui-scripts stops Windows opening a console
+# window behind it (identical to scripts on macOS/Linux). The trade-off is that
+# Windows then has nowhere to write stdout/stderr, so a crash before the window
+# appears is silent there — `python -m croak.gui` is the way to see a traceback.
+[project.gui-scripts]
+croak-gui = "croak.gui:main"
+
+[project.urls]
+Homepage = "https://github.com/LupoLab/croak"
+Documentation = "https://croak.readthedocs.io"
+Repository = "https://github.com/LupoLab/croak"
+Issues = "https://github.com/LupoLab/croak/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# `packages = ["croak"]` already bundles every file under croak/ (including the
+# non-Python data files in croak/data/, e.g. the chirped-mirror reflectivity/GDD
+# tables and tabulated refractive-index CSVs ported from Luna.jl). Do not add a
+# force-include for croak/data here: it would re-add those files at the same
+# archive path and hatchling aborts with a duplicate-path error.
+packages = ["croak"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-qt>=4.5.0",
+    "pytest-cov>=6.0",
+    "ruff>=0.9",
+    "pyright>=1.1.390",
+    # The GUI extra's packages, spelled out: the dev environment always has Qt
+    # (the suite includes the GUI tests) even though the runtime dependency is
+    # optional. Keep in lockstep with [project.optional-dependencies] gui.
+    "pyqt6>=6.11.0",
+    "superqt>=0.8.2",
+]
+docs = [
+    "sphinx>=8.1",
+    "pydata-sphinx-theme>=0.16",
+    "myst-nb>=1.1",
+    "sphinx-copybutton>=0.5",
+    "sphinx-design>=0.6",
+    "ipykernel>=6.29",
+    # ipywidgets lets tqdm.auto render a rich progress bar in notebooks/docs
+    # (it falls back to a plain text bar when absent).
+    "ipywidgets>=8.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--cov=croak --cov-report=term-missing"
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (undefined names, unused imports)
+    "I",   # isort (import ordering)
+    "B",   # bugbear (common bug patterns)
+    "UP",  # pyupgrade (modernise syntax)
+    "D",   # pydocstyle (docstring conventions)
+    "S",   # bandit (security)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D"]      # bare asserts and docstrings not required in tests
+"examples/**" = ["D", "S"]
+"croak/gui/**" = ["D"]           # relax docstrings in GUI glue code
+"**/__init__.py" = ["F401"]     # re-exports
+
+[tool.pyright]
+include = ["croak"]
+pythonVersion = "3.14"
+typeCheckingMode = "basic"
+
+[tool.coverage.run]
+source = ["croak"]
+branch = true
+omit = ["croak/gui/*"]
+
+[tool.coverage.report]
+fail_under = 85
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]

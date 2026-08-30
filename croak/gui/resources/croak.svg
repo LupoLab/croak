@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>croak</title>
+  <!-- Application icon: a flat, front-facing toad on the wizard's header blue
+       (the package was called `toad` before release — see docs/reference/naming)
+       (#22324a, see croak/gui/wizard.py). Built only from rounded rectangles,
+       ellipses and circles with generous spacing, so it stays legible when the
+       Dock or taskbar renders it at 16 px. -->
+  <rect width="256" height="256" rx="56" fill="#22324a"/>
+
+  <!-- webbed feet, splayed either side of the body -->
+  <g fill="#4e9b3a">
+    <ellipse cx="52" cy="196" rx="30" ry="17" transform="rotate(-20 52 196)"/>
+    <ellipse cx="204" cy="196" rx="30" ry="17" transform="rotate(20 204 196)"/>
+  </g>
+
+  <!-- body -->
+  <ellipse cx="128" cy="162" rx="82" ry="58" fill="#7ec850"/>
+  <!-- pale belly, a simple highlight that survives downscaling -->
+  <ellipse cx="128" cy="182" rx="46" ry="28" fill="#a8e07a"/>
+
+  <!-- head, drawn as one dome merging into the body -->
+  <ellipse cx="128" cy="112" rx="66" ry="52" fill="#7ec850"/>
+
+  <!-- eyes: big, high-contrast, the feature that reads at small sizes -->
+  <g>
+    <circle cx="90" cy="82" r="30" fill="#7ec850"/>
+    <circle cx="166" cy="82" r="30" fill="#7ec850"/>
+    <circle cx="90" cy="80" r="20" fill="#ffffff"/>
+    <circle cx="166" cy="80" r="20" fill="#ffffff"/>
+    <circle cx="90" cy="80" r="10" fill="#22324a"/>
+    <circle cx="166" cy="80" r="10" fill="#22324a"/>
+  </g>
+
+  <!-- mouth -->
+  <path d="M 88 138 Q 128 166 168 138" fill="none" stroke="#22324a"
+        stroke-width="9" stroke-linecap="round"/>
+</svg>
