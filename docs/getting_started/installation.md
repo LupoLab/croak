@@ -1,14 +1,41 @@
 # Installation
 
-croak needs **Python ≥ 3.14**. The simplest route on macOS, Windows and Linux
-alike is [uv](https://docs.astral.sh/uv/), which will fetch that Python for you.
+croak is [on PyPI](https://pypi.org/project/croak/) and needs **Python ≥
+3.14**. The simplest route on macOS, Windows and Linux alike is
+[uv](https://docs.astral.sh/uv/), which will fetch that Python for you.
 
-## From a clone (recommended for now)
+## From PyPI (recommended)
+
+Into a uv project:
+
+```bash
+uv add croak
+```
+
+Into any existing environment (`uv pip install croak`), or with plain pip
+(`pip install croak`) — mind the Python-version admonition below. Add the GUI
+with the `gui` extra: `uv add "croak[gui]"`.
+
+To have the GUI as a standalone command without any project or environment of
+your own, install it as a uv tool:
+
+```bash
+uv tool install --python 3.14 "croak[gui]"
+croak-gui
+```
+
+(`uv tool upgrade croak` updates it later.) See
+[Installing the GUI](gui.md) for the GUI-only walkthrough.
+
+## From a clone (development and examples)
+
+The bundled examples — including the companion paper's validation datasets in
+`examples/data/` — ship with the repository, not the package, and developing
+croak needs the test suite. For either, install from a clone:
 
 ```bash
 git clone https://github.com/LupoLab/croak
 cd croak
-uv python install 3.14   # only if you do not already have it
 uv sync                  # create a virtualenv and install croak + dependencies
 uv run pytest            # (optional) run the test suite
 ```
@@ -19,6 +46,9 @@ runs with:
 ```bash
 uv run python my_retrieval.py
 ```
+
+Prefer a plain virtual environment? `python3.14 -m venv .venv`, activate it,
+then `pip install -e .`.
 
 ```{admonition} Python 3.14 is a hard requirement
 :class: important
@@ -67,20 +97,10 @@ on an NVIDIA H200, with identical results); install the matching JAX build
 yourself (for example `uv pip install "jax[cuda12]"`) — croak needs no changes
 to use it.
 
-## With pip
-
-If you prefer a plain virtual environment:
-
-```bash
-python3.14 -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e .
-```
-
 ## Dependencies
 
-The core install pulls in everything needed for retrieval, the workflow pipeline
-**and** the GUI:
+The core install pulls in everything needed for retrieval and the workflow
+pipeline; the GUI is an extra:
 
 | Purpose | Packages |
 |---------|----------|
@@ -88,19 +108,21 @@ The core install pulls in everything needed for retrieval, the workflow pipeline
 | Signal processing | `finufft` (non-uniform FFT for delay filtering) |
 | Data I/O | `h5py`, `tomli-w` |
 | Plotting & progress | `matplotlib`, `tqdm` |
-| GUI | `pyqt6`, `superqt` |
+| GUI (`croak[gui]` extra) | `pyqt6`, `superqt` |
 
 Importing `croak` does **not** import Qt — only `croak.gui` does. You can use the
 entire library headless.
 
 ## Optional features
 
-Two extras unlock optional functionality (neither is needed for core retrieval):
+Three extras unlock optional functionality (none is needed for core retrieval):
 
 ```bash
-uv sync --extra ridb    # refractiveindex.info material database
-uv sync --extra evo     # evosax — the CMA-ES global retriever
-# with pip:  pip install "croak[ridb,evo]"
+uv add "croak[gui]"     # the PyQt6 wizard
+uv add "croak[ridb]"    # refractiveindex.info material database
+uv add "croak[evo]"     # evosax — the CMA-ES global retriever
+# with pip:  pip install "croak[gui,ridb,evo]"
+# in a clone: uv sync --extra gui --extra ridb --extra evo
 ```
 
 - **`ridb`** ([`refractiveindex`](https://refractiveindex.info)) lets the

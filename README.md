@@ -5,13 +5,10 @@
 [![Docs](https://readthedocs.org/projects/croak/badge/?version=latest)](https://croak.readthedocs.io)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://github.com/microsoft/pyright)
-[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](pyproject.toml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-<!-- TODO once registered on PyPI:
 [![PyPI](https://img.shields.io/pypi/v/croak)](https://pypi.org/project/croak/)
-and replace the static Python badge with https://img.shields.io/pypi/pyversions/croak -->
-<!-- TODO once deposited on Zenodo:
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX) -->
+[![Python](https://img.shields.io/pypi/pyversions/croak)](https://pypi.org/project/croak/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![DOI](https://zenodo.org/badge/1351789227.svg)](https://doi.org/10.5281/zenodo.22182305)
 
 **Retrieval of ultrashort laser pulses from FROG traces — spectral amplitude
 and phase.**
@@ -60,13 +57,28 @@ done with croak.
 
 ## Install
 
-croak needs **Python ≥ 3.14**. The easiest route on every platform is
-[uv](https://docs.astral.sh/uv/), which installs the right Python for you:
+croak is [on PyPI](https://pypi.org/project/croak/) and needs **Python ≥ 3.14**.
+The easiest route on every platform is [uv](https://docs.astral.sh/uv/), which
+installs the right Python for you:
+
+```bash
+uv add croak                 # into a uv project
+```
+
+or into any environment of your own (`uv pip install croak`, or plain
+`pip install croak`). For the GUI as a standalone command, no project needed:
+
+```bash
+uv tool install --python 3.14 "croak[gui]"
+croak-gui
+```
+
+To work on croak itself — or to run the bundled examples, which ship with the
+repository rather than the package — install from a clone:
 
 ```bash
 git clone https://github.com/LupoLab/croak
 cd croak
-uv python install 3.14   # only if you do not already have it
 uv sync                  # create the environment and install croak
 uv run python -c "import croak; print(croak.__version__)"
 ```
@@ -113,15 +125,11 @@ Prefer plain pip? `python3.14 -m venv .venv && . .venv/bin/activate && pip insta
 
 </details>
 
-Two optional extras, neither needed for retrieval:
-
-```bash
-uv sync --extra ridb   # browse refractiveindex.info materials
-uv sync --extra evo    # the cma-es global solver
-```
-
-`ridb` downloads a database of a few hundred megabytes on first use. `evo`
-pulls in `evosax` and its `flax`/`optax` dependency tree.
+Optional extras: `croak[gui]` (the wizard), `croak[ridb]` (browse
+refractiveindex.info materials — a few hundred MB downloaded on first use) and
+`croak[evo]` (the cma-es global solver; pulls in `evosax` and its
+`flax`/`optax` dependency tree). In a clone the same extras are
+`uv sync --extra gui` etc.
 
 ## Quick start
 
@@ -242,7 +250,9 @@ uv run python examples/example_thickness_uncertainty.py  # fitted thickness & er
 
 The first examples synthesise their own data. The two `example_paper_*`
 scripts retrieve from reduced datasets of the companion paper's 3D instrument
-simulations, shipped in [`examples/data/`](examples/data/README.md).
+simulations, shipped in [`examples/data/`](examples/data/README.md). The
+examples and their data live in the repository, not in the PyPI package, so
+run them from a clone.
 
 ## Documentation
 
@@ -274,7 +284,10 @@ If you use croak in published work, please cite the companion paper:
 > J. C. Travers and C. Brahms, *Extreme ultrashort pulse retrieval with
 > differentiable physical forward models* (to be published).
 
-(BibTeX and DOI will be added on publication.)
+(BibTeX and DOI will be added on publication.) The software itself is archived
+on Zenodo — cite it via
+[doi:10.5281/zenodo.22182305](https://doi.org/10.5281/zenodo.22182305) (all
+versions) or see [CITATION.cff](CITATION.cff).
 
 ## Authors and licence
 

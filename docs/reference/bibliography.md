@@ -8,8 +8,10 @@ documentation are described in:
 > J. C. Travers and C. Brahms, *Extreme ultrashort pulse retrieval with
 > differentiable physical forward models* (to be published).
 
-Please cite it if you use croak in published work. See the project README for the
-current BibTeX entry and DOI.
+Please cite it if you use croak in published work. The software itself is
+archived on Zenodo: [doi:10.5281/zenodo.22182305](https://doi.org/10.5281/zenodo.22182305)
+(all versions; see the repository's `CITATION.cff`). See the project README for
+the paper's BibTeX entry and DOI once published.
 
 ## Foundational work
 

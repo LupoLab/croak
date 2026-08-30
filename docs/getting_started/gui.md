@@ -28,17 +28,15 @@ Or `brew install uv` on macOS. See the
 [uv install docs](https://docs.astral.sh/uv/getting-started/installation/) for
 other options.
 
-## 2. Get croak
+## 2. Install croak
 
 ```bash
-git clone https://github.com/LupoLab/croak
-cd croak
-uv sync --extra gui
+uv tool install --python 3.14 "croak[gui]"
 ```
 
-`uv sync` downloads the right Python (3.14) if you do not have it, creates an
-isolated environment, and installs croak with the Qt interface. No system
-Python is touched.
+uv downloads the right Python (3.14) if you do not have it, creates an
+isolated environment, installs croak with the Qt interface from PyPI, and puts
+the `croak-gui` command on your PATH. No system Python is touched.
 
 On **Linux**, Qt also needs a set of system libraries that no Python installer
 provides:
@@ -52,13 +50,14 @@ sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
 ## 3. Run it
 
 ```bash
-uv run croak-gui
+croak-gui
 ```
 
-That is the whole install. The command works from the `croak` directory (or
-anywhere, with `--project /path/to/croak`). If the window fails to appear on
-Windows, run `uv run python -m croak.gui` instead — the `croak-gui` entry
-point opens no console, so that variant is the one that shows a traceback.
+That is the whole install; the command works from anywhere. If the window
+fails to appear on Windows, run
+`uvx --python 3.14 --from "croak[gui]" python -m croak.gui` instead — the
+`croak-gui` entry point opens no console, so that variant is the one that
+shows a traceback.
 
 ```{image} ../_static/gui_retrieve.png
 :alt: The wizard after a retrieval — measured and retrieved traces, residuals, the retrieved pulse and spectrum, and a numeric read-out.
@@ -77,13 +76,17 @@ tooltip and every stage a help button.
 
 The [GUI guide](../howto/gui.md) documents each stage in detail. Sessions save
 to a TOML file that records every setting, so a retrieval can be re-run later
-— including headlessly with `uv run croak replay session.toml` — or exported
-as a standalone Python script with `uv run croak script session.toml`.
+— including headlessly with `croak replay session.toml` — or exported as a
+standalone Python script with `croak script session.toml` (the `croak` command
+is installed alongside `croak-gui`).
 
 ## Updating
 
 ```bash
-cd croak
-git pull
-uv sync --extra gui
+uv tool upgrade croak
 ```
+
+If you would rather run from a checkout of the source — for example to try the
+bundled examples too — clone the repository and use
+`uv sync --extra gui` then `uv run croak-gui` from the `croak` directory; see
+[Installation](installation.md).

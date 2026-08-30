@@ -26,8 +26,7 @@ keywords:
   - PNPS
   - ultrashort pulses
   - nonlinear optics
-# TODO on Zenodo deposit: add the concept DOI, e.g.
-# doi: 10.5281/zenodo.XXXXXXX
+doi: 10.5281/zenodo.22182305
 preferred-citation:
   type: article
   title: "Extreme ultrashort pulse retrieval with differentiable physical forward models"
