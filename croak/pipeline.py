@@ -148,6 +148,7 @@ def retrieve_from_tracedata(
     smearing: SmearingKernel | None = None,
     focal: FocalMixture | None = None,
     depth_weight=None,
+    depth_transverse: bool = False,
     reg_amp: float | None = None,
     reg_phase: float = 0.0,
     reg_spectrum: float | None = None,
@@ -269,6 +270,11 @@ def retrieve_from_tracedata(
         Complex generation-envelope weights, one per depth-quadrature node
         (``lbfgs-ad`` only): the transverse-geometry factor a 1D depth integral
         cannot see. See :func:`croak.forward_jax.make_param_trace_fn`.
+    depth_transverse : bool, optional
+        Model the transverse decoherence of the depth integral (``lbfgs-ad``
+        only): a parameter-free per-depth transverse phase inside the
+        collection transform. Requires ``focal`` with a ``collection`` and a
+        dispersive slab. See :func:`croak.forward_jax.make_param_trace_fn`.
     polish : bool, optional
         Two-phase polish for the extra parameters: retrieve the pulse with them
         fixed, then free them for a joint final phase.
@@ -337,6 +343,7 @@ def retrieve_from_tracedata(
         "smearing": smearing,
         "focal": focal,
         "depth_weight": depth_weight,
+        "depth_transverse": depth_transverse,
         "omega0": omega0,
         "phase_only": not full,
         "phase_basis": phase_basis,
@@ -389,6 +396,14 @@ def retrieve_from_tracedata(
         raise ValueError(
             f"algorithm {algo!r} cannot model a generation envelope; use one of "
             f"{', '.join(supported)}"
+        )
+    if depth_transverse and "depth_transverse" not in accepted:
+        supported = sorted(
+            n for n in ALGORITHMS if "depth_transverse" in algorithm_params(n)
+        )
+        raise ValueError(
+            f"algorithm {algo!r} cannot model the depth integral's transverse "
+            f"decoherence; use one of {', '.join(supported)}"
         )
     kwargs = {k: v for k, v in candidate.items() if k in accepted}
     solver = ALGORITHMS[algo](**kwargs)

@@ -96,7 +96,11 @@ from depth (diffraction, Gouy phase, walk-through), so this model is *too* coher
 increasingly so the thicker the slab. Measured at the known truth against the reference
 3-D traces, it improves the residual by up to 24-30 % at 2-9.5 um and over-corrects
 beyond about 20 um. Prefer it for thin slabs; see
-``docs/howto/collection_aperture.md`` for the depth table.
+``docs/howto/collection_aperture.md`` for the depth table. The leading missing term —
+the per-depth transverse phase ``[k_z(w, k_perp) - k_z(w, 0)](L - z)`` — has an
+optional parameter-free model: ``depth_transverse=True`` on
+:func:`croak.forward_jax.make_param_trace_fn` moves the depth sum inside the aperture
+transform with that phase applied per depth node (same how-to for usage and caveats).
 
 Regime
 ------

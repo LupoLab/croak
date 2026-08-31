@@ -6,6 +6,27 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Depth-resolved transverse dephasing in the collected focal model**
+  (`depth_transverse=True` on `croak.forward_jax.make_param_trace_fn`, forwarded
+  by `lbfgs-ad` and `retrieve_from_tracedata`; other solvers refuse it loudly).
+  croak's depth quadrature adds the signal generated at every depth with the
+  same transverse phase — fully coherently in transverse wavevector — which is
+  what makes the collection model over-correct on thick slabs. The flag applies
+  the missing per-depth phase `[k_z(w, k_perp) - k_z(w, 0)](L - z_q)` at each
+  aperture node's absolute wavevector *inside* the collection transform, before
+  the coherent depth sum (full square-root `k_z`, full Sellmeier `n(w)`;
+  parameter-free). Off (the default) is bit-identical to the previous model.
+  Validated against a per-depth dense 2-D FFT reference with the exact
+  `k_z(w, k_perp)`: agreement improves 25–91× to 1.4–5.7e-5 of peak, and a
+  flipped sign would be worse than no correction — the sign is test-pinned.
+  Requires `focal` with a `collection` and a dispersive slab; full collection is
+  representable as a window much wider than the signal footprint. Costs ≈2.5×
+  the collected trace at 10 depth nodes (one aperture contraction per node), at
+  unchanged memory. See "Where it stops being right" in
+  `docs/howto/collection_aperture.md`.
+
 ### Changed
 
 - **The settled regularisation weights are now the library-wide defaults.**

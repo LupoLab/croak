@@ -173,7 +173,8 @@ collection model built on a fully coherent depth sum is therefore **too coherent
 increasingly so the thicker the slab.
 
 That is measurable. At the known truth on the reference 3-D traces, with the residual
-quoted against the reduced kernel at scale 1 (no fitted parameter on either side):
+quoted against the reduced kernel at scale 1 (no fitted parameter on either side, and
+`depth_transverse` — below — **off**):
 
 | slab thickness | 1 µm | 2 µm | 4 µm | 9.5 µm | 20 µm | 40 µm |
 |---|---|---|---|---|---|---|
@@ -190,6 +191,66 @@ the data prefer 0.75–0.90 (a narrower blur), after it 1.10–1.20 (a wider one
 9.5 µm experimental substrate — and expect it to over-correct beyond that. The
 crossover is not a property of the aperture; it is the depth integral's missing
 transverse decoherence, and it will move with the beam geometry.
+
+### `depth_transverse`: modelling the missing decoherence
+
+The leading part of that missing physics now has an optional, **parameter-free** model.
+Signal generated at depth $z$ accumulates, over the remaining slab, the transverse
+phase the on-axis propagator $e^{i\beta(L-z)}$ leaves out,
+
+$$
+\phi_j(\omega, z) \;=\; \bigl[k_z(\omega, k_{\perp j}) - k_z(\omega, 0)\bigr](L - z),
+\qquad k_z = \sqrt{(n\omega/c)^2 - k_\perp^2},
+$$
+
+evaluated at each aperture node's **absolute** transverse wavevector
+$k_{\perp j} = \omega\rho_j/(c\,z_{\text{mask}})$ (mask positions with the hole centre
+folded in — the quadratic $k_z$ is *not* invariant under the carrier removal, and the
+remainder is physical). At the reference instrument's signal k-extent this reaches
+~0.07 rad across a 40 µm slab — small, but it sits inside a coherent sum. The flag
+moves the depth sum *inside* the collection transform, each depth carrying
+$e^{i\phi_j(\omega,z_q)}$ before the coherent sum over depth:
+
+```python
+fn = make_param_trace_fn(
+    omega, delays, "pg",
+    material="SiO2", thickness=40e-6, npoints=10, omega0=omega0,
+    focal=mixture,            # must carry a collection aperture
+    depth_transverse=True,
+)
+```
+
+The same keyword is accepted by {class}`~croak.lbfgs_ad.LBFGSAD` (and therefore by
+`retrieve(..., algorithm="lbfgs-ad", depth_transverse=True, ...)`); solvers that cannot
+model it refuse loudly. Notes:
+
+* **Requires** `focal` with a `collection` and a dispersive slab. For a
+  *full-collection* variant there is deliberately no separate path: use an
+  `"integrated"` window much wider than the signal footprint (a large chromatic hole,
+  or a `chromatic=False` window covering the whole k grid — with the flag off that
+  route reproduces `collection=None` exactly, by Parseval).
+* **v1 caveats.** The full $k_z$ square root is used (no paraxial expansion) with the
+  full Sellmeier $n(\omega)$; the input beams still propagate on-axis (only the
+  generated signal's exit propagation is corrected), and the arm filters are not
+  walked with depth (an amplitude effect bounded ≲1 % over 40 µm; `TODO(depth)` in the
+  source).
+* **Cost.** One aperture contraction per depth node instead of one total: ≈2.5× the
+  collected trace at production shape (K = 96, J = 144, 256 frequencies, 230 delays,
+  Q = 10 depth nodes; 0.61 s against 0.24 s per evaluation on an M-series CPU).
+  Memory is unchanged — the per-depth transform is accumulated, never materialised.
+* **Validation.** The dense 2-D FFT reference test was extended with per-depth exact
+  $k_z(\omega,k_\perp)$ propagation
+  (`test_matches_a_dense_fourier_reference_with_depth`): the flag improves agreement
+  with the exact reference by 25–91× (to 1.4–5.7×10⁻⁵ of peak), while a *flipped*
+  sign would be worse than no correction at all — the sign is test-pinned, not
+  argued. With a single depth node the phase is a per-node constant: `"integrated"`
+  is provably unchanged (a unit-modulus factor dies in $|\tilde S_j|^2$) while
+  `"reimaged"` shifts — asserted in `tests/test_depth_transverse.py`, pinning where
+  the phase sits relative to the modulus.
+
+Whether this closes the measured over-correction above is a question for the 3-D
+reference traces, not for internal validation; the table above is the flag-off
+baseline it will be judged against.
 
 ## Only PG (TG), for now
 
@@ -213,5 +274,9 @@ Two properties are worth asserting on your own geometry, and both are in
   return the incoherent sum exactly. Getting the $1/(2\pi)^2$ or the area weights wrong
   shows up here and nowhere else.
 * **A dense 2-D FFT.** Building the focal field from the arm tilts directly, taking a
-  plain transverse FFT and windowing it in k reproduces the quadrature model to 3e-7 of
-  peak with no fitted scale.
+  plain transverse FFT and windowing it in k reproduces the quadrature model with no
+  fitted scale (asserted at 2e-3 of peak at the default test resolution; the 3e-7
+  figure quoted elsewhere is the mixture-quadrature convergence at `n_azimuth=16`,
+  a different check). The per-depth variant of the same reference — exact
+  $k_z(\omega,k_\perp)$ propagation of every depth node's signal to the slab exit —
+  validates `depth_transverse` to 1.4–5.7e-5 of peak and pins its sign.

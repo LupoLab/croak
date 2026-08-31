@@ -101,6 +101,14 @@ class LBFGSAD(Retriever):
         phase -- as a smooth per-depth factor on the generated signal; needed
         only when the slab is not much thinner than the beams' Rayleigh range.
         See :func:`croak.forward_jax.make_param_trace_fn`.
+    depth_transverse : bool, optional
+        Model the transverse decoherence of the depth integral (default
+        ``False``): each depth node's signal carries its own transverse phase
+        :math:`[k_z(\omega,k_\perp)-k_z(\omega,0)](L-z_q)` at the collection
+        aperture's wavevectors before the coherent depth sum. Parameter-free.
+        Requires ``focal`` with a ``collection`` and a dispersive slab. See
+        :func:`croak.forward_jax.make_param_trace_fn` and
+        :doc:`/howto/collection_aperture`.
     phase_only : bool, optional
         Retrieve only the spectral phase, holding the guess amplitude fixed.
     phase_basis : {"pointwise", "bspline"}, optional
@@ -207,6 +215,7 @@ class LBFGSAD(Retriever):
         smearing: SmearingKernel | None = None,
         focal: FocalMixture | None = None,
         depth_weight=None,
+        depth_transverse: bool = False,
         phase_only: bool = False,
         phase_basis: str = "pointwise",
         n_nodes: int = 20,
@@ -240,6 +249,7 @@ class LBFGSAD(Retriever):
         self.smearing = smearing
         self.focal = focal
         self.depth_weight = depth_weight
+        self.depth_transverse = bool(depth_transverse)
         self.phase_only = bool(phase_only)
         self.phase_basis = str(phase_basis)
         self.n_nodes = int(n_nodes)
@@ -278,6 +288,7 @@ class LBFGSAD(Retriever):
             quadrature=self.quadrature,
             smearing=self.smearing,
             focal=self.focal,
+            depth_transverse=self.depth_transverse,
             fit_thickness=self.fit_thickness,
             fit_tau0=self.fit_tau0,
             fit_smearing=self.fit_smearing,

@@ -46,10 +46,14 @@ import numpy as np  # noqa: E402 - must follow the x64 update above
 from numpy.typing import ArrayLike, NDArray  # noqa: E402 - see the x64 note above
 
 from . import materials  # noqa: E402 - binds jax.numpy; see the x64 note above
-from .collection import transform_phases  # noqa: E402 - see the x64 note above
+from .collection import (  # noqa: E402 - see the x64 note above
+    CollectionAperture,
+    transform_phases,
+)
 from .focal import FocalMixture  # noqa: E402 - see the x64 note above
 from .forward import quadrature_nodes_weights  # noqa: E402 - see the x64 note above
 from .interactions import get_interaction  # noqa: E402 - see the x64 note above
+from .maths import wlfreq  # noqa: E402 - see the x64 note above
 from .smearing import (  # noqa: E402 - see the x64 note above
     SmearingKernel,
     delay_frequency_grid,
@@ -64,6 +68,8 @@ __all__ = [
 ]
 
 Complex = NDArray[np.complex128]
+
+_C_LIGHT = 299_792_458.0
 
 #: Nonlinear-interaction *signal* maps, in JAX. AD (in :class:`~croak.lbfgs_ad.LBFGSAD`
 #: and :class:`~croak.lm.LM`) supplies the adjoint, but the hand-gradient retriever
@@ -420,6 +426,78 @@ def make_trace_fn(
     return trace
 
 
+def _depth_phase_rate(
+    aperture: CollectionAperture,
+    material: str,
+    omega_abs: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    r"""Transverse dephasing rate :math:`g_j(\omega)` of the depth integral, in rad/m.
+
+    Signal generated at depth :math:`z` and collected at aperture node :math:`j`
+    accumulates, over the remaining slab :math:`L-z`, the transverse phase the
+    on-axis propagator :math:`e^{i\beta(L-z)}` leaves out:
+
+    .. math:: g_j(\omega)\,(L - z), \qquad
+              g_j(\omega) = k_z(\omega, k_{\perp j}) - k_z(\omega, 0), \qquad
+              k_z = \sqrt{(n\omega/c)^2 - k_\perp^2}.
+
+    The full :math:`k_z` difference is used (no paraxial expansion — it costs
+    nothing here) via the cancellation-safe rearrangement
+    :math:`g = -k_\perp^2 / (k_{z0} + \sqrt{k_{z0}^2 - k_\perp^2})`: the naive
+    subtraction loses ~4 digits at the reference geometry where
+    :math:`k_\perp/k_{z0}\sim 10^{-2}`. Any :math:`k_\perp`-independent gauge on
+    the on-axis propagation constant (the :math:`-\beta_1\omega` moving-frame term
+    of :func:`croak.materials.beta`) cancels in the difference, so none is applied.
+
+    The node wavevector is the **absolute** transverse wavevector: a chromatic
+    hole's node at mask position :math:`(x_j, y_j)` selects
+    :math:`k_{\perp j} = \omega\,\rho_j/(c\,z_{\text{mask}})` with
+    :math:`\rho_j = \sqrt{x_j^2+y_j^2}` (positions are stored absolute, hole
+    centre folded in); a fixed k window's nodes are wavevectors already. The
+    carrier-removed frame is deliberately *not* used — the quadratic
+    :math:`k_z` is not invariant under the carrier shift, and the difference (a
+    pointing/delay term plus a node-common constant) is physical. The sign
+    convention (``e^{+i beta z}`` propagator, so ``g < 0``) is pinned by the
+    dense-FFT reference test in ``tests/test_collection.py``, not argued here.
+
+    Parameters
+    ----------
+    aperture : CollectionAperture
+        The collection aperture whose nodes define :math:`k_{\perp j}`.
+    material : str
+        Slab material name for :func:`croak.materials.refractive_index`.
+    omega_abs : ndarray, shape (Nomega,)
+        **Absolute** angular frequencies (rad/s), in the centred order the
+        collection transform uses.
+
+    Returns
+    -------
+    ndarray, shape (J, Nomega)
+        :math:`g_j(\omega) \le 0` in rad/m. Bins where the material model is
+        invalid (non-finite :math:`n`, non-positive frequency) or the node is
+        evanescent (:math:`k_\perp \ge n\omega/c`) are zeroed — they carry no
+        propagating signal, but a NaN would poison the coherent sums, the same
+        policy as :func:`croak.materials.beta`.
+    """
+    rho = np.hypot(
+        np.asarray(aperture.x, dtype=float), np.asarray(aperture.y, dtype=float)
+    )
+    omega_abs = np.asarray(omega_abs, dtype=float)
+    if aperture.chromatic:
+        # A mask position x selects k = (w/c) x / z_mask (see croak.collection).
+        kperp = omega_abs[None, :] * rho[:, None] / (_C_LIGHT * aperture.z_mask)
+    else:
+        # A fixed k window's nodes are already transverse wavevectors (rad/m).
+        kperp = np.repeat(rho[:, None], omega_abs.size, axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        n = materials.refractive_index(material)(wlfreq(omega_abs))
+        kz0 = n * omega_abs / _C_LIGHT
+        kz_sq = kz0**2 - kperp**2
+        g = -(kperp**2) / (kz0 + np.sqrt(np.maximum(kz_sq, 0.0)))
+    g[~np.isfinite(g) | (kz_sq <= 0.0) | (omega_abs[None, :] <= 0.0)] = 0.0
+    return np.ascontiguousarray(g)
+
+
 def make_param_trace_fn(
     omega: ArrayLike,
     delays: ArrayLike,
@@ -434,6 +512,7 @@ def make_param_trace_fn(
     quadrature: str = "gausslegendre",
     smearing: SmearingKernel | None = None,
     focal: FocalMixture | None = None,
+    depth_transverse: bool = False,
     fit_thickness: bool = False,
     fit_tau0: bool = False,
     fit_smearing: bool = False,
@@ -505,6 +584,30 @@ def make_param_trace_fn(
         slab rather than staying fixed in absolute :math:`z`). ``None`` (default)
         is the uniform-generation model. Negligible for slabs much thinner than
         the beams' Rayleigh range.
+    depth_transverse : bool, optional
+        Model the transverse decoherence of the depth integral. croak's depth
+        quadrature normally adds the signal generated at every depth with the
+        *same* transverse phase — fully coherently in transverse wavevector.
+        Real propagation dephases the angular spectrum: signal born at depth
+        :math:`z_q` accumulates, over the remaining slab, the extra phase
+
+        .. math:: \phi_{jq}(\omega) =
+                  \bigl[k_z(\omega, k_{\perp j}) - k_z(\omega, 0)\bigr]\,
+                  (L - z_q),
+
+        applied per aperture node :math:`j` *inside* the collection transform,
+        before the coherent depth sum (see :func:`_depth_phase_rate` for
+        :math:`k_{\perp j}` and the exact :math:`k_z` used). Parameter-free and
+        opt-in; the default ``False`` leaves the existing model bit-identical.
+        Requires ``focal`` with a ``collection`` and a dispersive slab. For a
+        full-collection variant use a collection window much wider than the
+        signal footprint (a large chromatic hole, or a wide ``chromatic=False``
+        k window) — there is deliberately no separate path. Costs one
+        aperture-transform contraction per depth node instead of one total;
+        with ``depth_weight`` and ``depth_node_phase`` it composes (both keep
+        their existing meaning). See
+        ``docs/howto/collection_aperture.md`` for when the missing physics
+        matters (it grows with slab thickness).
     other parameters
         As :func:`make_trace_fn`.
 
@@ -577,6 +680,33 @@ def make_param_trace_fn(
                 f"(shape ({npoints},)), got {dw_np.shape}"
             )
         dw = jnp.asarray(dw_np)
+
+    # Per-depth transverse dephasing (depth_transverse): validate up front and
+    # build the static dephasing rate g_j(w) here, where the narrowing guards
+    # keep `focal`, its collection and `material` provably non-None. The rate is
+    # geometry only — the runtime thickness enters later, via depth_remaining.
+    g_dt = None
+    if depth_transverse:
+        if focal is None or focal.collection is None:
+            raise ValueError(
+                "depth_transverse requires a `focal` mixture carrying a "
+                "`collection` aperture: the per-depth transverse phase acts on "
+                "the aperture nodes' wavevectors. For the full-collection "
+                "variant use a collection window much wider than the signal "
+                "footprint (a large chromatic hole, or a wide chromatic=False "
+                "k window) instead of collection=None"
+            )
+        if material is None or thickness <= 0.0:
+            raise ValueError(
+                "depth_transverse requires a dispersive slab (material set and "
+                "thickness > 0): the phase accumulates over the remaining "
+                "slab (L - z_q)"
+            )
+        g_dt = _depth_phase_rate(
+            focal.collection,
+            material,
+            np.asarray(omega, dtype=float) + float(omega0),
+        )
     omega = np.asarray(omega, dtype=float)
     beta_bin_np = np.fft.ifftshift(materials.beta(material, omega, omega0))
     omega_bin = jnp.asarray(np.fft.ifftshift(omega))
@@ -597,6 +727,10 @@ def make_param_trace_fn(
             signal_prop = jnp.exp(1j * beta_bin[:, None] * (thk - nodes)[None, :])
             weights = thk * w_hat
             return input_prop, signal_prop, weights if dw is None else weights * dw
+
+        def depth_remaining(thk: jnp.ndarray | float) -> jnp.ndarray:
+            """Remaining slab ``L - z_q`` per depth node, differentiable in ``L``."""
+            return thk * (1.0 - xi)
     else:
         # Thickness held fixed: bake the propagation matrices once, exactly as the
         # standard forward model (handles the thin single-node case).
@@ -608,9 +742,14 @@ def make_param_trace_fn(
             np.exp(1j * np.outer(beta_bin_np, float(thickness) - nodes0))
         )
         weights_c = jnp.asarray(weights0) if dw is None else jnp.asarray(weights0) * dw
+        remaining_c = jnp.asarray(float(thickness) - np.asarray(nodes0))
 
         def props(thk: jnp.ndarray | float):
             return input_prop_c, signal_prop_c, weights_c
+
+        def depth_remaining(thk: jnp.ndarray | float) -> jnp.ndarray:
+            """Remaining slab ``L - z_q`` per depth node (thickness held fixed)."""
+            return remaining_c
 
     def signal(ew, tau, thickness_v, tau0_v):
         ew_bin = jnp.fft.ifftshift(ew)
@@ -683,6 +822,93 @@ def make_param_trace_fn(
             )
             weight_sq = jnp.asarray(phases.weight_sq)
             weight_amp = jnp.asarray(phases.weight_amp)
+
+            # --- per-depth transverse dephasing (depth_transverse) --------------
+            # The standard path sums the depth quadrature inside signal_focal and
+            # transforms ONCE; here the depth sum moves INSIDE the transform, each
+            # depth's contribution carrying exp(i g_j(w) (L - z_q)) at aperture
+            # node j before the coherent sum over q. The mode reduction (|.|^2)
+            # happens strictly AFTER that sum — that is the physics: the phase is
+            # invisible to a single depth's modulus but decoheres the depth stack.
+            # This branch leaves the flag-off path above byte-for-byte untouched
+            # (the off = bit-identical contract in tests/test_depth_transverse.py).
+            if depth_transverse:
+                g_jw = jnp.asarray(g_dt)  # (J, Nomega), centred order
+
+                def signal_focal_at(ew, tau, thickness_v, tau0_v, k, iq):
+                    """One focal node's signal from depth node ``iq`` alone.
+
+                    Identical to ``signal_focal`` below but for a single depth
+                    node — no depth sum, quadrature weight folded in. Total FFT
+                    work over the scan equals the batched (N, Q) FFTs of the
+                    standard path.
+                    """
+                    # TODO(depth): walked per-arm filters A_j(|r_k - d_j(z_q)|, w)
+                    # — the beamlet centroids walk ~ -z r_j/(f n_g) inside the
+                    # slab (~0.7% weight modulation at 40 um). Amplitude-only and
+                    # bounded small; deliberately not modelled (Feature B of the
+                    # depth-decoherence brief).
+                    ew_bin = jnp.fft.ifftshift(ew * filt[k])
+                    input_prop, signal_prop, weights = props(thickness_v)
+                    in_q = input_prop[:, iq]
+                    fixed_shift, varying_base = inter.smeared_shifts(
+                        tau - tau0_v - theta_k[k]
+                    )
+                    fixed = jnp.fft.fft(
+                        ew_bin * jnp.exp(1j * omega_bin * fixed_shift) * in_q
+                    )
+                    lo = jnp.fft.fft(
+                        ew_bin
+                        * jnp.exp(1j * omega_bin * (varying_base - 0.5 * p_k[k]))
+                        * in_q
+                    )
+                    hi = jnp.fft.fft(
+                        ew_bin
+                        * jnp.exp(1j * omega_bin * (varying_base + 0.5 * p_k[k]))
+                        * in_q
+                    )
+                    sig = focal_map(fixed, lo, hi)
+                    psi = jnp.fft.ifft(sig) * signal_prop[:, iq]
+                    w_q = weights[iq] if dnp is None else weights[iq] * dnp[k, iq]
+                    return jnp.fft.fftshift(psi * w_q)
+
+                reimaged = collect.mode == "reimaged"
+
+                def trace(ew, thickness_v, tau0_v, smear_scale=1.0):
+                    rem = depth_remaining(thickness_v)  # (Q,)
+                    # (Q, J, Nomega): unit-modulus, so it redistributes coherence
+                    # rather than energy. Runtime because rem is differentiable
+                    # in L under fit_thickness (constant-folded otherwise).
+                    phase = jnp.exp(1j * g_jw[None, :, :] * rem[:, None, None])
+
+                    def step(acc, iq):
+                        # (Ndelay, K, Nomega) for this depth alone: contract k
+                        # first, then phase-and-accumulate — the (D, K, Q, N)
+                        # intermediate is never materialised (the memory trap).
+                        psis = jax.vmap(
+                            lambda tau: jax.vmap(
+                                lambda k: signal_focal_at(
+                                    ew, tau, thickness_v, tau0_v, k, iq
+                                )
+                            )(jnp.arange(p_k.size))
+                        )(delays_j)
+                        s_j = jnp.einsum("jkw,dkw->djw", m_jkw, psis)
+                        return acc + phase[iq][None, :, :] * s_j, None
+
+                    acc0 = jnp.zeros(
+                        (delays_j.size, weight_sq.shape[0], omega_bin.size),
+                        dtype=complex,
+                    )
+                    s, _ = jax.lax.scan(step, acc0, jnp.arange(npoints))
+                    if reimaged:
+                        t = jnp.abs(jnp.einsum("djw,jw->dw", s, weight_amp)).T ** 2
+                    else:
+                        t = jnp.einsum("djw,jw->dw", jnp.abs(s) ** 2, weight_sq).T
+                    if normalize:
+                        t = t / jnp.max(t)
+                    return t
+
+                return trace
 
         if collect is None:
 

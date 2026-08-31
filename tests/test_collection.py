@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from croak import materials
 from croak.collection import (
     CollectionAperture,
     aperture_offset,
@@ -21,7 +22,9 @@ from croak.collection import (
     transform_phases,
 )
 from croak.focal import _ARMS_PG, airy_amplitude, focal_mixture, mixture_from_nodes
+from croak.forward import quadrature_nodes_weights
 from croak.forward_jax import make_param_trace_fn
+from croak.maths import wlfreq
 
 C_LIGHT = 299_792_458.0
 
@@ -83,18 +86,49 @@ def _trace(mix, omega, delays, ew, normalize=True):
     return np.asarray(fn(ew, 0.0, 0.0), dtype=float)
 
 
-def _dense_reference(ew, omega, delays, *, n_grid=48, dr=4.5e-6, pad=3, mode):
+def _dense_reference(
+    ew,
+    omega,
+    delays,
+    *,
+    n_grid=48,
+    dr=4.5e-6,
+    pad=3,
+    mode,
+    material=None,
+    thickness=0.0,
+    npoints=1,
+):
     """Apertured trace from a dense Cartesian focal grid and a plain 2-D FFT.
 
     Independent of :mod:`croak.collection`: the three arm fields are built at each
     focal position from their own arrival offsets ``r_j . r / (f c)``, with the shift
     phase taken against the **absolute** frequency so each arm carries its physical
     carrier, and the product is transformed, windowed and summed directly.
+
+    With ``material`` set, the slab's depth integral is carried explicitly on the
+    SAME Gauss-Legendre nodes as the production model (so depth-quadrature error
+    cancels in the comparison): the input propagates on-axis to each node exactly
+    as the model's ``input_prop``, while each depth's signal propagates to the slab
+    exit with the EXACT ``k_z(w, k) = sqrt((n w/c)^2 - k^2)`` on the dense k grid —
+    a plain sqrt, sharing no code with ``croak.forward_jax._depth_phase_rate``.
+    This is the reference that pins the sign of the ``depth_transverse`` correction
+    and its absolute-wavevector convention.
     """
     omega = np.asarray(omega, dtype=float)
     omega_abs = omega + OMEGA0
     omega_bin = np.fft.ifftshift(omega)
-    ew_bin = np.fft.ifftshift(np.asarray(ew, dtype=complex))
+    ew_bin0 = np.fft.ifftshift(np.asarray(ew, dtype=complex))
+
+    if material is None:
+        nodes, weights = np.array([0.0]), np.array([1.0])
+        beta = np.zeros_like(omega)
+    else:
+        nodes, weights = quadrature_nodes_weights(
+            float(thickness), npoints, "gausslegendre"
+        )
+        beta = materials.beta(material, omega, OMEGA0)
+    beta_bin = np.fft.ifftshift(beta)
 
     axis = (np.arange(n_grid) - n_grid // 2) * dr
     gx, gy = np.meshgrid(axis, axis, indexing="ij")
@@ -111,29 +145,56 @@ def _dense_reference(ew, omega, delays, *, n_grid=48, dr=4.5e-6, pad=3, mode):
     alpha = np.array(_ARMS_PG) * ARM_OFFSET / (F_FOC * C_LIGHT)
     dt = np.array([a[0] * rx + a[1] * ry for a in alpha])
 
-    def arm(shift):
+    def arm(shift, ew_bin):
         phase = np.exp(1j * (omega_bin + OMEGA0)[None, :] * shift[:, None])
         return np.fft.fft(ew_bin[None, :] * filt_bin * phase, axis=1)
 
-    psis = np.empty((len(delays), rx.size, omega.size), dtype=complex)
-    for i, tau in enumerate(delays):
-        a1, a2, a3 = arm(dt[0]), arm(tau + dt[1]), arm(tau + dt[2])
-        psis[i] = np.fft.fftshift(np.fft.ifft(a1 * a2 * np.conj(a3), axis=1), axes=1)
-
     n_pad = pad * n_grid
     lo = (n_pad - n_grid) // 2
-    field = np.zeros((len(delays), n_pad, n_pad, omega.size), dtype=complex)
-    field[:, lo : lo + n_grid, lo : lo + n_grid, :] = psis.reshape(
-        len(delays), n_grid, n_grid, omega.size
-    )
-    sk = (
-        np.fft.fftshift(
-            np.fft.fft2(np.fft.ifftshift(field, axes=(1, 2)), axes=(1, 2)), axes=(1, 2)
-        )
-        * dr**2
-    )
     kax = np.fft.fftshift(np.fft.fftfreq(n_pad, d=dr)) * 2.0 * np.pi
     kxg, kyg = np.meshgrid(kax, kax, indexing="ij")
+
+    if material is not None:
+        # Exact transverse dephasing on the dense k grid: k_z(w, k) - k_z(w, 0)
+        # by plain subtraction (the ~4 lost digits are irrelevant at phase
+        # magnitudes of order 0.1 rad). Evanescent corners are clamped to
+        # k_z = 0; they lie far outside the signal footprint.
+        n_w = materials.refractive_index(material)(wlfreq(omega_abs))
+        kz0 = n_w * omega_abs / C_LIGHT
+        krad2 = (kxg**2 + kyg**2)[:, :, None]
+        g_exact = np.sqrt(np.maximum(kz0[None, None, :] ** 2 - krad2, 0.0)) - kz0
+
+    sk = np.zeros((len(delays), n_pad, n_pad, omega.size), dtype=complex)
+    for z_q, w_q in zip(nodes, weights, strict=True):
+        ew_bin = ew_bin0 * np.exp(1j * beta_bin * z_q)
+        psis = np.empty((len(delays), rx.size, omega.size), dtype=complex)
+        for i, tau in enumerate(delays):
+            a1 = arm(dt[0], ew_bin)
+            a2 = arm(tau + dt[1], ew_bin)
+            a3 = arm(tau + dt[2], ew_bin)
+            psis[i] = np.fft.fftshift(
+                np.fft.ifft(a1 * a2 * np.conj(a3), axis=1), axes=1
+            )
+
+        field = np.zeros((len(delays), n_pad, n_pad, omega.size), dtype=complex)
+        field[:, lo : lo + n_grid, lo : lo + n_grid, :] = psis.reshape(
+            len(delays), n_grid, n_grid, omega.size
+        )
+        sk_q = (
+            np.fft.fftshift(
+                np.fft.fft2(np.fft.ifftshift(field, axes=(1, 2)), axes=(1, 2)),
+                axes=(1, 2),
+            )
+            * dr**2
+        )
+        if material is not None:
+            # Exit propagation over the remaining slab with the exact k_z: the
+            # model's on-axis e^{i beta (L - z_q)} times the transverse part.
+            sk_q *= np.exp(
+                1j * (beta[None, None, :] + g_exact) * (float(thickness) - z_q)
+            )
+        sk += w_q * sk_q
+
     # A wavevector maps to the mask-plane position x = k z c / w (ModelPNPS.makemask).
     scale = Z_MASK * C_LIGHT / omega_abs
     radius = np.hypot(
@@ -319,6 +380,41 @@ def test_matches_a_dense_fourier_reference(mode):
     )
     assert got.max() / ref.max() == pytest.approx(1.0, rel=2e-2)
     assert np.sqrt(np.mean((got - ref) ** 2)) / ref.max() < 2e-3
+
+
+@pytest.mark.parametrize("mode", ["integrated", "reimaged"])
+def test_matches_a_dense_fourier_reference_with_depth(mode):
+    """``depth_transverse`` reproduces a per-depth dense FFT with the exact k_z.
+
+    The reference propagates each depth node's signal to the slab exit with the
+    full ``k_z(w, k) = sqrt((n w/c)^2 - k^2)`` on the dense k grid and sums the
+    depths coherently before windowing, so agreement at the same grade as the
+    thin-medium reference settles, beyond argument: the SIGN of the correction
+    under croak's ``e^{+i beta z}`` propagator, the choice of the ABSOLUTE
+    transverse wavevector (not the carrier-removed kappa), and that the phase
+    sits inside the coherent depth sum. The flag-off model disagrees with the
+    same reference by a clear factor more — the sign pin: a flipped sign would
+    roughly double the flag-off error instead of removing it. The slab is
+    thicker than the physical 40 um purely to lift the depth-phase effect well
+    above the transverse-quadrature floor.
+    """
+    omega, delays, ew = _grid(n=48, n_delay=3)
+    slab = dict(material="SiO2", thickness=120e-6, npoints=6)
+    ref = _dense_reference(ew, omega, delays, mode=mode, **slab)
+    mix = _mixture(mode=mode, r_max_units=4.0)
+    common = dict(omega0=OMEGA0, focal=mix, normalize=False, **slab)
+    fn_on = make_param_trace_fn(omega, delays, "pg", depth_transverse=True, **common)
+    fn_off = make_param_trace_fn(omega, delays, "pg", **common)
+    got_on = np.asarray(fn_on(ew, slab["thickness"], 0.0), dtype=float)
+    got_off = np.asarray(fn_off(ew, slab["thickness"], 0.0), dtype=float)
+    err_on = np.sqrt(np.mean((got_on - ref) ** 2)) / ref.max()
+    err_off = np.sqrt(np.mean((got_off - ref) ** 2)) / ref.max()
+    assert got_on.max() / ref.max() == pytest.approx(1.0, rel=2e-2)
+    # Measured: err_on = 1.4e-5 / 5.7e-5 (integrated / reimaged) against
+    # err_off = 1.2e-3 / 1.4e-3 — a 25-91x improvement; the FLIPPED sign lands
+    # at 2.8e-3 / 3.1e-3, WORSE than no correction. Asserted with ~10x headroom.
+    assert err_on < 5e-4
+    assert err_on < 0.25 * err_off
 
 
 def test_collection_none_is_the_incoherent_sum():

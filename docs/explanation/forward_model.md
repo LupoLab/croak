@@ -226,7 +226,9 @@ wider kernels.)
 The kernel multiplies the depth quadrature rather than coupling to it: the
 pulse-front tilts are fixed before the medium, and the longitudinal walk-off inside
 a thin slab is far below a femtosecond, so the same $(p,\delta)$ applies at every
-depth node. Because the quadrature nodes are exactly antisymmetric, each shifted
+depth node. (The depth-independence of the *transverse phase* is a separate
+approximation, and exactly the one the collected model's `depth_transverse` flag
+relaxes — see the subsection below.) Because the quadrature nodes are exactly antisymmetric, each shifted
 field is built once and used twice, and the cost is about $(K+1)/2$ times the
 unsmeared model — roughly 3× at the default $K=5$ nodes. The $\delta$ integral is
 free: it is a multiplication of the delay-axis DFT by the analytic Gaussian
@@ -288,6 +290,33 @@ $3(\omega/c)(D/2)/f$. For the example DUV geometry that is 6.04e4 against 3.63e5
 six times narrower — and the incoherent sum is then an upper bound on the blur rather
 than an estimate of it. See
 [Modelling the collection aperture](../howto/collection_aperture.md).
+
+### Depth-resolved transverse dephasing (`depth_transverse`)
+
+One assumption survives even the collected model: every depth node of
+{eq}`dispersive` is added with the *same* transverse phase — fully coherently in
+transverse wavevector. Real propagation dephases the angular spectrum. Signal
+generated at depth $z$ accumulates, over the remaining slab, the extra phase
+
+$$
+\phi(\omega, k_\perp, z)
+  = \bigl[k_z(\omega, k_\perp) - k_z(\omega, 0)\bigr](L - z)
+  \;\approx\; -\frac{c\,k_\perp^2\,(L - z)}{2\,n(\omega)\,\omega},
+\qquad k_z = \sqrt{(n\omega/c)^2 - k_\perp^2},
+$$
+
+relative to the on-axis propagation the model already applies — depth-accumulating,
+quadratic in $k_\perp$, and chromatic ($\sim 1/\omega$, red-weighted). The
+`depth_transverse` flag of {func}`~croak.forward_jax.make_param_trace_fn` applies it
+inside the collection transform: the depth sum moves *inside* the aperture
+integral, each depth node's transformed field carrying $e^{i\phi_j(\omega,z_q)}$ at
+the aperture node's absolute wavevector before the coherent sum over depth. It is
+the k-*dependent* sibling of the generation envelope above: `depth_weight`
+carries the k-independent per-depth amplitude factor $g(z)$, `depth_transverse`
+the k-dependent per-depth phase, and the two compose. Parameter-free, opt-in, and
+validated (sign included) against a per-depth dense-FFT reference with the exact
+$k_z$ — see [the collection how-to](../howto/collection_aperture.md) for usage,
+cost and caveats.
 
 ## The model hierarchy, and when each member applies
 
