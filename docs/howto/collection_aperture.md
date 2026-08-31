@@ -290,6 +290,12 @@ conventions. Notes:
   per-depth filters slot into the existing $(N, Q)$ multiply; new cost is a
   seconds-level numpy build of the $(3, K, Q, N)$ filter table at model
   construction (~10–50 MB at production shapes).
+* **Measured verdict.** On the 3-D reference traces the evolved-filter
+  construction produces essentially no gate-vs-probe advance (+0.001 fs where
+  −0.19 fs is required, matching the analytic walk-channel estimate): the
+  measured advance is NOT separable into per-node evolved filters, so fc-z is
+  a validated upper bound on that channel rather than a repair of the
+  at-truth residual. The internal validation below is unaffected.
 * **Validation** (`tests/test_fcz.py`, in order): a zero-evolution table is
   bit-identical to the entrance filter and reduces the trace at machine precision;
   the evolved profile matches an independent plane-wave-superposition propagator to
