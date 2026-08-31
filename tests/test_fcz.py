@@ -279,3 +279,47 @@ def test_fcz_quadrature_convergence():
     a = _trace(coarse, omega, delays, ew)
     b = _trace(dense, omega, delays, ew)
     assert np.sqrt(np.mean((a / a.max() - b / b.max()) ** 2)) < 1e-3
+
+
+def test_fcz_composes_with_depth_transverse():
+    """fc-z sources under the depth_transverse exit phase: runs, finite, acts.
+
+    The R21(b) loophole measurement (exit phase composed on evolved sources)
+    rides on this code path — the evolved per-arm filter slices inside the
+    per-depth scan branch — so it is pinned here: the combination evaluates,
+    is finite, and the exit phase changes the trace of the evolved model.
+    """
+    from croak.collection import mask_hole_aperture
+
+    ap = mask_hole_aperture(
+        hole_x=-1.0e-3,
+        hole_y=-1.0e-3,
+        hole_diameter=0.5e-3,
+        z_mask=0.1,
+        apod_param=96.9e-6,
+    )
+    omega, delays, ew = _grid(n=32, n_delay=2)
+    mix = focal_mixture(
+        **GEOM,
+        n_radial=8,
+        n_azimuth=6,
+        r_max_units=3.0,
+        collection=ap,
+        evolve_profiles=True,
+        **SLAB,
+    )
+    fn = make_param_trace_fn(
+        omega,
+        delays,
+        "pg",
+        omega0=OMEGA0,
+        focal=mix,
+        depth_transverse=True,
+        **SLAB,
+    )
+    t = np.asarray(fn(ew, SLAB["thickness"], 0.0), float)
+    assert np.all(np.isfinite(t))
+    assert t.max() > 0
+    fn0 = make_param_trace_fn(omega, delays, "pg", omega0=OMEGA0, focal=mix, **SLAB)
+    t0 = np.asarray(fn0(ew, SLAB["thickness"], 0.0), float)
+    assert not np.array_equal(t, t0)
