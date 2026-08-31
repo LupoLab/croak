@@ -1,9 +1,14 @@
-# Documentation build requirements (e.g. for Read the Docs).
-# Installs croak itself plus the Sphinx toolchain.
--e ..
+# Sphinx toolchain for the documentation build (e.g. on Read the Docs).
+# croak itself is installed separately (.readthedocs.yaml python.install);
+# keep this file toolchain-only — pip resolves relative paths in requirements
+# files against the working directory, so a "-e .." line here breaks anywhere
+# but inside docs/.
 sphinx>=8.1
 pydata-sphinx-theme>=0.16
 myst-nb>=1.1
 sphinx-copybutton>=0.5
 sphinx-design>=0.6
 ipykernel>=6.29
+# tqdm.auto renders a rich progress bar in the executed tutorials when
+# ipywidgets is present (it falls back to a plain text bar without it).
+ipywidgets>=8.1

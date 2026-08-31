@@ -17,4 +17,9 @@ sphinx:
 
 python:
   install:
+    # The package itself, installed by explicit path — NOT via a relative
+    # "-e" line in the requirements file, whose paths pip resolves against
+    # the working directory rather than the file.
+    - method: pip
+      path: .
     - requirements: docs/requirements.txt
