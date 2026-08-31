@@ -22,9 +22,10 @@ paper_rdw.png
 # local agent state
 .claude/
 
-# documentation build artifacts
+# documentation build artifacts. docs/.jupyter_cache is NOT ignored: the
+# executed-tutorial cache is committed so Read the Docs never re-executes
+# unchanged tutorials (see docs/conf.py).
 docs/_build/
-.jupyter_cache/
 *.ipynb_checkpoints/
 
 # tool caches

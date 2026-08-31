@@ -88,6 +88,7 @@ Furthermore, ensure all added functionality is documented both in docstrings *an
 - All functionality of this package must be described in the user manual under the docs/ folder. This should include background explanations and context, how the functionality works, and examples
 - When adding functionality, always add documentation.
 - When working on something that does not appear to be documented, check this and add appropriate documentation.
+- The tutorials under `docs/tutorials/` are executed notebooks whose results are cached in `docs/.jupyter_cache`, which is **committed** so Read the Docs never re-executes unchanged tutorials (its builders are too slow for the solver tutorials; see `docs/conf.py`). Whenever you edit a tutorial — or change croak behaviour that alters a tutorial's output — rebuild the docs locally (`uv run sphinx-build -b html docs docs/_build/html`) and commit the refreshed `docs/.jupyter_cache` together with the change. The build must succeed with no warnings; a forgotten cache refresh does not break Read the Docs (it re-executes the stale tutorial itself), it just makes its builds slow.
 
 ## Git
 

@@ -8,6 +8,8 @@ Build locally with::
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import croak
 
 # -- Project information -----------------------------------------------------
@@ -31,7 +33,15 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "**.ipynb_checkpoints", "Thumbs.db", ".DS_Store"]
+exclude_patterns = [
+    "_build",
+    # The committed execution cache holds .ipynb files Sphinx must not treat
+    # as source documents.
+    ".jupyter_cache",
+    "**.ipynb_checkpoints",
+    "Thumbs.db",
+    ".DS_Store",
+]
 
 # -- MyST / MyST-NB ----------------------------------------------------------
 myst_enable_extensions = [
@@ -46,10 +56,17 @@ myst_enable_extensions = [
 ]
 myst_heading_anchors = 3
 
-# Execute the tutorial notebooks at build time (cached). A failing cell fails
-# the build, so the docs can never drift from the code.
-nb_execution_mode = "auto"
-nb_execution_timeout = 600
+# Execute the tutorial notebooks at build time, against a cache committed to
+# the repository (docs/.jupyter_cache). A failing cell fails the build, so the
+# docs can never drift from the code — but an unchanged tutorial is never
+# re-executed, which is what lets Read the Docs build in minutes: its shared
+# builders run the heavy solver tutorials several times slower than a laptop
+# (the solver-comparison cell alone exceeded a 600 s limit there). Editing a
+# tutorial invalidates just its cache entry; rebuild locally and commit the
+# refreshed cache alongside the edit.
+nb_execution_mode = "cache"
+nb_execution_cache_path = str(Path(__file__).parent / ".jupyter_cache")
+nb_execution_timeout = 1800
 nb_execution_raise_on_error = True
 nb_merge_streams = True
 
