@@ -18,7 +18,10 @@ The phase the incoherent sum throws away
 Write the arrival-time offset of arm :math:`j` at focal position :math:`\mathbf r` as
 :math:`\delta t_j=\boldsymbol\alpha_j\cdot\mathbf r` with
 :math:`\boldsymbol\alpha_j=\mathbf r_j/(fc)`, as
-:func:`croak.focal.focal_mixture` already does. The exact PG signal there is
+:func:`croak.focal.focal_mixture` already does (the opposite overall sign to
+:mod:`croak.smearing` — a pure point inversion of the focal plane, unobservable
+for the centred circular aperture modelled here; see
+:func:`croak.focal._arm_offsets` for the full statement). The exact PG signal there is
 
 .. math:: S(t,\mathbf r) = E(t-\delta t_1)\,E(t-\tau-\delta t_2)\,
           E^*(t-\tau-\delta t_3)\,A^3(r,\omega),

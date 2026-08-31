@@ -205,7 +205,7 @@ oppositely. For the standard folded square BOXCARS with holes at $(\pm d,\pm d)$
 
 | interaction | $\sigma_p$ | $\sigma_\delta$ | $\rho$ |
 |---|---|---|---|
-| `"pg"` (delay on an unconjugated arm) | $0.49135\,(d/D)\,\lambda/c$ | $0.54933\,(d/D)\,\lambda/c$ | $1/\sqrt5$ |
+| `"pg"` (delay on the gate pair) | $0.49135\,(d/D)\,\lambda/c$ | $0.54933\,(d/D)\,\lambda/c$ | $1/\sqrt5$ |
 | `"sd"` (delay on the conjugated arm) | $0.69487\,(d/D)\,\lambda/c$ | $0.34743\,(d/D)\,\lambda/c$ | $0$ |
 
 so the **only** physical lever is the mask ratio $d/D$ (and the wavelength). The

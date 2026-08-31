@@ -52,8 +52,11 @@ Two constructors build one:
 
 - {func}`~croak.smearing.square_boxcars_kernel` — the standard folded square with
   four holes at $(\pm d,\pm d)$, $d = (\text{spacing} + D)/2$. This is the usual
-  case, and the arm assignment follows from the interaction: `"pg"` puts the
-  scanned delay on an unconjugated arm, `"sd"` on the conjugated one.
+  case, and the arm assignment follows from the interaction: for `"pg"` the
+  scanned delay rides the **gate pair** — croak's operator convention
+  $E(t)\,|E(t-\tau)|^2$ delays both gate arms together (an instrument that
+  delays the probe instead is equivalent up to a reversal of the delay axis);
+  `"sd"` puts it on the conjugated arm.
 - {func}`~croak.smearing.kernel_from_arms` — fully general, for any three mask hole
   positions. Give them in the interaction's **role order**: `(probe, gate
   unconjugated, gate conjugated)` for PG, `(unconjugated A, unconjugated B,
@@ -70,7 +73,7 @@ the scanned delay**, and they are not interchangeable:
 | Interaction | Delay on | $\sigma_p\,/\,(d/D)(\lambda/c)$ | $\sigma_\delta\,/\,(d/D)(\lambda/c)$ | $\rho$ |
 |---|---|---|---|---|
 | `"sd"` | conjugated arm | 0.69487 | 0.34743 | 0 |
-| `"pg"` | unconjugated arm (the usual TG-FROG case) | 0.49135 | 0.54934 | $1/\sqrt5$ |
+| `"pg"` | the gate pair (the usual TG-FROG case) | 0.49135 | 0.54934 | $1/\sqrt5$ |
 
 So the convenient SD relations — $\sigma_p = 2\sigma_\delta$ with the two
 uncorrelated — do **not** carry over to PG: there the pair is correlated and

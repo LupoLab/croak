@@ -572,3 +572,35 @@ def test_aperture_from_scan_needs_a_recorded_window(simulated_scan_h5):
     assert read_simulated_mask_window(simulated_scan_h5) is None
     with pytest.raises(KeyError, match="cannot be rebuilt"):
         aperture_from_scan(simulated_scan_h5)
+
+
+def test_global_tilt_sign_is_unobservable_for_a_centred_aperture():
+    """Negating every pulse-front tilt is a point inversion of the focal plane.
+
+    ``croak.smearing`` defines ``alpha_j = -r_j/(fc)`` while ``croak.focal``
+    computes ``+r_j/(fc)``; the difference flips ``(p_k, theta_k)`` jointly,
+    which maps the collection model onto one with the aperture reflected
+    through the phase-matched signal direction. For a circularly symmetric
+    hole centred on that direction (the physical case) the collected trace is
+    identical — the documented reason the two modules may differ in overall
+    sign. An off-centre aperture breaks the symmetry, so there the sign is
+    physics, not bookkeeping. See ``croak.focal._arm_offsets``.
+    """
+    from dataclasses import replace
+
+    omega, delays, ew = _grid()
+    # A chirped pulse: a transform-limited gate makes the p channel inert (its
+    # sign flip would pass trivially), so give the test teeth with 3 fs^2 GDD.
+    ew = ew * np.exp(0.5j * 3e-30 * omega**2)
+
+    centred = _mixture(mode="integrated")
+    flipped = replace(centred, p=-centred.p, theta=-centred.theta)
+    t0 = _trace(centred, omega, delays, ew)
+    t1 = _trace(flipped, omega, delays, ew)
+    np.testing.assert_allclose(t1, t0, atol=1e-9 * t0.max())
+
+    off = _mixture(mode="integrated", hole_x=-ARM_OFFSET + 2e-4)
+    off_flipped = replace(off, p=-off.p, theta=-off.theta)
+    d0 = _trace(off, omega, delays, ew)
+    d1 = _trace(off_flipped, omega, delays, ew)
+    assert np.max(np.abs(d1 - d0)) > 1e-4 * d0.max()

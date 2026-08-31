@@ -330,6 +330,27 @@ def _arm_offsets(
     the PG combinations are ``p = (alpha_3 - alpha_2).r`` and ``theta = (alpha_1 -
     (alpha_2 + alpha_3)/2).r``, as in :mod:`croak.smearing`. Shared so that a polar and
     a Cartesian node set cannot disagree about the sign of either.
+
+    Sign convention: this is the OPPOSITE overall sign to
+    :mod:`croak.smearing`'s ``alpha_j = -x_j / (f c)`` (the physically correct
+    one: a beamlet from mask position ``x_j`` crosses the focus travelling
+    along ``-x_j/f``, so its pulse front arrives at ``r`` earlier by
+    ``(x_j . r)/(f c)``). Negating every tilt is a point inversion of the
+    focal plane — it flips ``p_k`` and ``theta_k`` jointly — which is
+    unobservable everywhere croak uses them: the reduced kernel keeps its
+    widths and correlation (second moments are even), and the mixture's
+    incoherent sums are unchanged because the quadrature node set is
+    inversion-symmetric and the ``A(r, omega)`` filters and areas are even in
+    ``r``. For the *collection* path the inversion maps the model onto one
+    with the aperture reflected through the phase-matched signal direction —
+    still unobservable for a circularly symmetric hole centred on that
+    direction (the physical case; ``aperture_offset()`` measures the
+    centring), but NOT for an off-centre aperture. Two rules follow: the sign
+    must stay consistent between this module and :mod:`croak.collection`
+    (``transform_phases`` assumes one convention linking ``p_k`` to the
+    aperture ramp — ``tests/test_collection.py`` asserts the symmetry), and a
+    deliberately off-centre collection model would promote this convention
+    from bookkeeping to physics.
     """
     alpha = arms / (f_foc * _C_LIGHT)
     dot = lambda a: a[0] * rx + a[1] * ry  # noqa: E731 - one dot product, used twice

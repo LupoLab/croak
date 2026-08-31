@@ -319,7 +319,10 @@ def _pd_vectors(
     The tilt coefficients are :math:`\alpha_j=-\mathbf r_j/(fc)`, so every combination
     below carries the same overall factor :math:`-1/(fc)`; dropping it changes neither
     the magnitudes (which are rescaled by ``sigma_r``) nor the correlation (which only
-    sees the *relative* orientation).
+    sees the *relative* orientation). (:func:`croak.focal._arm_offsets` uses the
+    opposite overall sign, ``+r_j/(fc)``; see its docstring for why the global
+    sign is unobservable — and the one place, an off-centre collection
+    aperture, where it would not be.)
     """
     inter = get_interaction(interaction)
     a = np.asarray(r1, dtype=float)
