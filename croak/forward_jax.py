@@ -50,7 +50,10 @@ from .collection import (  # noqa: E402 - see the x64 note above
     CollectionAperture,
     transform_phases,
 )
-from .focal import FocalMixture  # noqa: E402 - see the x64 note above
+from .focal import (  # noqa: E402 - see the x64 note above
+    FocalMixture,
+    evolved_arm_filters,
+)
 from .forward import quadrature_nodes_weights  # noqa: E402 - see the x64 note above
 from .interactions import get_interaction  # noqa: E402 - see the x64 note above
 from .maths import wlfreq  # noqa: E402 - see the x64 note above
@@ -569,6 +572,16 @@ def make_param_trace_fn(
         instead of summed incoherently — the difference between an instrument that
         collects the whole signal beam and one that collects it through a hole. PG
         (TG) only; see :mod:`croak.collection`.
+
+        If the mixture carries an ``evolve`` spec (fc-z,
+        :func:`croak.focal.evolved_arm_filters`), each of the three arms at each
+        depth node applies its own linearly evolved complex profile at the
+        arm's walked radius, in place of the single shared entrance-face
+        filter. The spec's slab parameters must match this function's
+        ``material``/``thickness``/``npoints``/``quadrature`` (verified; the
+        filters must sit on the same depth nodes as the propagation phases).
+        PG only; ``fit_thickness`` unsupported in v1. Cost is ~fc: the depth
+        axis is already batched, only the build-time table is new.
     fit_smearing : bool, optional
         Make the trace differentiable in the smearing scale. Marker only, for the
         same reason as ``fit_tau0``; it does require ``smearing`` to be set.
@@ -707,6 +720,36 @@ def make_param_trace_fn(
             material,
             np.asarray(omega, dtype=float) + float(omega0),
         )
+    # Depth-resolved mixture (fc-z): the mixture's EvolveSpec must agree with
+    # THIS trace map about the slab — the per-arm filter table is built on the
+    # same quadrature_nodes_weights depths as input_prop, and a silent
+    # mismatch would be a wrong model with no error message.
+    if focal is not None and focal.evolve is not None:
+        ev = focal.evolve
+        if inter.name != "pg":
+            raise ValueError(
+                "evolved profiles (fc-z) are derived for PG (TG) only: the "
+                "walked-filter arm order and conjugation follow the PG BOXCARS "
+                "layout"
+            )
+        if fit_thickness:
+            raise ValueError(
+                "evolved profiles (fc-z) do not support fit_thickness yet: the "
+                "filter table is baked on the fixed-thickness depth nodes"
+            )
+        if (
+            material != ev.material
+            or float(thickness) != ev.thickness
+            or int(npoints) != ev.npoints
+            or quadrature != ev.quadrature
+        ):
+            raise ValueError(
+                f"the mixture's EvolveSpec ({ev.material!r}, {ev.thickness} m, "
+                f"{ev.npoints} nodes, {ev.quadrature!r}) must match the trace "
+                f"map's slab arguments ({material!r}, {float(thickness)} m, "
+                f"{int(npoints)} nodes, {quadrature!r}): the per-depth filters "
+                f"must sit on the same depth nodes as the propagation phases"
+            )
     omega = np.asarray(omega, dtype=float)
     beta_bin_np = np.fft.ifftshift(materials.beta(material, omega, omega0))
     omega_bin = jnp.asarray(np.fft.ifftshift(omega))
@@ -789,6 +832,23 @@ def make_param_trace_fn(
         theta_k = jnp.asarray(focal.theta)
         area_k = jnp.asarray(focal.area)
 
+        # --- depth-resolved mixture (fc-z) -----------------------------------
+        # Per-arm, per-depth complex filters from linearly propagated beamlet
+        # profiles (croak.focal.evolved_arm_filters): a static numpy build like
+        # materials.beta, on exactly the depth nodes input_prop propagates on
+        # (validated above). Stored in DFT-bin frequency order as (3, K, N, Q)
+        # so each arm's slice multiplies the same (N, Q) batch the standard
+        # path FFTs — the FFT count is unchanged, which is why fc-z costs ~fc.
+        # Note the deliberate physics: these filters do NOT commute with the
+        # depth propagator any more — that non-commutation is the feature.
+        arm_filt_bin = None
+        if focal.evolve is not None:
+            arm_filt_bin = jnp.asarray(
+                np.fft.ifftshift(
+                    evolved_arm_filters(focal, omega, float(omega0)), axes=3
+                ).transpose(0, 1, 3, 2)
+            )
+
         # --- finite collection aperture --------------------------------------------
         # Summing |psi|^2 over focal position is exact ONLY under full-beam collection
         # (Parseval). Through an aperture the signal must be transformed to transverse
@@ -841,29 +901,33 @@ def make_param_trace_fn(
                     Identical to ``signal_focal`` below but for a single depth
                     node — no depth sum, quadrature weight folded in. Total FFT
                     work over the scan equals the batched (N, Q) FFTs of the
-                    standard path.
+                    standard path. With fc-z (``arm_filt_bin``) each replica
+                    carries its own evolved per-arm, per-depth profile slice —
+                    the depth_transverse exit phase and the fc-z entrance-side
+                    evolution compose orthogonally.
                     """
-                    # TODO(depth): walked per-arm filters A_j(|r_k - d_j(z_q)|, w)
-                    # — the beamlet centroids walk ~ -z r_j/(f n_g) inside the
-                    # slab (~0.7% weight modulation at 40 um). Amplitude-only and
-                    # bounded small; deliberately not modelled (Feature B of the
-                    # depth-decoherence brief).
-                    ew_bin = jnp.fft.ifftshift(ew * filt[k])
                     input_prop, signal_prop, weights = props(thickness_v)
                     in_q = input_prop[:, iq]
                     fixed_shift, varying_base = inter.smeared_shifts(
                         tau - tau0_v - theta_k[k]
                     )
+                    if arm_filt_bin is None:
+                        e0 = e1 = e2 = jnp.fft.ifftshift(ew * filt[k])
+                    else:
+                        ew_bin = jnp.fft.ifftshift(ew)
+                        e0 = ew_bin * arm_filt_bin[0, k, :, iq]
+                        e1 = ew_bin * arm_filt_bin[1, k, :, iq]
+                        e2 = ew_bin * arm_filt_bin[2, k, :, iq]
                     fixed = jnp.fft.fft(
-                        ew_bin * jnp.exp(1j * omega_bin * fixed_shift) * in_q
+                        e0 * jnp.exp(1j * omega_bin * fixed_shift) * in_q
                     )
                     lo = jnp.fft.fft(
-                        ew_bin
+                        e1
                         * jnp.exp(1j * omega_bin * (varying_base - 0.5 * p_k[k]))
                         * in_q
                     )
                     hi = jnp.fft.fft(
-                        ew_bin
+                        e2
                         * jnp.exp(1j * omega_bin * (varying_base + 0.5 * p_k[k]))
                         * in_q
                     )
@@ -931,28 +995,37 @@ def make_param_trace_fn(
                 return jnp.einsum("djw,jw->dw", jnp.abs(s) ** 2, weight_sq).T
 
         def signal_focal(ew, tau, thickness_v, tau0_v, k):
-            # The node's chromatic filter multiplies the field ONCE; the three-replica
-            # product then carries A^3, so |psi|^2 carries |A|^6 automatically.
-            ew_k = ew * filt[k]
-            ew_bin = jnp.fft.ifftshift(ew_k)
             input_prop, signal_prop, weights = props(thickness_v)
             # theta translates the delay axis for this node.
             fixed_shift, varying_base = inter.smeared_shifts(tau - tau0_v - theta_k[k])
+            if arm_filt_bin is None:
+                # The node's chromatic filter multiplies the field ONCE; the
+                # three-replica product then carries A^3, so |psi|^2 carries
+                # |A|^6 automatically. (N, 1): broadcasts over the depth axis.
+                e0 = e1 = e2 = jnp.fft.ifftshift(ew * filt[k])[:, None]
+            else:
+                # fc-z: each replica carries its own evolved (N, Q) profile —
+                # per arm AND per depth, at the arm's walked radius. The
+                # conjugated gate's filter rides the `hi` replica, which
+                # focal_map conjugates, so conj(A_3) lands on the signal
+                # exactly as E_1 E_2 E_3^* requires.
+                ew_bin = jnp.fft.ifftshift(ew)[:, None]
+                e0 = ew_bin * arm_filt_bin[0, k]
+                e1 = ew_bin * arm_filt_bin[1, k]
+                e2 = ew_bin * arm_filt_bin[2, k]
             fixed = jnp.fft.fft(
-                (ew_bin * jnp.exp(1j * omega_bin * fixed_shift))[:, None] * input_prop,
+                e0 * jnp.exp(1j * omega_bin * fixed_shift)[:, None] * input_prop,
                 axis=0,
             )
             lo = jnp.fft.fft(
-                (ew_bin * jnp.exp(1j * omega_bin * (varying_base - 0.5 * p_k[k])))[
-                    :, None
-                ]
+                e1
+                * jnp.exp(1j * omega_bin * (varying_base - 0.5 * p_k[k]))[:, None]
                 * input_prop,
                 axis=0,
             )
             hi = jnp.fft.fft(
-                (ew_bin * jnp.exp(1j * omega_bin * (varying_base + 0.5 * p_k[k])))[
-                    :, None
-                ]
+                e2
+                * jnp.exp(1j * omega_bin * (varying_base + 0.5 * p_k[k]))[:, None]
                 * input_prop,
                 axis=0,
             )

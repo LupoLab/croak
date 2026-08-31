@@ -8,6 +8,31 @@ semantic versioning.
 
 ### Added
 
+- **fc-z: the depth-resolved chromatic focal mixture** (`focal_mixture(...,
+  evolve_profiles=True, material=..., thickness=..., npoints=...)`). Every
+  entrance-face model freezes the chromatic beamlet profiles at the slab
+  entrance; measurement on the 3-D reference traces localised the dominant
+  at-truth residual to exactly that frozen physics. With fc-z each arm at
+  each depth node applies its own linearly evolved complex profile — the
+  aperture's k-space disc propagated by the transverse part of the in-glass
+  `k_z` and evaluated at the arm's walked radius `-z r_j/(f n0)` — in place
+  of the single shared entrance filter; the `(p, theta)` arrival offsets stay
+  depth-independent (exact). Parameter-free once the geometry is given.
+  Cost is ~fc: the focal path already batches the depth axis, so the per-arm
+  `(N, Q)` filter slices ride the existing batched FFTs; only a seconds-level
+  numpy table build (`croak.focal.evolved_arm_filters`, shape `(3, K, Q, N)`)
+  is new. A zero-evolution table is bit-identical to the entrance filter (the
+  difference-form build cancels its own quadrature at z = 0) and the trace
+  reduces at machine precision; the evolved profiles match an independent
+  plane-wave propagator to 1e-6 of peak at 40 um; the evolved three-beam
+  moments reproduce the measured beamlet-companion table (walk sign, arm
+  order and conjugation pinned by measurement); the Gaussian-control geometry
+  is a null, matching the measured absence of the arrival advance there. PG
+  only; `fit_thickness` unsupported in v1; the mixture's slab spec must match
+  the trace map's (verified loudly). `depth_transverse` composes orthogonally.
+
+### Added
+
 - **Depth-resolved transverse dephasing in the collected focal model**
   (`depth_transverse=True` on `croak.forward_jax.make_param_trace_fn`, forwarded
   by `lbfgs-ad` and `retrieve_from_tracedata`; other solvers refuse it loudly).

@@ -43,13 +43,18 @@ from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.special import j1
+from scipy.special import j0, j1
 
+from . import materials
 from .collection import CollectionAperture
+from .maths import wlfreq
 
 __all__ = [
+    "EvolveSpec",
     "FocalMixture",
     "airy_amplitude",
+    "evolved_arm_filters",
+    "evolved_profile_table",
     "focal_mixture",
     "mixture_from_nodes",
     "reduced_moments",
@@ -121,6 +126,36 @@ def airy_amplitude(u: NDArray[np.float64]) -> NDArray[np.float64]:
 
 
 @dataclass(frozen=True)
+class EvolveSpec:
+    """Slab parameters for the depth-resolved mixture (fc-z).
+
+    The evolved per-arm filters need the depth-quadrature nodes, which are set
+    by the slab; storing the parameters here (rather than a prebuilt table)
+    lets the table be built at model-build time on the model's own frequency
+    grid, and lets :func:`croak.forward_jax.make_param_trace_fn` verify that
+    the mixture and the trace map agree about the slab — a silent mismatch
+    between the filter depths and the propagation depths would be a wrong
+    model with no error message.
+
+    Attributes
+    ----------
+    material : str
+        Slab material name (must match the trace map's ``material``).
+    thickness : float
+        Slab thickness in metres (must match the trace map's ``thickness``).
+    npoints : int
+        Depth-quadrature node count (must match the trace map's ``npoints``).
+    quadrature : str
+        Depth-quadrature rule (must match the trace map's ``quadrature``).
+    """
+
+    material: str
+    thickness: float
+    npoints: int
+    quadrature: str = "gausslegendre"
+
+
+@dataclass(frozen=True)
 class FocalMixture:
     """Quadrature over the focal plane, carrying the chromatic amplitude filter.
 
@@ -152,6 +187,14 @@ class FocalMixture:
         Finite collection aperture. ``None`` (default) is the full-beam incoherent sum
         the model has always done; anything else transforms the focal field to k,
         windows it and integrates there.
+    evolve : EvolveSpec or None
+        Depth-resolved mixture (fc-z). ``None`` (default) is the entrance-face
+        model: one filter per node, shared by all three arms and all depth
+        nodes. An :class:`EvolveSpec` makes each arm at each depth node carry
+        its own linearly evolved complex profile — see
+        :func:`evolved_arm_filters`. The ``(p, theta)`` offsets stay
+        depth-independent either way (exact: transverse wavevector is
+        conserved).
     """
 
     r: NDArray[np.float64]
@@ -165,6 +208,7 @@ class FocalMixture:
     waist: float = 0.0
     arms: NDArray[np.float64] | None = None
     collection: CollectionAperture | None = None
+    evolve: EvolveSpec | None = None
 
     @property
     def nodes(self) -> int:
@@ -245,6 +289,11 @@ def focal_mixture(
     profile: str = "airy",
     waist: float | None = None,
     collection: CollectionAperture | None = None,
+    evolve_profiles: bool = False,
+    material: str | None = None,
+    thickness: float = 0.0,
+    npoints: int = 0,
+    quadrature: str = "gausslegendre",
 ) -> FocalMixture:
     r"""Build a focal-plane quadrature for the square BOXCARS PG/TG geometry.
 
@@ -270,6 +319,21 @@ def focal_mixture(
     collection : CollectionAperture or None, optional
         Finite collection aperture (:mod:`croak.collection`). ``None`` (default) keeps
         the full-beam incoherent sum.
+    evolve_profiles : bool, optional
+        Depth-resolved mixture (fc-z): each arm at each depth node carries its
+        own linearly evolved complex profile, evaluated at the arm's walked
+        radius, instead of the single shared entrance-face filter. Requires
+        the slab parameters below, which must MATCH the ones later passed to
+        :func:`croak.forward_jax.make_param_trace_fn` (verified there). See
+        :func:`evolved_arm_filters` for the physics and conventions.
+    material : str or None, optional
+        Slab material for ``evolve_profiles`` (in-glass evolution and walk).
+    thickness : float, optional
+        Slab thickness in metres for ``evolve_profiles``.
+    npoints : int, optional
+        Depth-quadrature node count for ``evolve_profiles``.
+    quadrature : str, optional
+        Depth-quadrature rule for ``evolve_profiles``.
 
     Returns
     -------
@@ -277,6 +341,19 @@ def focal_mixture(
     """
     if n_radial < 2 or n_azimuth < 2:
         raise ValueError("n_radial and n_azimuth must both be >= 2")
+    evolve = None
+    if evolve_profiles:
+        if material is None or thickness <= 0.0 or npoints < 1:
+            raise ValueError(
+                "evolve_profiles needs the slab: material set, thickness > 0 "
+                "and npoints >= 1 (they must match the trace map's arguments)"
+            )
+        evolve = EvolveSpec(
+            material=material,
+            thickness=float(thickness),
+            npoints=int(npoints),
+            quadrature=quadrature,
+        )
     if profile == "gaussian":
         if waist is None:
             raise ValueError("the gaussian profile needs `waist` (the 1/e^2 radius w0)")
@@ -315,7 +392,188 @@ def focal_mixture(
         waist=float(waist) if waist is not None else 0.0,
         arms=arms,
         collection=collection,
+        evolve=evolve,
     )
+
+
+def evolved_profile_table(
+    mixture: FocalMixture,
+    omega: NDArray[np.float64],
+    omega0: float,
+    z_nodes: NDArray[np.float64],
+    n_kperp: int = 256,
+) -> NDArray[np.complex128]:
+    r"""Per-arm, per-depth complex focal profiles at explicit depths (fc-z).
+
+    Between generation events the beamlet evolution is linear, so the profile
+    of arm :math:`j` at depth :math:`z` is the entrance profile propagated in
+    transverse wavevector and evaluated at the arm's walked radius:
+
+    .. math::
+
+        A_j(r_k, \omega; z) \;=\; N(\omega) \int_0^{k_{\max}(\omega)}
+            S(k_\perp, \omega)\, J_0\!\bigl(k_\perp \rho_{jk}(z)\bigr)\,
+            e^{\,i\,[k_z(\omega,k_\perp) - k_z(\omega,0)]\, z}\,
+            k_\perp\, \mathrm{d}k_\perp ,
+        \qquad \rho_{jk}(z) = \lvert \mathbf r_k - \bm\delta_j(z)\rvert ,
+
+    with the in-glass walk :math:`\bm\delta_j(z) = -z\,\mathbf r_j/(f\,n_0)`
+    (Snell: transverse wavevector conserved, so the ray angle divides by the
+    index; the sign follows the ``+r_j/(f c)`` tilt convention of
+    :func:`_arm_offsets`) and
+    :math:`k_z = \sqrt{(n_0\,\omega/c)^2 - k_\perp^2}` in the glass — the
+    full square root, computed cancellation-safely as
+    :math:`k_z - k_{z0} = -k_\perp^2/(k_{z0} + \sqrt{k_{z0}^2 - k_\perp^2})`.
+    Only the TRANSVERSE part :math:`k_z - k_z(\omega,0)` appears: the on-axis
+    dispersion stays in the trace map's ``input_prop``, so there is no double
+    counting and :math:`z \to 0` reduces exactly to the entrance filter.
+
+    The entrance k-space :math:`S` is the aperture's: a unit disc of radius
+    :math:`k_R(\omega) = (\omega/c)\,(D/2)/f` for ``profile="airy"`` (whose
+    closed form at :math:`z=0` is :func:`airy_amplitude`), or the Gaussian
+    :math:`e^{-k_\perp^2 w_0^2/4}` for ``profile="gaussian"`` (closed form
+    :math:`e^{-\rho^2/w_0^2}`). :math:`N` normalises to unit peak at
+    :math:`(\rho, z) = (0, 0)`, preserving :func:`airy_amplitude`'s unit-peak
+    convention and its documented :math:`\omega^{-2}` caveat.
+
+    Numerically the table is built in the DIFFERENCE form
+
+    .. math:: A_j = A_0(\rho_{jk}(z), \omega) \;+\;
+              N \int S J_0 k_\perp \bigl(e^{i[\cdot]z} - 1\bigr)\,
+              \mathrm{d}k_\perp ,
+
+    with :math:`A_0` the closed-form entrance profile: the quadrature error
+    of the Gauss–Legendre :math:`k_\perp` integral cancels between the two
+    terms as :math:`z \to 0`, so a zero-phase/zero-walk table is BIT-identical
+    to the entrance filter — the reduction the tests assert.
+
+    Two v1 approximations, both documented deliberately: the glass index is
+    evaluated at the carrier (:math:`n_0 = n(\omega_0)`) in both the walk and
+    :math:`k_z` (the chromatic correction is second order in the small
+    quantities), and bins with :math:`\omega_{\rm abs} \le 0` or a non-finite
+    index keep the unevolved entrance profile (they carry no signal; a NaN
+    would poison the sums — the :func:`croak.materials.beta` policy).
+
+    Parameters
+    ----------
+    mixture : FocalMixture
+        Must carry ``arms`` (the walk needs the hole centres).
+    omega : ndarray, shape (N,)
+        CENTRED angular-frequency grid (rad/s), as the forward model uses.
+    omega0 : float
+        Carrier angular frequency (rad/s).
+    z_nodes : ndarray, shape (Q,)
+        Depths (m) at which to evaluate the evolved profiles.
+    n_kperp : int, optional
+        Gauss–Legendre nodes of the transverse-wavevector integral. The
+        evolved profiles oscillate more than the entrance Airy; 256 holds the
+        propagator-truth test at ~1e-6 of peak over 40 µm.
+
+    Returns
+    -------
+    ndarray, shape (3, K, Q, N), complex
+        One profile per (arm, node, depth) on the centred frequency axis, in
+        the PG arm order of ``_ARMS_PG`` (probe, gate, conjugated gate).
+    """
+    if mixture.arms is None:
+        raise ValueError(
+            "evolved profiles need the mask hole positions: build the mixture "
+            "with croak.focal.focal_mixture (which records them)"
+        )
+    if mixture.evolve is None:
+        raise ValueError(
+            "this mixture has no EvolveSpec: build it with evolve_profiles=True"
+        )
+    omega = np.asarray(omega, dtype=float)
+    omega_abs = omega + float(omega0)
+    z_nodes = np.asarray(z_nodes, dtype=float)
+    lam0 = wlfreq(np.array([float(omega0)]))[0]
+    n0 = float(materials.refractive_index(mixture.evolve.material)(lam0))
+
+    # Walked radii rho[j, k, q]: node positions minus the in-glass ray walk.
+    rx = mixture.r * np.cos(mixture.phi)
+    ry = mixture.r * np.sin(mixture.phi)
+    walk = -np.asarray(mixture.arms, dtype=float) / (mixture.f_foc * n0)  # (3,2)/m
+    rho = np.hypot(
+        rx[None, :, None] - z_nodes[None, None, :] * walk[:, 0, None, None],
+        ry[None, :, None] - z_nodes[None, None, :] * walk[:, 1, None, None],
+    )  # (3, K, Q)
+    # At exactly z = 0 the walk vanishes and rho IS the node radius; writing it
+    # so removes the last-ulp noise of hypot(r cos, r sin) and makes the
+    # zero-evolution table bit-identical to the entrance filter (the reduction
+    # contract in tests/test_fcz.py).
+    rho[:, :, z_nodes == 0.0] = mixture.r[None, :, None]
+    kk, qq, nn = mixture.nodes, z_nodes.size, omega.size
+    flat = rho.reshape(3 * kk * qq)
+
+    # Closed-form entrance profile at the walked radii (the A0 of the
+    # difference form; exactly spectral_filter's formulas).
+    if mixture.profile == "gaussian":
+        a0 = np.repeat(np.exp(-(flat[:, None] ** 2) / mixture.waist**2), nn, axis=1)
+        k_edge = np.full(nn, 8.0 / mixture.waist)  # e^{-16}: support captured
+    else:
+        u = (
+            mixture.hole_diameter
+            * flat[:, None]
+            * omega_abs[None, :]
+            / (2.0 * mixture.f_foc * _C_LIGHT)
+        )
+        a0 = airy_amplitude(u)
+        k_edge = omega_abs * (0.5 * mixture.hole_diameter) / (_C_LIGHT * mixture.f_foc)
+
+    # Gauss-Legendre in k_perp on [0, k_edge(omega)], one rule shared by all
+    # frequencies through the substitution k = k_edge * x.
+    x, w = np.polynomial.legendre.leggauss(int(n_kperp))
+    x = 0.5 * (x + 1.0)
+    w = 0.5 * w
+
+    table = np.empty((3 * kk * qq, nn), dtype=complex)
+    kz0_all = n0 * omega_abs / _C_LIGHT
+    good = (omega_abs > 0.0) & np.isfinite(kz0_all) & (k_edge > 0.0)
+    table[:, ~good] = a0[:, ~good]  # unphysical bins: entrance profile, unevolved
+    for i in np.nonzero(good)[0]:
+        k = k_edge[i] * x  # (nk,)
+        wk = (k_edge[i] ** 2) * w * x  # k dk Jacobian
+        if mixture.profile == "gaussian":
+            s = np.exp(-(k**2) * mixture.waist**2 / 4.0)
+        else:
+            s = 1.0
+        wks = wk * s
+        norm = 1.0 / np.sum(wks)
+        kz0 = kz0_all[i]
+        # cancellation-safe kz - kz0; clamp the (never physically reached)
+        # evanescent corner so the sqrt stays real
+        dkz = -(k**2) / (kz0 + np.sqrt(np.maximum(kz0**2 - k**2, 0.0)))
+        bess = j0(np.outer(flat, k))  # (3KQ, nk)
+        ring = np.exp(1j * np.outer(z_nodes, dkz)) - 1.0  # (Q, nk)
+        corr = (bess * wks[None, :]).reshape(3, kk, qq, -1) * ring[None, None]
+        table[:, i] = a0[:, i] + norm * corr.sum(axis=3).reshape(3 * kk * qq)
+    return np.ascontiguousarray(table.reshape(3, kk, qq, nn))
+
+
+def evolved_arm_filters(
+    mixture: FocalMixture,
+    omega: NDArray[np.float64],
+    omega0: float,
+) -> NDArray[np.complex128]:
+    """Spec-driven fc-z filter table on the mixture's own depth quadrature.
+
+    Thin wrapper over :func:`evolved_profile_table` using the depth nodes of
+    the mixture's :class:`EvolveSpec` — the same
+    :func:`croak.forward.quadrature_nodes_weights` nodes the trace map
+    propagates on, which is what makes the per-depth filters line up with
+    ``input_prop`` column for column.
+    """
+    if mixture.evolve is None:
+        raise ValueError(
+            "this mixture has no EvolveSpec: build it with evolve_profiles=True"
+        )
+    from .forward import quadrature_nodes_weights
+
+    nodes, _ = quadrature_nodes_weights(
+        mixture.evolve.thickness, mixture.evolve.npoints, mixture.evolve.quadrature
+    )
+    return evolved_profile_table(mixture, omega, omega0, np.asarray(nodes))
 
 
 def _arm_offsets(

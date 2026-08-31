@@ -318,6 +318,42 @@ validated (sign included) against a per-depth dense-FFT reference with the exact
 $k_z$ — see [the collection how-to](../howto/collection_aperture.md) for usage,
 cost and caveats.
 
+### The depth-resolved mixture (fc-z, `evolve_profiles`)
+
+`depth_transverse` repairs the *exit* side (how the generated signal reaches the
+aperture); the depth-resolved mixture repairs the *entrance* side, which
+measurement localised as the dominant one: the chromatic beamlet profiles are
+not frozen at the entrance face but evolve linearly through the slab, and each
+of the three arms evolves about its own walked axis. With
+`focal_mixture(..., evolve_profiles=True, material=..., thickness=...,
+npoints=...)` every arm $j$ at node $\mathbf r_k$ and depth $z_q$ applies its
+own complex profile
+
+$$
+A_j(r_k, \omega; z_q) = N(\omega)\!\int_0^{k_R(\omega)}\!
+  S(k_\perp,\omega)\, J_0\!\bigl(k_\perp\,|\mathbf r_k - \bm\delta_j(z_q)|\bigr)\,
+  e^{\,i[k_z(\omega,k_\perp)-k_z(\omega,0)]\,z_q}\, k_\perp\,\mathrm dk_\perp,
+\qquad
+\bm\delta_j(z) = -\frac{z\,\mathbf r_j}{f\,n_0},
+$$
+
+in place of the single shared entrance filter $A(r_k,\omega)$: the aperture's
+k-space (a disc of radius $k_R = (\omega/c)(D/2)/f$, or the Gaussian control's
+$e^{-k_\perp^2 w_0^2/4}$) propagated by the *transverse* part of $k_z$ only —
+the on-axis dispersion stays in the depth propagator, so $z\to 0$ reduces
+exactly to the entrance model. The $(p_k,\vartheta_k)$ arrival offsets stay
+depth-independent (exact: transverse wavevector is conserved). Note the
+deliberate physics: the "Cost and accuracy" statement that the transverse
+weight commutes with the depth propagator is *no longer true* under fc-z —
+that non-commutation is the feature, and it is what lets the model carry a
+gate-vs-probe arrival asymmetry that accumulates with depth. Cost is ~fc (the
+depth axis is already batched; only a seconds-level numpy filter build and a
+$(3,K,Q,N)$ table are new). PG only; `fit_thickness` unsupported in v1; the
+spec's slab parameters must match the trace map's (verified). Validated by an
+independent plane-wave propagator at $10^{-6}$ of peak and by moment-pinning
+against the measured three-beam overlap/centroid/timing table of the beamlet
+companion analysis — see `tests/test_fcz.py`.
+
 ## The model hierarchy, and when each member applies
 
 The pieces above assemble into three usable forward models, and the companion

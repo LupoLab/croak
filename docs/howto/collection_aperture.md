@@ -230,10 +230,9 @@ model it refuse loudly. Notes:
   or a `chromatic=False` window covering the whole k grid — with the flag off that
   route reproduces `collection=None` exactly, by Parseval).
 * **v1 caveats.** The full $k_z$ square root is used (no paraxial expansion) with the
-  full Sellmeier $n(\omega)$; the input beams still propagate on-axis (only the
-  generated signal's exit propagation is corrected), and the arm filters are not
-  walked with depth (an amplitude effect bounded ≲1 % over 40 µm; `TODO(depth)` in the
-  source).
+  full Sellmeier $n(\omega)$; the input beams still propagate on-axis — only the
+  generated signal's exit propagation is corrected. The *input*-side repair (evolved,
+  walked, per-arm filters) is the depth-resolved mixture below, and the two compose.
 * **Cost.** One aperture contraction per depth node instead of one total: ≈2.5× the
   collected trace at production shape (K = 96, J = 144, 256 frequencies, 230 delays,
   Q = 10 depth nodes; 0.61 s against 0.24 s per evaluation on an M-series CPU).
@@ -251,6 +250,55 @@ model it refuse loudly. Notes:
 Whether this closes the measured over-correction above is a question for the 3-D
 reference traces, not for internal validation; the table above is the flag-off
 baseline it will be judged against.
+
+### fc-z: the depth-resolved mixture (`evolve_profiles`)
+
+`depth_transverse` corrects the generated signal's *exit*; measurement on the 3-D
+references localised the dominant missing physics to the *entrance* side — the
+chromatic beamlet profiles evolve linearly through the slab, each arm about its own
+walked axis, where every entrance-face model freezes them. The depth-resolved
+mixture repairs exactly that, with no free parameters:
+
+```python
+mixture = focal_mixture(
+    hole_diameter=1e-3, hole_spacing=1e-3, f_foc=0.1, wavelength=260e-9,
+    collection=aperture,                      # optional, composes as usual
+    evolve_profiles=True,                     # fc-z
+    material="SiO2", thickness=40e-6, npoints=10,   # MUST match the trace map
+)
+fn = make_param_trace_fn(
+    omega, delays, "pg",
+    material="SiO2", thickness=40e-6, npoints=10, omega0=omega0,
+    focal=mixture,
+)
+```
+
+Each arm $j$ at node $\mathbf r_k$ and depth $z_q$ then applies its own evolved
+complex profile $A_j(|\mathbf r_k - \bm\delta_j(z_q)|, \omega; z_q)$ — the aperture's
+k-space disc propagated by the transverse part of $k_z$ and evaluated at the in-glass
+walked radius $\bm\delta_j(z) = -z\,\mathbf r_j/(f n_0)$ — in place of the single
+shared entrance filter. See the
+[forward-model explanation](../explanation/forward_model.md) for the formula and
+conventions. Notes:
+
+* The slab parameters on the mixture must **match** the trace map's
+  (`material`/`thickness`/`npoints`/`quadrature`) — the per-depth filters must sit on
+  the same depth nodes as the propagation phases; a mismatch raises.
+* PG only; `fit_thickness` is not supported in v1; `depth_transverse` composes
+  orthogonally (default off).
+* **Cost ≈ fc.** The focal path already batch-FFTs over the depth axis, so the
+  per-depth filters slot into the existing $(N, Q)$ multiply; new cost is a
+  seconds-level numpy build of the $(3, K, Q, N)$ filter table at model
+  construction (~10–50 MB at production shapes).
+* **Validation** (`tests/test_fcz.py`, in order): a zero-evolution table is
+  bit-identical to the entrance filter and reduces the trace at machine precision;
+  the evolved profile matches an independent plane-wave-superposition propagator to
+  1e-6 of peak at 40 µm across the band (plus a 2-D FFT orientation check); the
+  evolved $|A_1A_2A_3|^2$-weighted moments reproduce the measured three-beam
+  overlap/centroid/$\langle\vartheta\rangle$/$\langle p\rangle$ table of the beamlet
+  companion analysis (walk sign, arm order and conjugation are pinned by
+  measurement, not argument); the Gaussian-control geometry is a null; and the
+  trace stays differentiable.
 
 ## Only PG (TG), for now
 
