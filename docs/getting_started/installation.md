@@ -93,9 +93,49 @@ On a headless machine add `xvfb` and run under `xvfb-run -a`, or set
 The default install is **CPU-only JAX on every platform**, which is the right
 configuration for the standard and extended forward models. The full focal
 model is the one that benefits from a GPU (about 60× an Intel Xeon Gold 6240
-on an NVIDIA H200, with identical results); install the matching JAX build
-yourself (for example `uv pip install "jax[cuda12]"`) — croak needs no changes
-to use it.
+on an NVIDIA H200, with identical results). croak needs no changes to use
+one — installing a CUDA-enabled JAX build is the whole job. The extra is
+`jax[cuda12]` (Linux x86_64 with an NVIDIA driver; it bundles the CUDA
+libraries, so no system CUDA toolkit is needed):
+
+- **In a uv project** that uses croak:
+
+  ```bash
+  uv add "jax[cuda12]"
+  ```
+
+- **In a croak checkout**: the environment is locked, so either make the
+  extra part of the project (`uv add "jax[cuda12]"`, which edits
+  `pyproject.toml` — fine on a machine-local branch) or inject it into the
+  synced environment ad hoc:
+
+  ```bash
+  uv pip install "jax[cuda12]"
+  ```
+
+  The ad-hoc form is undone by the next `uv sync`, so re-run it after syncing.
+
+- **In the standalone GUI tool install** (to run `croak-gui` retrievals on the
+  GPU), add it with `--with` at install time:
+
+  ```bash
+  uv tool install --python 3.14 "croak[gui]" --with "jax[cuda12]"
+  ```
+
+  Re-running `uv tool install` with `--force` and the same `--with` also
+  converts an existing CPU-only tool install.
+
+- **Plain pip**: `pip install "jax[cuda12]"` into the same environment.
+
+Verify with:
+
+```bash
+uv run python -c "import jax; print(jax.devices())"
+```
+
+which should list a `CudaDevice`. If it prints only `CpuDevice`, JAX fell back
+— check `nvidia-smi` works and that the environment you ran in is the one you
+installed into.
 
 ## Dependencies
 

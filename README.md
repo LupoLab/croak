@@ -14,7 +14,7 @@
 and phase.**
 
 > **Just want the graphical FROG retrieval program?**
-> See [Installing the GUI](docs/getting_started/gui.md) for install
+> See [Installing the GUI](https://croak.readthedocs.io/en/latest/getting_started/gui.html) for install
 > instructions that need no Python knowledge. (Standalone packaging is
 > planned; for now the GUI installs with `uv` in a few commands.)
 
@@ -200,7 +200,10 @@ standard and extended models retrieve in seconds on a laptop CPU. The full
 focal model — the chromatic focal mixture with the modelled collection
 aperture — is where the GPU matters: on an NVIDIA H200 it runs about **60× faster
 than an Intel Xeon Gold 6240** (all cores) and **6.4× faster than an Apple M5
-Max** with full threading, which is itself about 10× the Xeon.
+Max** with full threading, which is itself about 10× the Xeon. Install
+commands for CUDA-enabled JAX (project, checkout, and the GUI tool install)
+are in the
+[installation guide](https://croak.readthedocs.io/en/latest/getting_started/installation.html#jax-and-gpus).
 
 ## Scope
 
@@ -211,7 +214,7 @@ the three FROG kernels today; the scan parameter is a delay throughout.
 Because the interaction is the only geometry-specific ingredient, adding
 another PNPS technique means supplying a `signal` method — automatic
 differentiation covers the gradient. XFROG, TDP and d-scan are the natural
-candidates; see [Interactions](docs/explanation/interactions.md).
+candidates; see [Interactions](https://croak.readthedocs.io/en/latest/explanation/interactions.html).
 
 The instrument-simulation side of the companion paper is
 [ModelPNPS.jl](https://github.com/LupoLab/ModelPNPS.jl), a separate Julia
@@ -232,8 +235,8 @@ uv run croak-gui          # or: uv run python -m croak.gui
 Sessions save to TOML, and `croak replay` reruns one headlessly — or
 `croak script` turns it into a standalone Python file you can edit. Importing
 `croak` does **not** require Qt; only `croak.gui` does. See
-[Installing the GUI](docs/getting_started/gui.md) and the
-[GUI guide](docs/howto/gui.md).
+[Installing the GUI](https://croak.readthedocs.io/en/latest/getting_started/gui.html) and the
+[GUI guide](https://croak.readthedocs.io/en/latest/howto/gui.html).
 
 ## Examples
 
@@ -259,7 +262,7 @@ run them from a clone.
 Hosted at [croak.readthedocs.io](https://croak.readthedocs.io): tutorials, the
 PNPS theory and the dispersive forward model, the solvers and gradient routes,
 how-to guides, the validation results and the full API reference. The
-[Features](docs/reference/features.md) page lists everything the package does.
+[Features](https://croak.readthedocs.io/en/latest/reference/features.html) page lists everything the package does.
 To build locally:
 
 ```bash
@@ -275,7 +278,7 @@ croak stands for *Complete Retrieval by Optimisation and Adjoint Kernels*. It
 was called `toad` (*Trace Optimisation through Automatic Differentiation*)
 while it was an internal tool, and was renamed for release because that name
 was already taken on PyPI — hence the unchanged amphibian on the icon. See
-[the docs](docs/reference/naming.md).
+[the docs](https://croak.readthedocs.io/en/latest/reference/naming.html).
 
 ## Citation
 

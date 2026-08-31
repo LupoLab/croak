@@ -51,6 +51,12 @@ the paper's BibTeX entry and DOI once published.
 
 ## Software and data sources
 
+- [ModelPNPS.jl](https://github.com/LupoLab/ModelPNPS.jl) — the companion
+  paper's instrument simulator: an open-source Julia package (built on Luna.jl)
+  that simulates PNPS measurements in three dimensions from the underlying
+  propagation physics. It produced the validation datasets summarised in
+  [Validation](../explanation/validation.md), including the reduced scans
+  shipped in `examples/data/`.
 - [Luna.jl](https://github.com/LupoLab/Luna.jl) — an open-source (MIT) Julia
   package for nonlinear optical pulse propagation. croak's Sellmeier
   coefficients, gas-density scaling and bundled chirped-mirror tables are taken
