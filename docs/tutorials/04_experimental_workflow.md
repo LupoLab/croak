@@ -244,6 +244,21 @@ checks the recovered duration against the truth. A small residual floor after
 regridding is what a good measured retrieval looks like;
 what matters is whether the residual is *structured*.
 
+### The production default
+
+The call above chose COPRA to keep the convergence story simple. Dropping the
+`algorithm=` argument uses the production default, `warm-lbfgs` — and because
+`td` carries the independently measured spectrum, the settled regularisation
+weights bind automatically: the retrieved amplitude is pulled gently towards
+the measured spectrum (`reg_spectrum=0.01`) and kept smooth (`reg_amp=0.03`).
+This is the recommended call on real data; pass `reg_amp=0, reg_spectrum=0`
+for an unregularised fit.
+
+```{code-cell} ipython3
+default = croak.retrieve_from_tracedata(td, rng=np.random.default_rng(0))
+print(f"warm-lbfgs (settled regularisation): R = {default.error:.4%}")
+```
+
 ## Post-process
 
 {func}`~croak.processing.process_result` derives display-ready profiles and fits

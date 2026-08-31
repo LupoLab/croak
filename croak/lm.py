@@ -53,6 +53,7 @@ from .smearing import SmearingKernel
 from .solver import (
     Retriever,
     assemble_result,
+    resolve_reg,
     spectral_target_amplitude,
     split_smear_value,
 )
@@ -103,12 +104,19 @@ class LM(Retriever):
         (default ``20``); ignored otherwise.
     R_omega : bool, optional
         Use per-frequency adaptive scaling factors.
-    reg_amp, reg_phase : float, optional
-        Amplitude / phase second-difference smoothness weights (added as extra
-        residual rows).
-    reg_spectrum : float, optional
+    reg_amp : float or None, optional
+        Amplitude second-difference smoothness weight, added as extra residual
+        rows. ``None`` (default) resolves to the settled LM-family weight
+        ``3e-5`` (:data:`croak.solver.REG_DEFAULTS`; the residual-rows
+        objective needs far smaller weights than the gradient solvers); pass
+        ``0`` to disable.
+    reg_phase : float, optional
+        Phase second-difference smoothness weight (default ``0``).
+    reg_spectrum : float or None, optional
         Spectral-match weight pulling the retrieved spectral amplitude towards
         ``spectrum_target`` (full mode only; added as extra residual rows).
+        ``None`` (default) resolves to the settled LM-family ``1e-5`` and is
+        inert without a ``spectrum_target``; pass ``0`` to disable.
     spectrum_target : array_like or None, optional
         Measured spectral **intensity** on the retrieval grid (e.g.
         ``TraceData.Iomega``) for ``reg_spectrum``; ``None`` disables it.
@@ -174,9 +182,9 @@ class LM(Retriever):
         phase_basis: str = "pointwise",
         n_nodes: int = 20,
         R_omega: bool = False,
-        reg_amp: float = 0.0,
+        reg_amp: float | None = None,
         reg_phase: float = 0.0,
-        reg_spectrum: float = 0.0,
+        reg_spectrum: float | None = None,
         spectrum_target=None,
         tau0: float = 0.0,
         smear_scale: float = 1.0,
@@ -204,9 +212,8 @@ class LM(Retriever):
         self.phase_basis = str(phase_basis)
         self.n_nodes = int(n_nodes)
         self.R_omega = bool(R_omega)
-        self.reg_amp = float(reg_amp)
+        self.reg_spectrum, self.reg_amp = resolve_reg(reg_spectrum, reg_amp, "lm")
         self.reg_phase = float(reg_phase)
-        self.reg_spectrum = float(reg_spectrum)
         self._spectral_target = spectral_target_amplitude(spectrum_target)
         self.tau0 = float(tau0)
         self.smear_scale = float(smear_scale)

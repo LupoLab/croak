@@ -333,14 +333,17 @@ def test_optx_lm_linear_solvers_agree(setup, interaction):
     The residual bottoms out near ``1e-16``, and a quadratic minimum means the
     *parameters* are then determined only to its square root — hence agreement is
     asserted at ``1e-5`` on the normalised spectral amplitude and temporal
-    intensity (measured: ``~5e-8``), not at machine precision.
+    intensity (measured: ``~5e-8``), not at machine precision. The default
+    amplitude penalty is disabled: it raises the residual floor, which loosens
+    that square-root bound, and regularisation is orthogonal to the
+    linear-solver equivalence under test.
     """
     g, ew, delays = setup
     trace = maketrace(g.omega, delays, ew, interaction)
     near = gaussian_pulse(g, 1.5e-15)
 
     def run(linear_solver):
-        return OptxLM(maxiters=300, linear_solver=linear_solver).run(
+        return OptxLM(maxiters=300, linear_solver=linear_solver, reg_amp=0).run(
             trace, g.omega, delays, interaction, guess=near
         )
 

@@ -145,6 +145,15 @@ def retrieve(
     Returns
     -------
     RetrievalResult
+
+    Notes
+    -----
+    The penalty-capable solvers (every family except COPRA) default to the
+    settled regularisation weights — ``reg_spectrum = 0.01`` and
+    ``reg_amp = 0.03`` for the gradient objective, mapped to ``1e-5``/``3e-5``
+    for the Levenberg–Marquardt residual form (:data:`croak.solver.REG_DEFAULTS`).
+    The spectral term binds only when a ``spectrum_target`` is supplied; pass
+    ``reg_amp=0, reg_spectrum=0`` for an unregularised fit.
     """
     try:
         cls = ALGORITHMS[algorithm.lower()]

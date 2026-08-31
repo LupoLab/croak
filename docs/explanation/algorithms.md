@@ -113,6 +113,10 @@ regularisation options COPRA does not:
 - a **spectral-match** penalty (`reg_spectrum`, `spectrum_target`) pulling the
   retrieved amplitude toward an independently measured spectrum.
 
+The amplitude and spectral penalties are **on by default** at the settled
+weights (0.03 and 0.01; the spectral term binds only when a target spectrum is
+supplied) — pass `0` to disable them.
+
 See [Regularisation](../howto/regularisation.md). Its initial descent is more
 gradual than COPRA's but it converges steadily to the same minimum, and for
 phase-only problems it typically *outperforms* COPRA.

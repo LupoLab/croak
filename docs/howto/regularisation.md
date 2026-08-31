@@ -4,7 +4,11 @@ On noisy or under-constrained data the retrieved spectrum can overfit — pickin
 ripples in amplitude or oscillations in phase that fit the noise rather than the
 pulse. Every solver *except* COPRA (the L-BFGS family, the Levenberg–Marquardt
 family and the global {class}`~croak.cmaes.CMAES`) accepts mild penalties that
-suppress this without biasing smooth, physical solutions. The examples below use
+suppress this without biasing smooth, physical solutions — and applies the two
+settled ones **by default**: amplitude smoothness (`reg_amp=0.03`) and, when an
+independent spectrum is available, the spectral-match penalty
+(`reg_spectrum=0.01`), each mapped to the LM-family scale on `lm`/`lm-optx`.
+Pass `0` to disable either. The examples below use
 `lbfgs`, but the same arguments apply to the others — see the
 [summary table](#summary) for exactly which option each solver takes.
 

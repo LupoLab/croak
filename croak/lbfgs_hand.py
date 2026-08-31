@@ -31,7 +31,12 @@ from . import metrics_jax as mj
 from ._jax_pulse import make_param_grad_fns, make_spectrum_fn
 from .forward_jax import make_forward_adjoint_fns
 from .result import RetrievalResult
-from .solver import Retriever, assemble_result, spectral_target_amplitude
+from .solver import (
+    Retriever,
+    assemble_result,
+    resolve_reg,
+    spectral_target_amplitude,
+)
 
 __all__ = ["LBFGSHand"]
 
@@ -69,9 +74,9 @@ class LBFGSHand(Retriever):
         quadrature: str = "gausslegendre",
         phase_only: bool = False,
         R_omega: bool = False,
-        reg_amp: float = 0.0,
+        reg_amp: float | None = None,
         reg_phase: float = 0.0,
-        reg_spectrum: float = 0.0,
+        reg_spectrum: float | None = None,
         spectrum_target=None,
         reltol: float = 1e-4,
         abstol: float = 1e-8,
@@ -87,9 +92,8 @@ class LBFGSHand(Retriever):
         self.quadrature = quadrature
         self.phase_only = bool(phase_only)
         self.R_omega = bool(R_omega)
-        self.reg_amp = float(reg_amp)
+        self.reg_spectrum, self.reg_amp = resolve_reg(reg_spectrum, reg_amp, "gradient")
         self.reg_phase = float(reg_phase)
-        self.reg_spectrum = float(reg_spectrum)
         self._spectral_target = spectral_target_amplitude(spectrum_target)
         self.reltol = float(reltol)
         self.abstol = float(abstol)

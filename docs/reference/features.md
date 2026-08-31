@@ -27,7 +27,9 @@ Options common to most solvers: amplitude-and-phase or `phase_only` retrieval,
 per-frequency `R_omega` intensity scaling, second-difference smoothness penalties
 on spectral amplitude (`reg_amp`) and phase (`reg_phase`), a spectral-match
 penalty against an independent measurement (`reg_spectrum`), and a temporal
-energy penalty outside a window (`reg_time`, on `lbfgs-ad` and `cma-es`). See
+energy penalty outside a window (`reg_time`, on `lbfgs-ad` and `cma-es`). The
+amplitude and spectral penalties default to the settled production weights
+(0.03 and 0.01, LM-mapped where needed); pass `0` to disable. See
 [Regularisation](../howto/regularisation.md).
 
 A cubic B-spline phase basis (`phase_basis="bspline"`) acts as a structural

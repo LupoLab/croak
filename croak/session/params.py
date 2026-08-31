@@ -29,56 +29,14 @@ __all__ = [
 ]
 
 
-#: Default regularisation weights ``(reg_spectrum, reg_amp)`` per solver family.
-#:
-#: The two families do not minimise the same objective, so the same number does
-#: not mean the same thing to them. The gradient solvers minimise
-#: :math:`R + \lambda P`; the Levenberg-Marquardt solvers append the penalty as
-#: residual rows, hence minimise :math:`R^2 + \lambda' P`. Matching the
-#: stationary conditions pairs them as :math:`\lambda' = 2 R \lambda`, i.e. at
-#: the :math:`R \approx 2\times10^{-4}` of a good dispersive TG-FROG retrieval
-#: the LM weight is some three orders of magnitude smaller.
-#:
-#: That is not a cosmetic difference. On the 2 fs, 9.5 um dispersive trace
-#: (2026-08-25), sweeping the LM weight over four decades:
-#:
-#: =====================  ========  ========  =========  ======
-#: LM (spectrum, amp)     R (%)     eps       dFWHM (%)  rough.
-#: =====================  ========  ========  =========  ======
-#: 1e-2, 3e-2 (as LBFGS)  0.0237    0.305     +1.11      1.00
-#: 1e-5, 3e-5 (mapped)    0.0193    0.112     -0.11      1.01
-#: 0, 0                   0.0174    0.466     +3.12      2.57
-#: =====================  ========  ========  =========  ======
-#:
-#: Both failure modes are visible: the gradient weights over-regularise LM (a
-#: worse pulse *and* a worse trace error), and no penalty at all overfits (the
-#: best trace error of any arm, the worst pulse -- 2.6x the truth's spectral
-#: roughness and +3.1% on duration). The measured optimum, 1e-5, sits within
-#: 30% of the 2 R lambda prediction, which is the evidence that the mapping is
-#: the right rule rather than a coincidence of one trace.
-#:
-#: So the LM entry scales with the trace error you actually reach: multiply it
-#: by :math:`R/2\times10^{-4}` on a noisier measurement.
-REG_DEFAULTS: dict[str, tuple[float, float]] = {
-    "gradient": (1e-2, 3e-2),
-    "lm": (1e-5, 3e-5),
-}
-
-#: Solvers whose penalty enters as residual rows (the ``R^2`` objective).
-_LM_SOLVERS = frozenset({"lm", "lm-optx"})
-
-
-def reg_family(solver: str) -> str:
-    """Which objective ``solver`` minimises: ``"gradient"`` (R) or ``"lm"`` (R^2).
-
-    Regularisation weights are only comparable within a family.
-    """
-    return "lm" if str(solver).lower() in _LM_SOLVERS else "gradient"
-
-
-def reg_defaults(solver: str) -> tuple[float, float]:
-    """``(reg_spectrum, reg_amp)`` suited to ``solver``; see :data:`REG_DEFAULTS`."""
-    return REG_DEFAULTS[reg_family(solver)]
+# Re-exported from croak.solver, their canonical home since the solver
+# constructors themselves resolve these defaults; kept here because the GUI
+# and session code historically import them from this module.
+from ..solver import (  # noqa: E402  (re-export)
+    REG_DEFAULTS,
+    reg_defaults,
+    reg_family,
+)
 
 
 @dataclass

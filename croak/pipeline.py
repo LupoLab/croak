@@ -148,9 +148,9 @@ def retrieve_from_tracedata(
     smearing: SmearingKernel | None = None,
     focal: FocalMixture | None = None,
     depth_weight=None,
-    reg_amp: float = 0.0,
+    reg_amp: float | None = None,
     reg_phase: float = 0.0,
-    reg_spectrum: float = 0.0,
+    reg_spectrum: float | None = None,
     reg_time: float = 0.0,
     time_window: tuple[float, float] | None = None,
     tau0: float = 0.0,
@@ -221,13 +221,20 @@ def retrieve_from_tracedata(
         ``smearing`` it is a physical model term, so requesting it with a
         solver that cannot represent it raises rather than silently dropping
         it. See :doc:`/howto/collection_aperture`.
-    reg_amp, reg_phase : float, optional
-        L-BFGS/LM smoothness regularisation weights.
-    reg_spectrum : float, optional
-        Spectral-match regularisation weight (LBFGS/LBFGS-AD/LM, full mode):
-        pulls the retrieved spectral amplitude towards the measured independent
-        spectrum ``td.Iomega``. Ignored (with a warning) when ``reg_spectrum>0``
-        but no independent spectrum is available.
+    reg_amp : float or None, optional
+        Spectral-amplitude smoothness weight. ``None`` (default) resolves to
+        the settled production weight for the solver's objective family —
+        ``0.03`` for the gradient solvers, ``3e-5`` for the LM residual form
+        (see :data:`croak.solver.REG_DEFAULTS`). Pass ``0`` to disable.
+    reg_phase : float, optional
+        Spectral-phase smoothness weight (default ``0``).
+    reg_spectrum : float or None, optional
+        Spectral-match regularisation weight (full mode): pulls the retrieved
+        spectral amplitude towards the measured independent spectrum
+        ``td.Iomega``. ``None`` (default) resolves to the settled weight
+        (``0.01`` gradient / ``1e-5`` LM) and silently does nothing when no
+        independent spectrum is available; an *explicit* ``reg_spectrum > 0``
+        with no spectrum is ignored with a warning. Pass ``0`` to disable.
     reg_time : float, optional
         Temporal (pedestal) regularisation weight (LBFGS-AD / cma-es): penalises
         the fraction of ``E(t)`` energy outside ``time_window``. A self-consistent
@@ -296,7 +303,15 @@ def retrieve_from_tracedata(
     # Spectral-match target: the measured independent spectrum on the grid. Only
     # meaningful in full mode and when a spectrum was actually provided.
     spectrum_target = td.Iomega
-    if reg_spectrum > 0 and (spectrum_target is None or not full):
+    # ``None`` (the default) means "the settled weight, if a spectrum is
+    # available": it flows to the solver, whose spectral penalty is inert
+    # without a target, so no warning is due. An *explicit* non-zero request
+    # that cannot be honoured still warns.
+    if (
+        reg_spectrum is not None
+        and reg_spectrum > 0
+        and (spectrum_target is None or not full)
+    ):
         if spectrum_target is None:
             warnings.warn(
                 "reg_spectrum > 0 but no independent spectrum is available "

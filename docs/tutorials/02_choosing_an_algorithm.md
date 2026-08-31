@@ -33,14 +33,23 @@ trace = croak.maketrace(g.omega, delays, ew, "pg")              # PG-FROG
 We seed every solver from the *same* initial guess so the comparison is fair, and
 record the convergence history `res.errors`.
 
+```{note}
+The gradient and LM solvers apply croak's settled
+[regularisation weights](../howto/regularisation.md) **by default**; COPRA
+takes no penalties. This comparison passes `reg_amp=0` so that all three
+minimise the same bare trace error — on a measurement you would keep the
+defaults.
+```
+
 ```{code-cell} ipython3
 guess = croak.gaussian_pulse(g, 2.0e-15)     # a deliberately rough start
 
 results = {}
 for algo in ("copra", "lbfgs", "lm"):
+    kw = {} if algo == "copra" else {"reg_amp": 0}   # COPRA takes no penalties
     results[algo] = croak.retrieve(trace, g.omega, delays, "pg",
                                   algorithm=algo, guess=guess, maxiters=200,
-                                  rng=np.random.default_rng(0))
+                                  rng=np.random.default_rng(0), **kw)
 
 for algo, res in results.items():
     print(f"{algo:6s}  R = {res.error:.2e}  ({len(res.errors)} evaluations)")
@@ -79,7 +88,7 @@ a time:
 ```{code-cell} ipython3
 def lm_run(**tol):
     r = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lm",
-                      guess=guess, maxiters=400, **tol)
+                      guess=guess, maxiters=400, reg_amp=0, **tol)
     return f"R = {r.error:.2e}  ({len(r.errors)} evaluations)"
 
 print("vary reltol (ftol), abstol at its 1e-8 default:")
@@ -274,9 +283,9 @@ each is held against the other.
 
 ```{code-cell} ipython3
 hand = croak.retrieve(trace, g.omega, delays, "pg",
-                     algorithm="lbfgs", guess=guess, maxiters=120)
+                     algorithm="lbfgs", guess=guess, maxiters=120, reg_amp=0)
 auto = croak.retrieve(trace, g.omega, delays, "pg",
-                     algorithm="lbfgs-ad", guess=guess, maxiters=120)
+                     algorithm="lbfgs-ad", guess=guess, maxiters=120, reg_amp=0)
 print(f"lbfgs     R = {hand.error:.3e}")
 print(f"lbfgs-ad  R = {auto.error:.3e}")
 ```

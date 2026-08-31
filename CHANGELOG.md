@@ -6,6 +6,21 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **The settled regularisation weights are now the library-wide defaults.**
+  The penalty-capable solvers (`lbfgs`, `lbfgs-hand`, `lbfgs-ad`,
+  `lbfgs-optx`, `cma-es` with `reg_spectrum=0.01`/`reg_amp=0.03`, and
+  `lm`/`lm-optx` with the LM-mapped `1e-5`/`3e-5`) and
+  `retrieve_from_tracedata` default `reg_spectrum`/`reg_amp` to ``None`` =
+  "use the settled weight", matching the GUI and the companion paper's
+  protocol. The spectral-match term is inert unless a target spectrum is
+  supplied, so retrievals without an independent spectrum gain only the mild
+  amplitude-smoothness term. Pass `reg_amp=0, reg_spectrum=0` for the previous
+  unregularised behaviour. `REG_DEFAULTS`/`reg_family`/`reg_defaults` moved
+  from `croak.session.params` to `croak.solver` (still re-exported from the
+  old location).
+
 ## [0.1.0] - 2026-08-31
 
 ### Changed

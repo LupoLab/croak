@@ -49,6 +49,7 @@ from .smearing import SmearingKernel
 from .solver import (
     Retriever,
     assemble_result,
+    resolve_reg,
     spectral_target_amplitude,
     split_smear_value,
 )
@@ -267,9 +268,9 @@ class CMAES(Retriever):
         phase_basis: str = "pointwise",
         n_nodes: int = 20,
         R_omega: bool = False,
-        reg_amp: float = 0.0,
+        reg_amp: float | None = None,
         reg_phase: float = 0.0,
-        reg_spectrum: float = 0.0,
+        reg_spectrum: float | None = None,
         spectrum_target=None,
         reg_time: float = 0.0,
         time_window: tuple[float, float] | None = None,
@@ -298,9 +299,8 @@ class CMAES(Retriever):
         self.phase_basis = str(phase_basis)
         self.n_nodes = int(n_nodes)
         self.R_omega = bool(R_omega)
-        self.reg_amp = float(reg_amp)
+        self.reg_spectrum, self.reg_amp = resolve_reg(reg_spectrum, reg_amp, "gradient")
         self.reg_phase = float(reg_phase)
-        self.reg_spectrum = float(reg_spectrum)
         self._spectral_target = spectral_target_amplitude(spectrum_target)
         self.reg_time = float(reg_time)
         self.time_window = time_window

@@ -27,6 +27,7 @@ from .solver import (
     Retriever,
     assemble_result,
     guard_nonfinite,
+    resolve_reg,
     spectral_target_amplitude,
 )
 
@@ -56,11 +57,17 @@ class LBFGS(Retriever):
         Retrieve only the spectral phase, holding the guess amplitude fixed.
     R_omega : bool, optional
         Use per-frequency adaptive scaling factors.
-    reg_amp, reg_phase : float, optional
-        Weights of the amplitude / phase second-difference smoothness penalties.
-    reg_spectrum : float, optional
+    reg_amp : float or None, optional
+        Amplitude second-difference smoothness weight. ``None`` (default)
+        resolves to the settled production weight ``0.03``
+        (:data:`croak.solver.REG_DEFAULTS`); pass ``0`` to disable.
+    reg_phase : float, optional
+        Phase second-difference smoothness weight (default ``0``).
+    reg_spectrum : float or None, optional
         Weight of the spectral-match penalty pulling the retrieved spectral
-        amplitude towards ``spectrum_target`` (full mode only; ``0`` = off).
+        amplitude towards ``spectrum_target`` (full mode only). ``None``
+        (default) resolves to the settled ``0.01`` and is inert without a
+        ``spectrum_target``; pass ``0`` to disable.
     spectrum_target : array_like or None, optional
         Measured spectral **intensity** on the retrieval grid (centred order,
         e.g. ``TraceData.Iomega``) used by ``reg_spectrum``; ``None`` disables
@@ -91,9 +98,9 @@ class LBFGS(Retriever):
         quadrature: str = "gausslegendre",
         phase_only: bool = False,
         R_omega: bool = False,
-        reg_amp: float = 0.0,
+        reg_amp: float | None = None,
         reg_phase: float = 0.0,
-        reg_spectrum: float = 0.0,
+        reg_spectrum: float | None = None,
         spectrum_target=None,
         reltol: float = 1e-4,
         abstol: float = 1e-8,
@@ -109,9 +116,8 @@ class LBFGS(Retriever):
         self.quadrature = quadrature
         self.phase_only = bool(phase_only)
         self.R_omega = bool(R_omega)
-        self.reg_amp = float(reg_amp)
+        self.reg_spectrum, self.reg_amp = resolve_reg(reg_spectrum, reg_amp, "gradient")
         self.reg_phase = float(reg_phase)
-        self.reg_spectrum = float(reg_spectrum)
         # Peak-normalised target amplitude |E(ω)| from the measured spectral
         # intensity, compared against the retrieved amplitude (None = disabled).
         self._spectral_target = spectral_target_amplitude(spectrum_target)

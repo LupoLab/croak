@@ -54,7 +54,9 @@ amplitude** altogether, leaving it constrained only through each row's delay
 structure. That grip is weakest at the edges of the band, and since
 $|E(\omega)|^2\ge 0$ the freed bins can only grow. Rω also *lowers* the reported
 $R$, because it adds one parameter per row — so a smaller error is not evidence
-the spectrum improved. Always pair it with `phase_only` or `reg_spectrum`; see
+the spectrum improved. Always pair it with `phase_only` or `reg_spectrum`
+(the solvers' default `reg_spectrum` does this automatically whenever an
+independent spectrum is supplied); see
 [Regularisation](../howto/regularisation.md#per-frequency-scaling) for the
 measurements, and {func}`croak.processing.edge_energy_fraction` for the diagnostic.
 

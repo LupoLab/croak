@@ -26,7 +26,12 @@ from .focal import FocalMixture
 from .forward_jax import make_trace_fn
 from .result import RetrievalResult
 from .smearing import SmearingKernel
-from .solver import Retriever, assemble_result, spectral_target_amplitude
+from .solver import (
+    Retriever,
+    assemble_result,
+    resolve_reg,
+    spectral_target_amplitude,
+)
 
 __all__ = ["OptxLBFGS"]
 
@@ -107,9 +112,9 @@ class OptxLBFGS(Retriever):
         phase_basis: str = "pointwise",
         n_nodes: int = 20,
         R_omega: bool = False,
-        reg_amp: float = 0.0,
+        reg_amp: float | None = None,
         reg_phase: float = 0.0,
-        reg_spectrum: float = 0.0,
+        reg_spectrum: float | None = None,
         spectrum_target=None,
         reltol: float = 1e-4,
         abstol: float = 1e-8,
@@ -129,9 +134,8 @@ class OptxLBFGS(Retriever):
         self.phase_basis = str(phase_basis)
         self.n_nodes = int(n_nodes)
         self.R_omega = bool(R_omega)
-        self.reg_amp = float(reg_amp)
+        self.reg_spectrum, self.reg_amp = resolve_reg(reg_spectrum, reg_amp, "gradient")
         self.reg_phase = float(reg_phase)
-        self.reg_spectrum = float(reg_spectrum)
         self._spectral_target = spectral_target_amplitude(spectrum_target)
         self.reltol = float(reltol)
         self.abstol = float(abstol)
