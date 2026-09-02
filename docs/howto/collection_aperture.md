@@ -43,6 +43,10 @@ aperture = mask_hole_aperture(
     z_mask=0.1,                       # mask plane distance from the focus (m)
     apod="tanh", apod_param=96.9e-6,  # the edge, in mask-plane metres
 )
+# A pnps window (compact raised-cosine edge used as a QUADRATURE weight over the
+# nominal hard hole; the weight enters the collected energy once, not squared):
+# mask_hole_aperture(..., apod="rcos", apod_param=64.6e-6, weighting="quadrature").
+# aperture_from_scan() picks both up from the file's window_def_* record.
 mixture = focal_mixture(
     hole_diameter=1.0e-3,             # the INPUT mask holes
     hole_spacing=1.0e-3,

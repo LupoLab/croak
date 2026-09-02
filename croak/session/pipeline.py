@@ -284,10 +284,7 @@ def assemble_simulated_load_data(p: SimulatedLoadParams) -> dict:
     # correction: the post-mask "beamlet" spectrum is the one that actually gates.
     # Fall back to the source spectrum if the file has no beamlet (e.g. Gaussian
     # beam runs, or spectrum_source="source").
-    if p.spectrum_source == "beamlet" and scan.Iomega_beamlet is not None:
-        ref_spectrum = scan.Iomega_beamlet[flip]
-    else:
-        ref_spectrum = scan.Iomega[flip]
+    ref_spectrum = _reference_spectrum(scan, p.spectrum_source)[flip]
 
     # Third-order (χ³) efficiency correction: divide out the ∝ ω^n generation
     # response, i.e. multiply by (λ/µm)^n — equivalently dividing the trace by
@@ -401,6 +398,31 @@ def simulated_geometry(scan: io.SimulatedScan) -> SimulatedGeometry:
     )
 
 
+def _reference_spectrum(scan: io.SimulatedScan, source: str) -> np.ndarray:
+    """The stored spectrum a ``spectrum_source``/``truth_source`` names.
+
+    ``"beamlet_reimaged"`` is the on-axis beamlet (the chromatic focal mixture's
+    own frame, so with it the mixture needs no ``spectrum_frame_p`` reweighting);
+    ``"beamlet"`` the transverse-integrated one (the 1-D models' frame, up to
+    App. D's calibrated exponent); ``"source"`` the pre-mask input. Falls back
+    along ``reimaged -> beamlet -> source`` when a file lacks the requested one.
+    """
+    if source == "beamlet_reimaged" and scan.Iomega_beamlet_reimaged is not None:
+        return scan.Iomega_beamlet_reimaged
+    if source in ("beamlet", "beamlet_reimaged") and scan.Iomega_beamlet is not None:
+        return scan.Iomega_beamlet
+    return scan.Iomega
+
+
+def _truth_field(scan: io.SimulatedScan, source: str) -> np.ndarray | None:
+    """The stored complex field matching :func:`_reference_spectrum`, same fallbacks."""
+    if source == "beamlet_reimaged" and scan.Eomega_beamlet_reimaged is not None:
+        return scan.Eomega_beamlet_reimaged
+    if source in ("beamlet", "beamlet_reimaged") and scan.Iomega_beamlet is not None:
+        return scan.Eomega_beamlet
+    return scan.Eomega
+
+
 def _simulated_truth_spectrum(
     scan: io.SimulatedScan, truth_source: str
 ) -> np.ndarray | None:
@@ -425,10 +447,7 @@ def _simulated_truth_spectrum(
     its display phase: it is both the source for the truth phase overlays and the
     exact initial spectrum used by ``RetrieveParams(truth_init=True)``.
     """
-    if truth_source == "beamlet" and scan.Iomega_beamlet is not None:
-        E = scan.Eomega_beamlet
-    else:
-        E = scan.Eomega
+    E = _truth_field(scan, truth_source)
     if E is None:
         return None
     E = np.asarray(E, dtype=complex) * ((-1.0) ** np.arange(np.size(E)))
@@ -475,12 +494,11 @@ def _simulated_truth(scan: io.SimulatedScan, truth_source: str) -> TruthPulse:
     pos = scan.omega > 0.0
     omega_pos = scan.omega[pos]
     # The recorded τfwhm is the *source* input FWHM, so only trust it for the
-    # source truth; for the beamlet, measure the FWHM from its own envelope and
-    # show the matching beamlet spectrum so the overlaid pulse is self-consistent.
-    if truth_source == "beamlet" and scan.Iomega_beamlet is not None:
-        Iomega, fwhm = scan.Iomega_beamlet, None
-    else:
-        Iomega, fwhm = scan.Iomega, scan.tau_fwhm
+    # source truth; for a beamlet (integrated or on-axis), measure the FWHM from
+    # its own envelope and show the matching spectrum so the overlay is
+    # self-consistent.
+    Iomega = _reference_spectrum(scan, truth_source)
+    fwhm = scan.tau_fwhm if Iomega is scan.Iomega else None
     Eomega = _simulated_truth_spectrum(scan, truth_source)
     phi = None
     phi_t = None
@@ -587,10 +605,7 @@ def assemble_simulated_tracedata(p: SimulatedLoadParams) -> TraceData:
     # Independent spectrum on the native grid (already == grid.omega + ω0_pulse).
     ref_full = None
     if p.use_spectrum:
-        if p.spectrum_source == "beamlet" and scan.Iomega_beamlet is not None:
-            ref_full = scan.Iomega_beamlet.astype(float)
-        else:
-            ref_full = scan.Iomega.astype(float)
+        ref_full = _reference_spectrum(scan, p.spectrum_source).astype(float)
     Iomega = None
     if ref_full is not None:
         m = float(np.max(ref_full))

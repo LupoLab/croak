@@ -700,3 +700,98 @@ def test_global_tilt_sign_is_unobservable_for_a_centred_aperture():
     d0 = _trace(off, omega, delays, ew)
     d1 = _trace(off_flipped, omega, delays, ew)
     assert np.max(np.abs(d1 - d0)) > 1e-4 * d0.max()
+
+
+# --- pnps windows: compact raised-cosine edges used as quadrature weights -----------
+
+
+def test_rcos_edge_is_compact_and_antisymmetric():
+    """The pnps raised-cosine edge: exactly 1 inside D/2-w, 0 outside D/2+w, and
+    antisymmetric about the rim, W(R+t) + W(R-t) = 1."""
+    D, w = 0.5e-3, 60e-6
+    r = np.linspace(0.0, 1e-3, 20001)
+    W = mask_transmission(r, hole_diameter=D, apod="rcos", apod_param=w)
+    assert W[r <= D / 2 - w].min() == 1.0
+    assert W[r >= D / 2 + w].max() == 0.0
+    t = np.linspace(0.0, w, 50)
+    plus = np.interp(D / 2 + t, r, W)
+    minus = np.interp(D / 2 - t, r, W)
+    assert plus + minus == pytest.approx(1.0, abs=1e-6)
+    with pytest.raises(ValueError, match="needs `apod_param`"):
+        mask_transmission(r, hole_diameter=D, apod="rcos")
+
+
+def test_quadrature_weighting_encloses_the_nominal_area():
+    """A quadrature-weighted rcos window integrates to exactly the hard hole's area
+    (pnps ``weighting="quadrature"``), where the same profile squared as an
+    amplitude filter under-counts it."""
+    from croak.collection import quadrature_hole_diameter
+
+    D, w = 0.5e-3, 64.6e-6  # the T17 production window: 2 momentum bins at 260 nm
+    kw = dict(hole_x=0.0, hole_y=0.0, hole_diameter=D, z_mask=0.1, apod="rcos",
+              apod_param=w, n_radial=12, n_azimuth=16)
+    quad = mask_hole_aperture(weighting="quadrature", **kw)
+    amp = mask_hole_aperture(weighting="amplitude", **kw)
+    nominal = np.pi * (D / 2) ** 2
+    assert quad.weighting == "quadrature"
+    assert (quad.weight * quad.transmission).sum() == pytest.approx(nominal, rel=2e-4)
+    # the amplitude convention squares the profile: a visibly smaller aperture
+    assert (amp.weight * amp.transmission**2).sum() < 0.97 * nominal
+    # the edge sits at the second-moment-corrected radius, inside the nominal one
+    corrected = quadrature_hole_diameter(D, "rcos", w)
+    assert corrected < D
+    assert corrected == pytest.approx(np.sqrt(D**2 - 16 * (0.25 - 2 / np.pi**2) * w**2))
+    with pytest.raises(ValueError, match="antisymmetric"):
+        quadrature_hole_diameter(D, "tanh", w)
+    with pytest.raises(ValueError, match="weighting must be"):
+        mask_hole_aperture(weighting="squared", **kw)
+
+
+def test_quadrature_weighting_enters_the_energy_once():
+    """In the collection transform a quadrature weight multiplies |S|^2 once, so the
+    integrated and re-imaged weights coincide; an amplitude filter squares it."""
+    from croak.collection import transform_phases
+
+    D, w = 0.5e-3, 64.6e-6
+    kw = dict(hole_x=-1e-3, hole_y=-1e-3, hole_diameter=D, z_mask=0.1, apod="rcos",
+              apod_param=w, n_radial=4, n_azimuth=6)
+    omega = np.linspace(-1e15, 1e15, 5)
+    omega0 = 7.24e15
+    for weighting in ("quadrature", "amplitude"):
+        ap = mask_hole_aperture(weighting=weighting, **kw)
+        mix = focal_mixture(hole_diameter=1e-3, hole_spacing=1e-3, f_foc=0.1,
+                            wavelength=260e-9, collection=ap, n_radial=3,
+                            n_azimuth=4, r_max_units=2.0)
+        tp = transform_phases(mix, omega, omega0)
+        factor = np.ones(ap.nodes) if weighting == "quadrature" else ap.transmission
+        assert tp.weight_sq == pytest.approx(tp.weight_amp * factor[:, None])
+
+
+def test_aperture_from_scan_reads_a_pnps_quadrature_window(tmp_path, simulated_truth):
+    """A pnps window record (rcos edge, numeric width, quadrature weighting) is
+    rebuilt as the quadrature weight it is, not as a squared filter."""
+    from conftest import write_simulated_h5
+
+    from croak.collection import aperture_from_scan, quadrature_hole_diameter
+    from croak.io import read_simulated_mask_window
+
+    record = _reference_window_record()
+    record.update({"apod": "rcos", "apod_param": 6.458e-5, "weighting": "quadrature"})
+    path = write_simulated_h5(tmp_path / "pnps.h5", simulated_truth, mask_window=record)
+    spec = read_simulated_mask_window(path)
+    assert spec is not None
+    assert (spec.apod, spec.apod_param, spec.weighting) == ("rcos", 6.458e-5, "quadrature")
+    ap = aperture_from_scan(path)
+    assert ap.weighting == "quadrature"
+    # the nodes stop at the corrected edge radius + width (compact support)
+    r = np.hypot(ap.x - spec.hole_x, ap.y - spec.hole_y)
+    outer = 0.5 * quadrature_hole_diameter(HOLE_DIAM, "rcos", 6.458e-5) + 6.458e-5
+    assert r.max() < outer
+    assert (ap.weight * ap.transmission).sum() == pytest.approx(
+        np.pi * (HOLE_DIAM / 2) ** 2, rel=2e-4
+    )
+    # a ModelPNPS record (no weighting scalar) still reads as an amplitude filter
+    assert read_simulated_mask_window(
+        write_simulated_h5(tmp_path / "luna.h5", simulated_truth,
+                           mask_window=_reference_window_record())
+    ).weighting == "amplitude"

@@ -177,13 +177,19 @@ class SimulatedLoadParams:
     # (enables spectral regularisation); turn off for a blind test
     use_spectrum: bool = True
     #: which spectrum when ``use_spectrum``: ``"beamlet"`` (post-mask
-    #: ``grid/Iω_beamlet``, the beam that gates) or ``"source"`` (pre-mask
-    #: ``grid/Iω``, the ideal input).
+    #: ``grid/Iω_beamlet``, the transverse-integrated beam that gates — the
+    #: 1-D models' frame), ``"beamlet_reimaged"`` (the ON-AXIS beamlet
+    #: ``grid/Iω_beamlet_reimaged``, stored by pnps files — the chromatic focal
+    #: mixture's own frame, so no ``spectrum_frame_p`` is then needed) or
+    #: ``"source"`` (pre-mask ``grid/Iω``, the ideal input). Falls back along
+    #: reimaged → beamlet → source when the file lacks the requested one.
     spectrum_source: str = "beamlet"
-    #: which stored pulse to overlay as the time-domain truth: ``"beamlet"``
-    #: (post-mask ``grid/It_beamlet``, the beam that gates — default) or
-    #: ``"source"`` (pre-mask ``grid/It``, the ideal input). Falls back to the
-    #: other when the file stores only one. See
+    #: which stored pulse to overlay as the time-domain truth (and to seed
+    #: ``truth_init`` from): ``"beamlet"`` (post-mask ``grid/It_beamlet``, the
+    #: beam that gates — default), ``"beamlet_reimaged"`` (its on-axis
+    #: counterpart, ``grid/It_beamlet_reimaged`` — the like-for-like truth for
+    #: a focal-mixture retrieval) or ``"source"`` (pre-mask ``grid/It``, the
+    #: ideal input). Falls back when the file stores fewer. See
     #: :func:`croak.io.read_simulated_truth_keys`.
     truth_source: str = "beamlet"
     #: load the as-simulated ω-density trace on its native grid straight into the

@@ -207,8 +207,14 @@ def write_simulated_h5(
     store_complex: bool = False,
     geometry: tuple[float, float, str] | None = None,
     mask_window: dict[str, object] | None = None,
+    store_reimaged: bool = False,
 ) -> str:
     """Write a :class:`SimulatedScanTruth` as a ``scansave`` HDF5 file.
+
+    Passing ``store_reimaged`` also writes the on-axis beamlet record pnps files
+    carry (``Iω_beamlet_reimaged``, one power of ω bluer in amplitude than the
+    integrated beamlet; ``It_beamlet_reimaged``, a distinguishable ``0.9 It``; and
+    with ``store_complex`` the matching ``Eω_beamlet_reimaged``).
 
     Axes and the trace window are stored in FFT/bin order (unshifted), as the
     real Luna output is, so :func:`croak.io.read_simulated_scan` must sort them
@@ -287,6 +293,20 @@ def write_simulated_h5(
             e_src = np.fft.ifftshift(e_src_ascending)
             gg["Eω_re"] = e_src.real
             gg["Eω_im"] = e_src.imag
+        if store_reimaged:
+            # the on-axis beamlet: |E(r=0)| is one power of omega bluer than the
+            # integrated spectrum's amplitude (App. D / N98), same phase
+            wfac = np.maximum(truth.omega_abs / truth.omega0, 0.0)
+            reimaged_ascending = truth.Iomega_beamlet * wfac**2
+            gg["Iω_beamlet_reimaged"] = np.fft.ifftshift(reimaged_ascending)
+            gg["It_beamlet_reimaged"] = 0.9 * truth.It
+            if store_complex:
+                e_re_ascending = np.sqrt(reimaged_ascending) * np.exp(
+                    1j * np.angle(np.conj(truth.ew) * (-1.0) ** np.arange(n_omega))
+                )
+                e_re = np.fft.ifftshift(e_re_ascending)
+                gg["Eω_beamlet_reimaged_re"] = e_re.real
+                gg["Eω_beamlet_reimaged_im"] = e_re.imag
         if delay_convention is not None:
             gg["delay_convention"] = delay_convention
         if geometry is not None:
@@ -302,6 +322,8 @@ def write_simulated_h5(
                 "apod_param",
             ):
                 gg[f"window_def_{key}"] = mask_window[key]
+            if "weighting" in mask_window:  # pnps records how the edge weights energy
+                gg["window_def_weighting"] = mask_window["weighting"]
             n_kx = 8
             gg["kx"] = np.arange(n_kx) * float(mask_window["delta_k"])
             gg["referenceλ"] = float(mask_window["reference_wavelength"])

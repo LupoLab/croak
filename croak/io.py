@@ -398,7 +398,16 @@ SIMULATED_WINDOW_KEYS: tuple[str, ...] = ("Iω_win", "Iω_win_reimaged", "Iω_fu
 #: (``It``/``Ito``). Listed in preference order (``beamlet`` first), so a file
 #: that stores the beamlet defaults to it. ``read_simulated_truth_keys`` lists the
 #: subset a given file actually stores.
-SIMULATED_TRUTH_SOURCES: tuple[str, ...] = ("beamlet", "source")
+#: Time-domain truth sources a scan may store, in preference order: the post-mask
+#: gate beamlet (transverse-integrated, ``It_beamlet``), its ON-AXIS counterpart
+#: (``It_beamlet_reimaged`` --- one power of ω bluer in amplitude, the field the
+#: chromatic focal mixture's ``ew`` represents; written by pnps), and the pre-mask
+#: source (``It``).
+SIMULATED_TRUTH_SOURCES: tuple[str, ...] = ("beamlet", "beamlet_reimaged", "source")
+
+#: Dataset-name suffix of each truth source (``It<suffix>``, ``Ito<suffix>``,
+#: ``Iω<suffix>``, ``Eω<suffix>``).
+_TRUTH_SUFFIX = {"beamlet": "_beamlet", "beamlet_reimaged": "_beamlet_reimaged", "source": ""}
 
 
 @dataclass(frozen=True)
@@ -481,6 +490,14 @@ class SimulatedScan:
     delay_convention: str = "legacy"
     Eomega_beamlet: NDArray[np.complex128] | None = None
     Eomega: NDArray[np.complex128] | None = None
+    #: The ON-AXIS beamlet spectrum and field (``Iω_beamlet_reimaged``,
+    #: ``Eω_beamlet_reimaged``), when the file stores them (pnps files do). The
+    #: k-integrated ``Iomega_beamlet`` is the partner of the collected trace
+    #: ``Iω_win``; this is the partner of ``Iω_win_reimaged`` and, more to the
+    #: point, the field the chromatic focal mixture's ``ew`` represents (one
+    #: power of ω bluer in amplitude than the integrated spectrum, App. D).
+    Iomega_beamlet_reimaged: NDArray[np.float64] | None = None
+    Eomega_beamlet_reimaged: NDArray[np.complex128] | None = None
     #: Mask geometry the scan was generated with (m), when the file records it.
     #: The smearing kernel is built from d/D = (spacing + D)/2D, and carrying
     #: that by hand between scripts is how a sweep ended up running a gap-500
@@ -523,12 +540,18 @@ class MaskWindowSpec:
     z_mask : float
         Mask-plane distance from the focus (m).
     apod : str
-        Apodisation form: ``"hard"``, ``"supergauss"`` or ``"tanh"``.
+        Apodisation form: ``"hard"``, ``"supergauss"``, ``"tanh"`` or ``"rcos"`` (the
+        compact raised-cosine edge pnps windows use).
     apod_param : float or None
         Apodisation parameter, or ``None`` when the file recorded the simulator's
         ``"default"`` --- which depends on the transverse k-grid and so must be
         re-derived (:func:`croak.collection.resolve_tanh_width`) from ``delta_k``,
         ``omega`` and ``reference_wavelength``.
+    weighting : str
+        How the edge profile enters the collected energy: ``"amplitude"`` (a field
+        filter, squared in the energy --- ModelPNPS files, and the default when the
+        record has no ``weighting`` scalar) or ``"quadrature"`` (a weight over a hard
+        hole, entering once --- pnps files). See :data:`croak.collection.WEIGHTINGS`.
     delta_k : float
         Transverse k-grid spacing of the simulation (rad/m), from ``/grid/kx``.
     reference_wavelength : float
@@ -550,6 +573,7 @@ class MaskWindowSpec:
     delta_k: float
     reference_wavelength: float
     omega_reference: float
+    weighting: str = "amplitude"
 
 
 def _read_text(node: h5py.Group, name: str) -> str:
@@ -632,6 +656,11 @@ def _mask_window_spec(
         delta_k=float(kx[1] - kx[0]),
         reference_wavelength=reference_wavelength,
         omega_reference=float(grid_omega[nearest]),
+        # pnps records how the profile weights the energy; ModelPNPS files predate
+        # the scalar and always squared an amplitude filter.
+        weighting=(
+            _read_text(g, f"{p}weighting") if f"{p}weighting" in g else "amplitude"
+        ),
     )
 
 
@@ -696,11 +725,16 @@ def _read_scalar(node: h5py.Group, name: str) -> float:
 def _truth_dataset_names(source: str) -> tuple[str, str]:
     """``(oversampled, native)`` intensity dataset names for a truth source.
 
-    The post-mask gate ``"beamlet"`` is stored as ``Ito_beamlet``/``It_beamlet``;
-    the pre-mask ``"source"`` input as ``Ito``/``It``. Both share the ``To``/``t``
-    time axes.
+    The post-mask gate ``"beamlet"`` is stored as ``Ito_beamlet``/``It_beamlet``, its
+    on-axis counterpart ``"beamlet_reimaged"`` as ``Ito_beamlet_reimaged``/
+    ``It_beamlet_reimaged``, and the pre-mask ``"source"`` input as ``Ito``/``It``.
+    All share the ``To``/``t`` time axes.
     """
-    suffix = "_beamlet" if source == "beamlet" else ""
+    if source not in _TRUTH_SUFFIX:
+        raise ValueError(
+            f"truth source must be one of {SIMULATED_TRUTH_SOURCES}, got {source!r}"
+        )
+    suffix = _TRUTH_SUFFIX[source]
     return f"Ito{suffix}", f"It{suffix}"
 
 
@@ -708,14 +742,19 @@ def _resolve_truth_keys(g: h5py.Group, truth_source: str) -> tuple[str, str]:
     """Resolve ``(time-axis, intensity)`` dataset names for the truth overlay.
 
     Prefers the requested ``truth_source`` (``"beamlet"`` = the post-mask gate
-    beam, ``"source"`` = the ideal pre-mask input) and the oversampled time grid
-    (``To``/``Ito*``) when present. Falls back to the other source when the
-    requested one is absent — e.g. a Gaussian-beam run with no beamlet, or a
-    legacy file storing only ``It`` — so the loader always returns *some* truth.
+    beam, ``"beamlet_reimaged"`` = its on-axis field, ``"source"`` = the ideal
+    pre-mask input) and the oversampled time grid (``To``/``Ito*``) when present.
+    Falls back along ``reimaged → beamlet → source`` when the requested one is
+    absent — e.g. a Gaussian-beam run with no beamlet, a ModelPNPS file with no
+    on-axis truth, or a legacy file storing only ``It`` — so the loader always
+    returns *some* truth.
     """
-    order = (
-        ("beamlet", "source") if truth_source == "beamlet" else ("source", "beamlet")
-    )
+    if truth_source == "beamlet_reimaged":
+        order: tuple[str, ...] = ("beamlet_reimaged", "beamlet", "source")
+    elif truth_source == "source":
+        order = ("source", "beamlet")
+    else:
+        order = ("beamlet", "source")
     for src in order:
         over, native = _truth_dataset_names(src)
         if "To" in g and over in g:
@@ -873,6 +912,11 @@ def read_simulated_scan(
 
         e_beamlet = _read_complex("Eω_beamlet")
         e_source = _read_complex("Eω")
+        # pnps files also store the on-axis beamlet (the mixture's own frame)
+        reimaged = (
+            _read_array(g, "Iω_beamlet_reimaged") if "Iω_beamlet_reimaged" in g else None
+        )
+        e_reimaged = _read_complex("Eω_beamlet_reimaged")
         # Delay-convention marker: newer ModelPNPS files store the trace
         # directly in the gate-delay (paper) frame and say so; marker-less
         # files are the legacy probe-delayed frame (reversed on loading).
@@ -950,6 +994,10 @@ def read_simulated_scan(
         e_beamlet = e_beamlet[order]
     if e_source is not None:
         e_source = e_source[order]
+    if reimaged is not None:
+        reimaged = reimaged[order]
+    if e_reimaged is not None:
+        e_reimaged = e_reimaged[order]
 
     return SimulatedScan(
         omega=omega,
@@ -967,6 +1015,8 @@ def read_simulated_scan(
         delay_convention=delay_convention,
         Eomega_beamlet=e_beamlet,
         Eomega=e_source,
+        Iomega_beamlet_reimaged=reimaged,
+        Eomega_beamlet_reimaged=e_reimaged,
         mask_diameter=mask_diameter,
         mask_spacing=mask_spacing,
         f_foc=f_foc,
@@ -1072,7 +1122,9 @@ def read_simulated_truth_keys(path: str) -> tuple[str, ...]:
     its default): it returns the subset of :data:`SIMULATED_TRUTH_SOURCES` the
     file stores, in preference order (``"beamlet"`` first). ``"beamlet"`` is
     listed when ``/grid/It_beamlet`` or ``/grid/Ito_beamlet`` is present;
-    ``"source"`` when ``/grid/It`` or ``/grid/Ito`` is present.
+    ``"beamlet_reimaged"`` when ``/grid/It_beamlet_reimaged`` or
+    ``/grid/Ito_beamlet_reimaged`` is (pnps files); ``"source"`` when ``/grid/It``
+    or ``/grid/Ito`` is present.
 
     Parameters
     ----------

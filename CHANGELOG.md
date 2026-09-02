@@ -8,6 +8,25 @@ semantic versioning.
 
 ### Added
 
+- **pnps collection windows read natively.** `mask_transmission` gains the compact
+  raised-cosine edge `"rcos"`, and the window record's `weighting` scalar is
+  honoured: `"quadrature"` (pnps) treats the profile as the integration weight over
+  a hard hole — it enters the collected energy ONCE and is built at
+  `quadrature_hole_diameter()` so it encloses exactly the nominal hole area — where
+  `"amplitude"` (ModelPNPS/Luna, and the default for records without the scalar)
+  keeps squaring a field filter. `CollectionAperture`, `mask_hole_aperture` and
+  `aperture_from_scan` carry `weighting`; `MaskWindowSpec.weighting` records it. Until
+  now a pnps file's `rcos` window was refused, and modelling it as the squared tanh
+  under-counted a 0.5 mm aperture by a quarter (FROG N101).
+- **The on-axis beamlet truth as a source.** pnps files store the on-axis beamlet
+  alongside the transverse-integrated one (`Iω_beamlet_reimaged`,
+  `Eω_beamlet_reimaged`, `It_beamlet_reimaged`); `SimulatedScan` now carries them and
+  `truth_source` / `spectrum_source` accept `"beamlet_reimaged"` (with fallback
+  reimaged → beamlet → source). This is the frame the chromatic focal mixture's `ew`
+  represents, so with it a focal-mixture retrieval needs no `spectrum_frame_p`
+  reweighting and can be seeded (`truth_init`) and scored against the truth it
+  actually reconstructs. `read_simulated_truth_keys` lists it when present.
+
 - **fc-z: the depth-resolved chromatic focal mixture** (`focal_mixture(...,
   evolve_profiles=True, material=..., thickness=..., npoints=...)`). Every
   entrance-face model freezes the chromatic beamlet profiles at the slab

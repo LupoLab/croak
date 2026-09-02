@@ -145,7 +145,24 @@ _C_LIGHT = 299_792_458.0
 #: reproduced exactly rather than approximated by a top hat. The reference instrument's
 #: ``tanh`` edge is 96.9 um on a 500 um hole -- 19 % of the diameter -- so the
 #: difference is not a detail.
-APODISATIONS = ("hard", "supergauss", "tanh")
+APODISATIONS = ("hard", "supergauss", "tanh", "rcos")
+
+#: How the edge profile enters the collected energy. ``"amplitude"`` (ModelPNPS/Luna
+#: files): the profile is a transmission that filters the FIELD, so the collected
+#: energy carries it squared and the re-imaged field once. ``"quadrature"`` (pnps
+#: files, ``window_def_*_weighting = "quadrature"``): the profile is the integration
+#: WEIGHT over a hard hole and enters once in both observables; its edge is shrunk by
+#: its own second moment so the weight encloses exactly the nominal hole area
+#: (:func:`quadrature_hole_diameter`). The distinction is not cosmetic: squaring a
+#: tanh edge that is not antisymmetric about the rim under-counts a 0.5 mm aperture by
+#: a quarter, and the two recorded observables of such a file describe different
+#: apertures.
+WEIGHTINGS = ("amplitude", "quadrature")
+
+#: Second moment of the antisymmetric edge profiles, :math:`\int t\,\phi'(t)\,dt`
+#: over the unit-width edge (ported from ``pnps.beams.EDGE_SECOND_MOMENT``); it is what
+#: :func:`quadrature_hole_diameter` cancels.
+EDGE_SECOND_MOMENT = {"hard": 0.0, "rcos": 0.25 - 2.0 / np.pi**2}
 
 #: Which functional of the transformed field the detector measures.
 COLLECTION_MODES = ("integrated", "reimaged")
@@ -176,7 +193,12 @@ def mask_transmission(
 
         \text{hard} &: \; \mathbb 1[r \le D/2] \\
         \text{supergauss} &: \; \exp\bigl[-(2r/D)^n\bigr] \\
-        \text{tanh} &: \; \tfrac12\bigl[1-\tanh\bigl((r-D/2)/\Delta\bigr)\bigr]
+        \text{tanh} &: \; \tfrac12\bigl[1-\tanh\bigl((r-D/2)/\Delta\bigr)\bigr] \\
+        \text{rcos} &: \; \tfrac12\bigl[1-\sin\bigl(\tfrac{\pi}{2}\,
+                     \mathrm{clip}((r-D/2)/\Delta,-1,1)\bigr)\bigr]
+
+    the last (``pnps.beams.chromatic_mask``) a raised cosine of *compact* support:
+    exactly 1 inside :math:`D/2-\Delta` and exactly 0 outside :math:`D/2+\Delta`.
 
     Parameters
     ----------
@@ -184,14 +206,15 @@ def mask_transmission(
         Distance from the hole centre in the mask plane (m).
     hole_diameter : float
         Hole diameter :math:`D` (m).
-    apod : {"hard", "supergauss", "tanh"}, optional
+    apod : {"hard", "supergauss", "tanh", "rcos"}, optional
         Apodisation form.
     apod_param : float or None, optional
-        The super-Gaussian exponent :math:`n` (default 16) or the ``tanh``
-        smoothing width :math:`\Delta` in **mask-plane metres**. Required for
-        ``"tanh"``: its default in the simulator depends on the simulation's own
-        k-grid, so it must be resolved with :func:`resolve_tanh_width` rather than
-        guessed here.
+        The super-Gaussian exponent :math:`n` (default 16), the ``tanh``
+        smoothing width :math:`\Delta` or the ``rcos`` edge half-width
+        :math:`\Delta`, both in **mask-plane metres**. Required for ``"tanh"`` and
+        ``"rcos"``: their defaults in the simulators depend on the simulation's own
+        k-grid, so they must be read from the file (or resolved with
+        :func:`resolve_tanh_width`) rather than guessed here.
 
     Returns
     -------
@@ -216,11 +239,66 @@ def mask_transmission(
         return np.exp(-((2.0 * r / hole_diameter) ** n))
     if apod_param is None:
         raise ValueError(
-            "the 'tanh' apodisation needs `apod_param` (the smoothing width in "
-            "mask-plane metres); use resolve_tanh_width() to reproduce the "
-            "simulator's own default, which depends on its transverse k-grid"
+            f"the {apod!r} apodisation needs `apod_param` (the edge width in "
+            "mask-plane metres); read it from the scan file, or for a ModelPNPS "
+            "'default' tanh use resolve_tanh_width(), which reproduces the "
+            "simulator's own default from its transverse k-grid"
         )
+    if apod == "rcos":
+        t = np.clip((r - 0.5 * hole_diameter) / float(apod_param), -1.0, 1.0)
+        return 0.5 * (1.0 - np.sin(0.5 * np.pi * t))
     return 0.5 * (1.0 - np.tanh((r - 0.5 * hole_diameter) / float(apod_param)))
+
+
+def quadrature_hole_diameter(
+    hole_diameter: float, apod: str, apod_param: float | None
+) -> float:
+    r"""Edge diameter whose *quadrature weight* encloses exactly the nominal hole area.
+
+    Port of ``pnps.beams.quadrature_holediam``. An antisymmetric edge
+    (:math:`\phi(t)+\phi(-t)=1`) is unbiased in one dimension, but in two the ring
+    just outside the nominal radius :math:`R` is longer than the ring just inside,
+    so a profile of half-width :math:`w` encloses :math:`\pi R^2 + 4\pi m_2 w^2`
+    with :math:`m_2` from :data:`EDGE_SECOND_MOMENT`. Centring the edge on
+    :math:`\sqrt{R^2 - 4 m_2 w^2}` cancels that term exactly (residual
+    :math:`O((w/R)^4)`). This is what a pnps ``weighting = "quadrature"`` window
+    does before rendering, so the aperture croak rebuilds must do the same.
+
+    Parameters
+    ----------
+    hole_diameter : float
+        Nominal hole diameter :math:`D = 2R` (m).
+    apod : {"hard", "rcos"}
+        Edge profile; must have an antisymmetric expansion.
+    apod_param : float or None
+        Edge half-width :math:`w` (m); ignored for ``"hard"``.
+
+    Returns
+    -------
+    float
+        The corrected diameter to build the edge at.
+
+    Raises
+    ------
+    ValueError
+        If the profile has no antisymmetric expansion (``"supergauss"``,
+        ``"tanh"``), or the correction would consume the whole aperture.
+    """
+    if apod not in EDGE_SECOND_MOMENT:
+        raise ValueError(
+            "quadrature weighting is defined for antisymmetric compact edges "
+            f"{tuple(EDGE_SECOND_MOMENT)}, got {apod!r}"
+        )
+    m2 = EDGE_SECOND_MOMENT[apod]
+    if m2 == 0.0 or apod_param is None:
+        return float(hole_diameter)
+    d2 = float(hole_diameter) ** 2 - 16.0 * m2 * float(apod_param) ** 2
+    if d2 <= 0.0:
+        raise ValueError(
+            f"edge half-width {apod_param!r} m is too wide for a {hole_diameter!r} m "
+            "hole: the quadrature correction would consume the whole aperture"
+        )
+    return float(np.sqrt(d2))
 
 
 def resolve_tanh_width(
@@ -284,6 +362,11 @@ class CollectionAperture:
     mode : {"integrated", "reimaged"}
         Which functional of the transformed field the detector measures; see the module
         docstring.
+    weighting : {"amplitude", "quadrature"}
+        How ``transmission`` enters the collected energy: squared (a field filter, the
+        ModelPNPS convention) or once (a quadrature weight over a hard hole, the pnps
+        convention). See :data:`WEIGHTINGS`. The re-imaged observable carries it once
+        either way.
     """
 
     x: NDArray[np.float64]
@@ -293,6 +376,7 @@ class CollectionAperture:
     z_mask: float
     chromatic: bool = True
     mode: str = "integrated"
+    weighting: str = "amplitude"
 
     def __post_init__(self) -> None:
         """Validate shapes and enumerations at construction, not at trace time."""
@@ -306,6 +390,10 @@ class CollectionAperture:
         if self.mode not in COLLECTION_MODES:
             raise ValueError(
                 f"mode must be one of {COLLECTION_MODES}, got {self.mode!r}"
+            )
+        if self.weighting not in WEIGHTINGS:
+            raise ValueError(
+                f"weighting must be one of {WEIGHTINGS}, got {self.weighting!r}"
             )
         if self.chromatic and self.z_mask <= 0.0:
             raise ValueError(
@@ -350,13 +438,16 @@ def mask_hole_aperture(
     n_azimuth: int = DEFAULT_N_AZIMUTH,
     pad: float = DEFAULT_PAD,
     mode: str = "integrated",
+    weighting: str = "amplitude",
 ) -> CollectionAperture:
     r"""Build the quadrature for a single apodised collection hole.
 
     The radial quadrature is **split at the hole edge** into ``[0, D/2]`` and
     ``[D/2, pad\,D/2]``. The integrand is smooth on each panel but has a knee at the
     edge, so two panels of ``n_radial`` nodes resolve an apodised rim that a single
-    panel of ``2 n_radial`` would smear.
+    panel of ``2 n_radial`` would smear. A compact ``"rcos"`` edge of half-width
+    :math:`\Delta` is instead split into the flat core ``[0, D/2-\Delta]`` and the
+    edge band ``[D/2-\Delta, D/2+\Delta]``, outside which it transmits nothing.
 
     Parameters
     ----------
@@ -385,6 +476,10 @@ def mask_hole_aperture(
         (clamped to 1) for a hard edge, which transmits nothing outside the rim.
     mode : {"integrated", "reimaged"}, optional
         Collection model; see the module docstring.
+    weighting : {"amplitude", "quadrature"}, optional
+        How the edge profile enters the collected energy (:data:`WEIGHTINGS`). With
+        ``"quadrature"`` the edge is built at :func:`quadrature_hole_diameter` so the
+        weight encloses exactly the nominal hole area, as the pnps simulator does.
 
     Returns
     -------
@@ -394,12 +489,27 @@ def mask_hole_aperture(
         raise ValueError("n_radial and n_azimuth must both be >= 2")
     if pad < 1.0:
         raise ValueError(f"pad must be >= 1 (the hole itself), got {pad!r}")
-    radius = 0.5 * hole_diameter
-    # A hard edge transmits nothing outside the rim, so the outer panel would be an
-    # exactly-zero contribution bought at full cost.
-    panels = (
-        [(0.0, radius)] if apod == "hard" else [(0.0, radius), (radius, pad * radius)]
+    if weighting not in WEIGHTINGS:
+        raise ValueError(f"weighting must be one of {WEIGHTINGS}, got {weighting!r}")
+    edge_diameter = (
+        quadrature_hole_diameter(hole_diameter, apod, apod_param)
+        if weighting == "quadrature"
+        else float(hole_diameter)
     )
+    radius = 0.5 * edge_diameter
+    # A hard edge transmits nothing outside the rim, so the outer panel would be an
+    # exactly-zero contribution bought at full cost; a compact raised-cosine edge
+    # transmits nothing beyond D/2 + width, so its outer panel stops there.
+    if apod == "hard":
+        panels = [(0.0, radius)]
+    elif apod == "rcos":
+        if apod_param is None:
+            raise ValueError("the 'rcos' apodisation needs `apod_param` (edge half-width)")
+        width = float(apod_param)
+        inner = max(radius - width, 0.0)
+        panels = [(0.0, inner), (inner, radius + width)]
+    else:
+        panels = [(0.0, radius), (radius, pad * radius)]
     xs, ys, ws = [], [], []
     for r_inner, r_outer in panels:
         px, py, pw = _polar_panel(r_inner, r_outer, n_radial, n_azimuth)
@@ -410,7 +520,7 @@ def mask_hole_aperture(
     y = np.concatenate(ys)
     weight = np.concatenate(ws)
     transmission = mask_transmission(
-        np.hypot(x, y), hole_diameter=hole_diameter, apod=apod, apod_param=apod_param
+        np.hypot(x, y), hole_diameter=edge_diameter, apod=apod, apod_param=apod_param
     )
     return CollectionAperture(
         x=np.ascontiguousarray(x + float(hole_x)),
@@ -420,6 +530,7 @@ def mask_hole_aperture(
         z_mask=float(z_mask),
         chromatic=True,
         mode=mode,
+        weighting=weighting,
     )
 
 
@@ -477,6 +588,11 @@ def aperture_from_scan(
             z_mask=spec.z_mask,
             omega_reference=spec.omega_reference,
         )
+    if apod_param is None and spec.apod == "rcos":
+        raise ValueError(
+            f"{path!r}: the window's 'rcos' edge width was recorded as 'default', "
+            "which croak cannot resolve (pnps always writes the number)"
+        )
     return mask_hole_aperture(
         hole_x=spec.hole_x,
         hole_y=spec.hole_y,
@@ -488,6 +604,7 @@ def aperture_from_scan(
         n_azimuth=n_azimuth,
         pad=pad,
         mode=mode,
+        weighting=spec.weighting,
     )
 
 
@@ -568,7 +685,11 @@ def aperture_offset(mixture: FocalMixture) -> NDArray[np.float64]:
             "a non-chromatic aperture is specified directly in k, so it has no "
             "mask-plane offset; compare its nodes with (omega/c) r_s / f instead"
         )
-    w = aperture.weight * aperture.transmission**2
+    w = aperture.weight * (
+        aperture.transmission
+        if aperture.weighting == "quadrature"
+        else aperture.transmission**2
+    )
     total = float(np.sum(w))
     if total <= 0.0:
         raise ValueError("the aperture transmits nothing: its weights sum to zero")
@@ -645,9 +766,17 @@ def transform_phases(
     # int |S~|^2 d^2k / (2 pi)^2 -- which is what makes an unbounded aperture reproduce
     # the incoherent sum EXACTLY rather than up to a factor (tests/test_collection.py).
     norm = 1.0 / (2.0 * np.pi) ** 2
+    # "amplitude": the profile filters the field, so the collected energy carries it
+    # squared. "quadrature": the profile IS the integration weight over a hard hole
+    # and enters the energy once (pnps). The re-imaged sum carries it once either way.
+    energy_weight = (
+        aperture.transmission
+        if aperture.weighting == "quadrature"
+        else aperture.transmission**2
+    )
     return TransformPhases(
         chromatic_delay=np.ascontiguousarray(chromatic_delay),
         static_phase=np.ascontiguousarray(static_phase),
-        weight_sq=np.ascontiguousarray(dk * (aperture.transmission**2)[:, None] * norm),
+        weight_sq=np.ascontiguousarray(dk * energy_weight[:, None] * norm),
         weight_amp=np.ascontiguousarray(dk * aperture.transmission[:, None] * norm),
     )

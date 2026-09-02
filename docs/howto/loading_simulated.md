@@ -30,6 +30,8 @@ worked retrievals of them (see [Validation](../explanation/validation.md)).
 | `grid/Iω_beamlet` | `(Nω,)` | **beamlet** spectrum *after* the mask (the beam that gates) — optional |
 | `grid/t`, `grid/It` | `(Nt,)` | **source** time axis and temporal intensity (`To`/`Ito` if oversampled) |
 | `grid/It_beamlet` | `(Nt,)` | **beamlet** temporal intensity (post-mask gate beam; `Ito_beamlet` if oversampled) — optional |
+| `grid/Iω_beamlet_reimaged` | `(Nω,)` | **on-axis beamlet** spectrum (pnps files; one power of ω bluer in amplitude than `Iω_beamlet`) — optional |
+| `grid/It_beamlet_reimaged` | `(Nt,)` | **on-axis beamlet** temporal intensity (`Ito_beamlet_reimaged` if oversampled) — optional |
 | `grid/τfwhm` | scalar | input-pulse intensity FWHM (s) |
 | `grid/zsave` | `(nz,)` | saved propagation distances (m), entrance `0` → exit `zmax` — optional (multi-thickness format) |
 | `scanvariables/τ` | `(Nτ,)` | delay axis (s) |
@@ -228,6 +230,15 @@ used when present. A file that stores only one falls back to it automatically
 (legacy and Gaussian-beam files store only `It`). Because the blind retrieval
 reconstructs the **gating** beamlet, `"beamlet"` is the like-for-like truth to
 compare against; pick `"source"` only to check against the ideal input.
+
+pnps files add a third source, **`"beamlet_reimaged"`**: the *on-axis* beamlet
+(`grid/It_beamlet_reimaged`, `grid/Iω_beamlet_reimaged`, `grid/Eω_beamlet_reimaged`).
+Its amplitude is one power of ω bluer than the integrated beamlet's, and its
+transform limit is slightly *longer* (1.053 vs 1.033 fs for the FROG production
+pulse). It is the field the chromatic focal mixture's `ew` represents, so a
+`focal=` retrieval should use it both as `spectrum_source` (then no
+`spectrum_frame_p` reweighting is needed) and as the `truth_source` it is scored
+and, with `truth_init`, seeded from. Files without it fall back to the beamlet.
 
 Newer ModelPNPS files may also store the complex spectra as
 `Eω_beamlet_re`/`Eω_beamlet_im` and `Eω_re`/`Eω_im`. croak converts the

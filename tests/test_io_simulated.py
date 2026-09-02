@@ -443,3 +443,48 @@ def test_mask_window_selects_numbered_record(tmp_path, simulated_truth):
     assert wide.hole_x == base.hole_x
     # absent numbered record -> None, not a half-built aperture
     assert io.read_simulated_mask_window(path, "Iω_win_3") is None
+
+
+# --- the on-axis beamlet truth pnps files store ----------------------------------------
+
+
+def test_reimaged_beamlet_truth_is_read_and_selectable(tmp_path, simulated_truth):
+    """``truth_source="beamlet_reimaged"`` selects the on-axis beamlet record: its
+    time-domain intensity, spectrum and complex field; files without it fall back."""
+    from conftest import write_simulated_h5
+
+    from croak.io import read_simulated_scan, read_simulated_truth_keys
+    from croak.session.pipeline import (_reference_spectrum, _simulated_truth,
+                                        _truth_field)
+
+    path = write_simulated_h5(tmp_path / "reimaged.h5", simulated_truth,
+                              store_complex=True, store_reimaged=True)
+    # the fixture writes It (source) and It_beamlet_reimaged but no It_beamlet
+    assert read_simulated_truth_keys(path) == ("beamlet_reimaged", "source")
+
+    scan = read_simulated_scan(path, truth_source="beamlet_reimaged")
+    assert scan.Iomega_beamlet_reimaged is not None
+    assert scan.Eomega_beamlet_reimaged is not None
+    np.testing.assert_allclose(scan.It, 0.9 * simulated_truth.It)
+    pos = (scan.omega > 0) & (scan.Iomega_beamlet > 1e-6 * scan.Iomega_beamlet.max())
+    ratio = scan.Iomega_beamlet_reimaged[pos] / scan.Iomega_beamlet[pos]
+    np.testing.assert_allclose(ratio, (scan.omega[pos] / scan.omega0) ** 2, rtol=1e-10)
+    assert _reference_spectrum(scan, "beamlet_reimaged") is scan.Iomega_beamlet_reimaged
+    assert _reference_spectrum(scan, "beamlet") is scan.Iomega_beamlet
+    assert _truth_field(scan, "beamlet_reimaged") is scan.Eomega_beamlet_reimaged
+    # the overlay's spectral panel follows the selected source: the on-axis
+    # beamlet is bluer than the integrated one (TruthPulse may normalise/reorder
+    # Iw, so compare a scale-free property)
+    truth_re = _simulated_truth(scan, "beamlet_reimaged")
+    truth_b = _simulated_truth(scan, "beamlet")
+    centroid = lambda t: float(np.sum(t.lam * t.Iw) / np.sum(t.Iw))  # noqa: E731
+    assert centroid(truth_re) < centroid(truth_b)
+    assert truth_re.fwhm == pytest.approx(truth_b.fwhm)  # the fixture's 0.9*It shape
+
+    # a ModelPNPS-style file (no on-axis record) falls back to the beamlet/source
+    legacy = write_simulated_h5(tmp_path / "legacy.h5", simulated_truth, store_complex=True)
+    scan2 = read_simulated_scan(legacy, truth_source="beamlet_reimaged")
+    assert scan2.Iomega_beamlet_reimaged is None
+    np.testing.assert_allclose(scan2.It, simulated_truth.It)
+    assert _reference_spectrum(scan2, "beamlet_reimaged") is scan2.Iomega_beamlet
+    assert "beamlet_reimaged" not in read_simulated_truth_keys(legacy)

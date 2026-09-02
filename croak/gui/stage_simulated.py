@@ -55,7 +55,7 @@ _TWO_PI_PHZ = 2.0 * np.pi * 1e15
 _INTERACTIONS = ["pg", "sd"]
 # Reference spectrum: the post-mask "beamlet" (the beam that gates) or the
 # pre-mask "source" (the ideal input).
-_SPECTRUM_SOURCES = ["beamlet", "source"]
+_SPECTRUM_SOURCES = ["beamlet", "beamlet_reimaged", "source"]
 
 
 def simulated_signature(p: SimulatedLoadParams) -> tuple:
