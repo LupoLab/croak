@@ -116,7 +116,7 @@ def recentring(
         that map the model rows onto the data rows, so the two marginals carry
         the same row weighting whatever generation-response exponent the data
         were corrected with. Recommended; the factors are recomputed at every
-        evaluation from the current model.
+        evaluation from the current model, and differentiated through.
 
     Returns
     -------
@@ -144,8 +144,11 @@ def recentring(
             num = jnp.sum(tm * trace, axis=1)
             den = jnp.sum(trace * trace, axis=1)
             weights = jnp.where(den > 0.0, num / jnp.where(den > 0.0, den, 1.0), 0.0)
-            # locate the peak only; the factors themselves are not fitted here
-            weights = jax.lax.stop_gradient(weights)
+            # The factors depend (smoothly) on the trace and the gradient must
+            # flow through them: cutting it (stop_gradient) makes the objective
+            # and its gradient inconsistent, and the L-BFGS line search then
+            # fails outright near convergence (NLopt "runtime_error", FROG r38)
+            # -- an accidental early stop, not a converged retrieval.
         return recentre_trace(trace, delays_j, weights)
 
     return wrapped
