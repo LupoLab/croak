@@ -117,6 +117,7 @@ class RetrievalWorker(QThread):
         truth=None,
         preview=True,
         scan_path=None,
+        scan_window=None,
     ):
         super().__init__(parent)
         self._td = tracedata
@@ -128,6 +129,8 @@ class RetrievalWorker(QThread):
         # Loaded scan file, forwarded so a focal-mixture retrieval with
         # collection="file" can rebuild the aperture from the file's own record.
         self._scan_path = scan_path
+        # ... and which collection hole of a multi-window scan the trace came from.
+        self._scan_window = scan_window
         self._stop = False
         self._t0 = 0.0
         self._last_preview = 0.0
@@ -181,6 +184,7 @@ class RetrievalWorker(QThread):
                 rng=np.random.default_rng(),
                 callback=self._callback,
                 scan_path=self._scan_path,
+                scan_window=self._scan_window,
             )
             self.finished_ok.emit(result, time.perf_counter() - self._t0)
         except StopRetrieval:

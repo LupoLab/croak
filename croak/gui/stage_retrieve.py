@@ -965,6 +965,18 @@ class StageRetrieve(Stage):
         )
         return path
 
+    def _scan_window(self) -> str | None:
+        """Which collection hole of a multi-window simulated scan is loaded.
+
+        Forwarded with the scan path so ``collection="file"`` rebuilds the
+        aperture of the window actually retrieved (``Iω_win_5`` is a 2.0 mm
+        hole on the campaign files, ``Iω_win`` the 0.5 mm one); ``None`` for
+        experimental sessions.
+        """
+        if getattr(self.state.load, "frog_path", ""):
+            return None
+        return getattr(self.state.simulated, "window_key", None) or None
+
     # -- coupled hole diameter / spacing / σ delay ---------------------------
     # The delay-offset width of a square BOXCARS mask is proportional to the mask
     # ratio d/D with d = (spacing + D)/2 (see :mod:`croak.smearing`), so the three
@@ -1345,6 +1357,7 @@ class StageRetrieve(Stage):
             truth=truth,
             preview=p.live_preview,
             scan_path=self._scan_path(),
+            scan_window=self._scan_window(),
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.preview.connect(self._on_preview)

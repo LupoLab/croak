@@ -867,9 +867,18 @@ def extra_param_centres(
 
 
 def focal_mixture_from_params(
-    p: RetrieveParams, td: TraceData, scan_path: str | None = None
+    p: RetrieveParams,
+    td: TraceData,
+    scan_path: str | None = None,
+    scan_window: str | int | None = None,
 ) -> FocalMixture | None:
     """Build the chromatic focal mixture from ``RetrieveParams``, or ``None``.
+
+    ``scan_window`` names which collection hole of a multi-aperture scan the
+    trace was loaded from (the ``window_key``, e.g. ``"Iω_win_5"``), so that
+    ``collection="file"`` rebuilds *that* hole's record rather than the first
+    one's; ``None`` keeps the first window, which is right for single-window
+    files.
 
     The focal-model counterpart of :func:`smearing_kernel`: the mask geometry
     comes from the same ``smear_hole_*`` fields (it is the same mask), the
@@ -915,7 +924,9 @@ def focal_mixture_from_params(
                 "collection='file' rebuilds the aperture from the scan's own "
                 "window_def record and needs the scan path"
             )
-        collection = aperture_from_scan(scan_path, mode=p.collection_mode)
+        collection = aperture_from_scan(
+            scan_path, mode=p.collection_mode, window=scan_window
+        )
     elif p.collection == "manual":
         d = (p.smear_hole_spacing_mm + p.smear_hole_diameter_mm) / 2.0 * 1e-3
         collection = mask_hole_aperture(
@@ -974,6 +985,7 @@ def run_retrieval(
     callback=None,
     focal=None,
     scan_path: str | None = None,
+    scan_window: str | int | None = None,
 ) -> RetrievalResult:
     """Run :func:`~croak.pipeline.retrieve_from_tracedata` from a ``RetrieveParams``.
 
@@ -1010,10 +1022,14 @@ def run_retrieval(
         Path of the loaded scan file, needed only for
         ``p.collection == "file"`` (the aperture is rebuilt from the file's
         own ``window_def_*`` record).
+    scan_window : str or int, optional
+        Which collection hole of a multi-aperture scan the trace came from (the
+        loader's ``window_key``); with ``p.collection == "file"`` the aperture
+        is rebuilt from that hole's record. ``None`` = the first window.
     """
     rng = np.random.default_rng() if rng is None else rng
     if focal is None:
-        focal = focal_mixture_from_params(p, td, scan_path)
+        focal = focal_mixture_from_params(p, td, scan_path, scan_window)
     td = apply_spectrum_frame(p, td)
     thickness, tau0, smear_scale, smear_delta = extra_param_centres(p, extras_seed)
     return retrieve_from_tracedata(

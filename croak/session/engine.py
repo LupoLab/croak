@@ -160,6 +160,11 @@ def run_session(
             if options.entry == "simulated"
             else options.load.frog_path
         ) or None
+        # ... and which of its collection holes the trace was loaded from, so a
+        # multi-window scan does not silently get the first hole's aperture.
+        scan_window = (
+            options.simulated.window_key if options.entry == "simulated" else None
+        )
         result = pipeline.run_retrieval(
             options.retrieve,
             out.tracedata,
@@ -167,6 +172,7 @@ def run_session(
             rng=rng,
             callback=retrieve_callback,
             scan_path=scan_path,
+            scan_window=scan_window,
         )
         out.result = pipeline.apply_post_filter(options.retrieve, result, out.tracedata)
     if "dispersion" in todo and out.result is not None:

@@ -6,6 +6,14 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`collection="file"` on a multi-window scan used the first hole's record for
+  every window.** The session and the GUI now forward the loaded `window_key`
+  (`run_retrieval(..., scan_window=...)`, `focal_mixture_from_params(...,
+  scan_window)`), so retrieving `Iω_win_5` rebuilds the 2.0 mm aperture it was
+  recorded through rather than the 0.5 mm one.
+
 ### Added
 
 - **pnps collection windows read natively.** `mask_transmission` gains the compact
