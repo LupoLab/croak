@@ -8,6 +8,11 @@ semantic versioning.
 
 ### Fixed
 
+- **`delay_origin="marginal_peak"` stopped early.** The data-weighted model
+  marginal held its row factors out of the gradient, so the objective and its
+  gradient disagreed and L-BFGS terminated on a line-search failure (NLopt
+  `runtime_error`) a few dozen iterations in, returning an unconverged
+  iterate. The factors are now differentiated through.
 - **`collection="file"` on a multi-window scan used the first hole's record for
   every window.** The session and the GUI now forward the loaded `window_key`
   (`run_retrieval(..., scan_window=...)`, `focal_mixture_from_params(...,
