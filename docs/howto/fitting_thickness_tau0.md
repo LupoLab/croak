@@ -158,3 +158,23 @@ summary. The thickness fit starts from the *Thickness (µm)* value in the
 | `fit_thickness` | `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | dispersive slab, PG/SD | identifiable only for a genuinely dispersive slab (`lm-optx`/`cma-es` are unconstrained — use a good prior) |
 | `polish` | `lbfgs-ad`, `lm`, `lm-optx` | an extra enabled | fit pulse first, then free the extras (not `cma-es`) |
 | `fit_smearing` | `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | a smearing kernel, PG/SD | one multiplier on the kernel widths; never fit alongside `fit_thickness` — see [Geometric smearing](geometric_smearing.md) |
+
+## The delay origin without a fitted τ₀: `delay_origin="marginal_peak"`
+
+The preprocessing centres a measured trace on its delay-marginal peak, but the
+forward model puts delay zero at gate–probe coincidence. For a delay-symmetric
+trace those coincide; for a coherently collected single-cycle trace they do not
+(tens of attoseconds, growing with the chirp accumulated in the medium), and a
+retrieval with the origin held at coincidence can only absorb the misalignment
+by broadening the pulse. Rather than fitting `tau0`, which on a chirped pulse
+wanders by hundreds of attoseconds and trades against the chirp,
+
+```python
+res = croak.retrieve(trace, omega, delays, "pg", algorithm="lbfgs-ad",
+                     delay_origin="marginal_peak", ...)
+```
+
+re-centres every model trace on its own marginal peak by the same sub-sample
+rule the preprocessing used — one convention on both sides, no free parameter.
+It needs a uniform delay axis (the retrieval grid is). If you do fit `tau0`,
+`tau0_bound` (seconds; `RetrieveParams.tau0_bound_fs`) boxes it.

@@ -1062,6 +1062,8 @@ def run_retrieval(
         fit_smearing=p.fit_smearing and p.smearing,
         fit_smearing_split=p.fit_smearing_split and p.fit_smearing and p.smearing,
         polish=p.polish_two_phase,
+        delay_origin=p.delay_origin,
+        tau0_bound=p.tau0_bound_fs * 1e-15,
         phase_basis=p.phase_basis,
         n_nodes=p.n_nodes,
         strategy=p.cma_strategy,

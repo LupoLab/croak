@@ -162,6 +162,8 @@ def retrieve_from_tracedata(
     fit_smearing: bool = False,
     fit_smearing_split: bool = False,
     polish: bool = False,
+    delay_origin: str = "coincidence",
+    tau0_bound: float = 0.0,
     phase_basis: str = "pointwise",
     n_nodes: int = 20,
     strategy: str = "cma",
@@ -278,6 +280,12 @@ def retrieve_from_tracedata(
     polish : bool, optional
         Two-phase polish for the extra parameters: retrieve the pulse with them
         fixed, then free them for a joint final phase.
+    delay_origin : {"coincidence", "marginal_peak"}, optional
+        The model's delay-zero convention (AD solvers): gate--probe coincidence, or
+        the model trace re-centred on its own marginal peak like the data. See
+        :mod:`croak.delay_origin`.
+    tau0_bound : float, optional
+        ``|tau0| <= tau0_bound`` (s) for a fitted delay offset; ``0`` = unbounded.
     maxiters : int, optional
         Maximum iterations.
     reltol, abstol : float, optional
@@ -363,6 +371,8 @@ def retrieve_from_tracedata(
         "fit_smearing": fit_smearing,
         "fit_smearing_split": fit_smearing_split,
         "polish": polish,
+        "delay_origin": delay_origin,
+        "tau0_bound": tau0_bound,
         # COPRA-only; filtered out for every other solver by `accepted` below.
         "alpha": alpha,
         "stall_patience": stall_patience,

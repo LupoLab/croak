@@ -660,6 +660,24 @@ class StageRetrieve(Stage):
             "few %."
         )
         form.addRow("Spectrum frame p", self.frame_p_spin)
+        # Auto frame: p = p_model − p_source, where the mixture's field is the
+        # on-axis one (p_model = 1), a 1-D model's the collection-weighted one
+        # (p_model ≈ 0.5 at the production geometry, App D), and the loaded
+        # reference spectrum is either transverse-integrated (p_source = 0) or,
+        # for pnps files, the on-axis beamlet (p_source = 1).
+        self.frame_auto_check = check(
+            "Auto frame from model + spectrum source",
+            False,
+            lambda v: self._apply_frame_auto(),
+        )
+        self.frame_auto_check.setToolTip(
+            "Set p automatically: chromatic mixture → on-axis frame (p = 1 for an "
+            "integrated reference spectrum, 0 for a 'beamlet_reimaged' one); "
+            "1-D kernels → the collection-weighted frame (p ≈ 0.5 at the "
+            "production geometry; geometry-dependent, see App. D)."
+        )
+        form.addRow(self.frame_auto_check)
+        self.focal_check.toggled.connect(lambda _v: self._apply_frame_auto())
         self.collection_diam_spin.setEnabled(p.collection == "manual")
         self.controls.addWidget(box)
 
@@ -689,6 +707,34 @@ class StageRetrieve(Stage):
             lambda v: setattr(p, "polish_two_phase", v),
         )
         form.addRow(self.polish_check)
+        self.tau0_bound_spin = dspin(
+            0.0,
+            5000.0,
+            p.tau0_bound_fs * 1e3,
+            lambda v: setattr(p, "tau0_bound_fs", float(v) * 1e-3),
+            decimals=0,
+            step=10.0,
+        )
+        self.tau0_bound_spin.setToolTip(
+            "Box bound on the fitted τ₀, |τ₀| ≤ bound (attoseconds); 0 = free. "
+            "A free τ₀ on a chirped pulse wanders by hundreds of as and trades "
+            "against the chirp; the physical collection offset is tens of as."
+        )
+        form.addRow("τ₀ bound (as)", self.tau0_bound_spin)
+        self.delay_origin_combo = combo(
+            ["coincidence", "marginal_peak"],
+            p.delay_origin,
+            lambda v: setattr(p, "delay_origin", str(v)),
+        )
+        self.delay_origin_combo.setToolTip(
+            "Model delay zero. 'coincidence': gate–probe coincidence (native). "
+            "'marginal_peak': every model trace is re-centred on its own "
+            "delay-marginal peak, exactly as the preprocessing centres the data — "
+            "one convention on both sides, no free parameter. Use for coherently "
+            "collected single-cycle traces (their peak sits tens of as from "
+            "coincidence); it replaces 'Fit τ₀' and stays put on chirped pulses."
+        )
+        form.addRow("Delay origin", self.delay_origin_combo)
         self.controls.addWidget(box)
 
         self.reg_box, form = group("Regularisation")
@@ -965,6 +1011,26 @@ class StageRetrieve(Stage):
         )
         return path
 
+    def _apply_frame_auto(self) -> None:
+        """Set the spectral-frame exponent from the model and the spectrum source.
+
+        ``p = p_model - p_source``: the mixture's field is on-axis (1), a 1-D
+        kernel's the collection-weighted effective one (≈0.5 at the production
+        geometry); an integrated reference spectrum sits at 0, the on-axis
+        ``beamlet_reimaged`` one at 1. Only acts while the auto box is checked;
+        the spin is greyed out then so the rule is visible.
+        """
+        auto = self.frame_auto_check.isChecked()
+        self.frame_p_spin.setEnabled(not auto)
+        if not auto:
+            return
+        p = self.state.retrieve
+        source = getattr(self.state.simulated, "spectrum_source", "beamlet")
+        p_source = 1.0 if source == "beamlet_reimaged" else 0.0
+        p_model = 1.0 if p.focal else 0.5
+        p.spectrum_frame_p = p_model - p_source
+        self.frame_p_spin.setValue(p.spectrum_frame_p)
+
     def _scan_window(self) -> str | None:
         """Which collection hole of a multi-window simulated scan is loaded.
 
@@ -1165,6 +1231,8 @@ class StageRetrieve(Stage):
             "polish" in params
             and (has_fit_thickness or has_fit_tau0 or has_fit_smearing)
         )
+        self.tau0_bound_spin.setEnabled("tau0_bound" in params and has_fit_tau0)
+        self.delay_origin_combo.setEnabled("delay_origin" in params)
         self.romega_check.setEnabled("R_omega" in params)
         # Reduced phase basis (AD + global solvers); nodes only matter for B-spline.
         has_basis = "phase_basis" in params
@@ -1205,6 +1273,7 @@ class StageRetrieve(Stage):
             self.smear_layout_combo: p.smear_layout,
             self.collection_combo: p.collection,
             self.collection_mode_combo: p.collection_mode,
+            self.delay_origin_combo: p.delay_origin,
             self.guess_combo: self._initial_guess_label(),
         }
         for w, val in combos.items():
@@ -1250,6 +1319,7 @@ class StageRetrieve(Stage):
             self.focal_f_spin: p.focal_f_mm,
             self.collection_diam_spin: p.collection_diam_mm,
             self.frame_p_spin: p.spectrum_frame_p,
+            self.tau0_bound_spin: p.tau0_bound_fs * 1e3,
             self.reg_amp_spin: p.reg_amp,
             self.reg_phase_spin: p.reg_phase,
             self.reg_spectrum_spin: p.reg_spectrum,

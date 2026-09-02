@@ -16,6 +16,22 @@ semantic versioning.
 
 ### Added
 
+- **`delay_origin="marginal_peak"`: the model trace re-centred on its own
+  delay-marginal peak** (`croak.delay_origin`; AD solvers, session params, GUI
+  "Delay origin"). The preprocessing centres the data on their marginal peak;
+  the forward model puts delay zero at gate–probe coincidence. For coherently
+  collected single-cycle traces the two differ by tens of attoseconds, growing
+  with the chirp, and a retrieval with a fixed origin pays for the misalignment
+  by broadening the pulse (~10 % at the production hole, FROG N101/N102).
+  Re-centring the model by the same sub-sample parabolic rule gives both sides
+  one convention with no free parameter; unlike `fit_tau0` it does not wander on
+  chirped pulses. Exact Fourier translation, two FFTs per evaluation.
+- **`tau0_bound`** (`RetrieveParams.tau0_bound_fs`, GUI "τ₀ bound"): a box bound
+  on a fitted delay offset — the stopgap for chirped pulses where a free τ₀
+  ran to hundreds of attoseconds.
+- **GUI "Auto frame"** in the focal group: sets the spectral-frame exponent from
+  the model and the loaded spectrum source (mixture → on-axis; 1-D kernel →
+  ≈0.5; `beamlet_reimaged` source → 0 for the mixture).
 - **pnps collection windows read natively.** `mask_transmission` gains the compact
   raised-cosine edge `"rcos"`, and the window record's `weighting` scalar is
   honoured: `"quadrature"` (pnps) treats the profile as the integration weight over

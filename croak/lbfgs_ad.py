@@ -39,6 +39,7 @@ from ._jax_pulse import (
     build_parameterisation,
     time_window_mask,
 )
+from .delay_origin import DELAY_ORIGINS, recentring
 from .focal import FocalMixture
 from .forward_jax import make_param_trace_fn
 from .result import RetrievalResult
@@ -190,6 +191,18 @@ class LBFGSAD(Retriever):
         Two-phase polish (default ``False``): first retrieve the pulse with the
         extra parameters held fixed, then free them for a joint final phase.
         Only meaningful when ``fit_thickness`` or ``fit_tau0`` is set.
+    delay_origin : {"coincidence", "marginal_peak"}, optional
+        Where the model's delay zero sits. ``"coincidence"`` (default): gate--probe
+        coincidence, the forward model's native convention. ``"marginal_peak"``:
+        every model trace is re-centred on its own delay-marginal peak by the same
+        sub-sample rule the preprocessing applies to the data, so the two sides
+        share one convention with no free parameter (:mod:`croak.delay_origin`).
+        Use it for coherently collected single-cycle traces, where the marginal
+        peak sits tens of attoseconds from coincidence and a fixed origin costs
+        ~10 % of duration; unlike ``fit_tau0`` it stays put on chirped pulses.
+    tau0_bound : float, optional
+        Box bound on the fitted delay offset, ``|tau0| <= tau0_bound`` (s); ``0``
+        (default) leaves it unbounded. Only meaningful with ``fit_tau0``.
     targeterr : float, optional
         Stop early when the FROG error drops below this value. Two
         robustness guards apply during optimization: a non-finite objective or
@@ -234,6 +247,8 @@ class LBFGSAD(Retriever):
         fit_smearing: bool = False,
         fit_smearing_split: bool = False,
         polish: bool = False,
+        delay_origin: str = "coincidence",
+        tau0_bound: float = 0.0,
         reltol: float = 1e-4,
         abstol: float = 1e-8,
         targeterr: float = 0.0,
@@ -267,6 +282,14 @@ class LBFGSAD(Retriever):
         self.fit_smearing = bool(fit_smearing)
         self.fit_smearing_split = bool(fit_smearing_split)
         self.polish = bool(polish)
+        if delay_origin not in DELAY_ORIGINS:
+            raise ValueError(
+                f"delay_origin must be one of {DELAY_ORIGINS}, got {delay_origin!r}"
+            )
+        self.delay_origin = str(delay_origin)
+        if tau0_bound < 0.0:
+            raise ValueError(f"tau0_bound must be >= 0 (0 = unbounded), got {tau0_bound!r}")
+        self.tau0_bound = float(tau0_bound)
         self.reltol = float(reltol)
         self.abstol = float(abstol)
         self.targeterr = float(targeterr)
@@ -293,6 +316,10 @@ class LBFGSAD(Retriever):
             fit_tau0=self.fit_tau0,
             fit_smearing=self.fit_smearing,
         )
+        # Delay origin: with "marginal_peak" every model trace is re-centred on
+        # its own marginal peak, the convention the preprocessing gave the data,
+        # so no delay offset is left for the pulse to absorb (croak.delay_origin).
+        trace_param = recentring(trace_param, delays, self.delay_origin)
         # Temporal-penalty mask (None when disabled); window defaults to the
         # measurement delay range.
         time_mask = None
@@ -326,6 +353,15 @@ class LBFGSAD(Retriever):
             smear_delta0=self.smear_scale_delta,
         )
         aug = augment(u0_pulse, spec)
+        # Optional box bound on the fitted delay offset, |tau0| <= tau0_bound: a
+        # free tau0 on a chirped trace wanders by hundreds of attoseconds and trades
+        # against the chirp (FROG N102); the physical offset is tens.
+        upper_bounds = np.full(aug.u0.size, np.inf)
+        lower_bounds_aug = np.array(aug.lower_bounds, dtype=float, copy=True)
+        if self.tau0_bound > 0.0 and aug.idx_tau0 is not None:
+            scale_tau_fit = aug.scales[1]
+            lower_bounds_aug[aug.idx_tau0] = (-self.tau0_bound - self.tau0) / scale_tau_fit
+            upper_bounds[aug.idx_tau0] = (self.tau0_bound - self.tau0) / scale_tau_fit
 
         tm = jnp.asarray(t_meas)
         wj = jnp.asarray(weights)
@@ -395,7 +431,7 @@ class LBFGSAD(Retriever):
                 omega0=self.omega0,
             )
 
-        def run_lbfgs(unpack, u_start, lower_bounds):
+        def run_lbfgs(unpack, u_start, lower_bounds, upper=None):
             """Run one NLopt L-BFGS pass over ``u_start``; logs into ``err_log``.
 
             The best iterate is tracked so that an internal NLopt failure
@@ -443,6 +479,8 @@ class LBFGSAD(Retriever):
             opt.set_ftol_abs(self.abstol)
             if np.any(np.isfinite(lower_bounds)):
                 opt.set_lower_bounds(lower_bounds)
+            if upper is not None and np.any(np.isfinite(upper)):
+                opt.set_upper_bounds(upper)
             if self.targeterr > 0:
                 opt.set_stopval(self.targeterr)
             try:
@@ -477,9 +515,9 @@ class LBFGSAD(Retriever):
             # Phase 1: pulse with extras fixed. Phase 2: free the extras jointly.
             u_pulse = run_lbfgs(pulse_unpack, u0_pulse, no_bounds)
             u_seed = np.concatenate([u_pulse, np.zeros(aug.u0.size - u_pulse.size)])
-            u = run_lbfgs(aug.unpack, u_seed, aug.lower_bounds)
+            u = run_lbfgs(aug.unpack, u_seed, lower_bounds_aug, upper_bounds)
         elif spec.any:
-            u = run_lbfgs(aug.unpack, aug.u0, aug.lower_bounds)
+            u = run_lbfgs(aug.unpack, aug.u0, lower_bounds_aug, upper_bounds)
         else:
             u = run_lbfgs(pulse_unpack, u0_pulse, no_bounds)
 

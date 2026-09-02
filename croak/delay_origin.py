@@ -1,0 +1,133 @@
+"""The delay origin of a model trace: gate--probe coincidence, or the marginal peak.
+
+A measured trace does not know where its delay zero is. The preprocessing
+(:func:`croak.preprocess.regrid`) therefore centres the *data* on their
+delay-marginal peak, to sub-sample precision. The forward model, on the other
+hand, places delay zero at gate--probe coincidence. For a delay-symmetric trace
+the two conventions agree; for the traces of a tightly apertured single-cycle
+instrument they do not -- coherent collection makes the trace asymmetric and
+puts its marginal peak tens of attoseconds from coincidence, growing with the
+chirp accumulated in the medium -- and a retrieval with the delay zero held at
+coincidence can pay for the misalignment only by broadening the pulse (FROG
+N101/N102: the whole of the "+10 % single-cycle over-report" at the production
+hole).
+
+Two remedies exist. Fitting a delay offset ``tau0`` (``fit_tau0``) works for
+transform-limited pulses but is not benign for chirped ones: the chirp itself
+displaces the marginal peak, ``tau0`` then wanders by hundreds of attoseconds
+and trades against the retrieved chirp. This module implements the other:
+**centre the model trace on its own marginal peak, by the same sub-sample
+parabolic rule the preprocessing applies to the data**, at every evaluation.
+Both sides then share one convention, for any pulse, with no free parameter.
+
+The shift is applied to the computed trace by an exact Fourier translation
+along the (uniform) delay axis, so it costs two FFTs per evaluation and is
+differentiable in both the trace values and the estimated peak position; the
+peak *index* is found with ``argmax`` (no gradient, correctly -- the vertex of
+the parabola through the three samples carries it).
+"""
+
+from __future__ import annotations
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
+
+__all__ = ["DELAY_ORIGINS", "marginal_peak_delay_jax", "recentre_trace", "recentring"]
+
+#: ``"coincidence"``: delay zero at gate--probe coincidence (the model's native
+#: convention; the default). ``"marginal_peak"``: the model trace is shifted so its
+#: delay-marginal peak sits at delay zero, matching the data's preprocessing.
+DELAY_ORIGINS = ("coincidence", "marginal_peak")
+
+
+def marginal_peak_delay_jax(delays: jnp.ndarray, marginal: jnp.ndarray) -> jnp.ndarray:
+    """Sub-sample delay of the marginal's peak (JAX port of ``marginal_peak_delay``).
+
+    Parabola through the peak sample and its two neighbours, vertex clamped to the
+    bracketing samples; the peak sample is used unchanged at either end of the axis
+    or when the three points do not curve downward. The ``argmax`` carries no
+    gradient; the vertex position does.
+    """
+    n = marginal.shape[0]
+    i = jnp.argmax(marginal)
+    i = jnp.clip(i, 1, n - 2)
+    y0, y1, y2 = marginal[i - 1], marginal[i], marginal[i + 1]
+    d = delays[i + 1] - delays[i]
+    curv = y0 - 2.0 * y1 + y2
+    # vertex of the parabola through (-1, y0), (0, y1), (1, y2), in units of d
+    vertex = jnp.where(curv < 0.0, 0.5 * (y0 - y2) / jnp.where(curv < 0.0, curv, -1.0), 0.0)
+    vertex = jnp.clip(vertex, -1.0, 1.0)
+    at_edge = (jnp.argmax(marginal) == 0) | (jnp.argmax(marginal) == n - 1)
+    return delays[i] + jnp.where(at_edge, 0.0, vertex * d)
+
+
+def recentre_trace(trace: jnp.ndarray, delays: jnp.ndarray) -> jnp.ndarray:
+    """Shift ``trace`` (``(Nomega, Ndelay)``) so its delay-marginal peak sits at 0.
+
+    Exact Fourier translation along the delay axis, which must be uniform (the
+    retrieval grid is). The shift is periodic on the axis, so a trace that has
+    decayed to zero at both ends -- the usual case -- is translated without artefact.
+    """
+    delays = jnp.asarray(delays)
+    tau_p = marginal_peak_delay_jax(delays, jnp.sum(trace, axis=0))
+    n = delays.shape[0]
+    d = delays[1] - delays[0]
+    f = jnp.fft.fftfreq(n, d=d)
+    # T_new(tau) = T(tau + tau_p): multiply the transform by exp(+2 pi i f tau_p)
+    spec = jnp.fft.fft(trace, axis=1) * jnp.exp(2j * jnp.pi * f * tau_p)[None, :]
+    return jnp.real(jnp.fft.ifft(spec, axis=1))
+
+
+def recentring(trace_fn, delays: ArrayLike, origin: str = "coincidence"):
+    """Wrap a trace function so its output honours ``origin``.
+
+    Parameters
+    ----------
+    trace_fn : callable
+        ``trace_fn(*args) -> (Nomega, Ndelay)`` array (e.g. the ``trace_param`` of
+        :func:`croak.forward_jax.make_param_trace_fn`).
+    delays : array_like
+        The (uniform) delay axis the trace is evaluated on (s).
+    origin : {"coincidence", "marginal_peak"}
+        ``"coincidence"`` returns ``trace_fn`` unchanged.
+
+    Returns
+    -------
+    callable
+    """
+    if origin not in DELAY_ORIGINS:
+        raise ValueError(f"delay_origin must be one of {DELAY_ORIGINS}, got {origin!r}")
+    if origin == "coincidence":
+        return trace_fn
+    delays_j = jnp.asarray(np.asarray(delays, dtype=float))
+    if delays_j.shape[0] > 2:
+        steps = np.diff(np.asarray(delays, dtype=float))
+        if not np.allclose(steps, steps[0], rtol=1e-6, atol=0.0):
+            raise ValueError(
+                "delay_origin='marginal_peak' needs a uniform delay axis (the "
+                "retrieval grid is; pass the regridded delays)"
+            )
+
+    def wrapped(*args, **kwargs):
+        return recentre_trace(trace_fn(*args, **kwargs), delays_j)
+
+    return wrapped
+
+
+def marginal_peak_delay_np(delays: ArrayLike, trace: ArrayLike) -> float:
+    """NumPy convenience: the model trace's marginal-peak delay (s)."""
+    return float(
+        marginal_peak_delay_jax(
+            jnp.asarray(np.asarray(delays, dtype=float)),
+            jnp.asarray(np.sum(np.asarray(trace, dtype=float), axis=0)),
+        )
+    )
+
+
+def _check_grad_flows() -> NDArray[np.float64]:  # pragma: no cover - dev aid
+    delays = jnp.linspace(-5e-15, 5e-15, 41)
+    trace = jnp.exp(-(((delays - 0.3e-15) / 1e-15) ** 2))[None, :] * jnp.ones((3, 1))
+    g = jax.grad(lambda t: jnp.sum(recentre_trace(t, delays)[:, 20]))(trace)
+    return np.asarray(g)

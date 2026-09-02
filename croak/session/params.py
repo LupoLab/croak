@@ -424,6 +424,16 @@ class RetrieveParams:
     # smearing channel deviates from the geometric prediction; needs fit_smearing
     fit_smearing_split: bool = False
     polish_two_phase: bool = False
+    #: Where the model's delay zero sits (AD solvers): ``"coincidence"`` (gate–probe
+    #: coincidence, the forward model's native convention) or ``"marginal_peak"``
+    #: (every model trace re-centred on its own delay-marginal peak, the convention
+    #: the preprocessing gives the data — no free parameter). The latter is the
+    #: single-cycle protocol: a coherently collected trace peaks tens of as from
+    #: coincidence, growing with the chirp, and a fixed origin costs ~10 % of
+    #: duration while a free ``fit_tau0`` wanders on chirped pulses (FROG N102).
+    delay_origin: str = "coincidence"
+    #: ``|τ0| ≤ tau0_bound_fs`` (fs) for a fitted delay offset; 0 = unbounded.
+    tau0_bound_fs: float = 0.0
     #: Amplitude-smoothness weight (2nd difference of ``|E(w)|``, max-normalised).
     #: Used *together with* ``reg_spectrum``: 0.03 alongside a spectrum weight of
     #: 0.01 beat every single-penalty setting tested, on every metric at once and
