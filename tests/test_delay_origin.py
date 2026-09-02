@@ -117,3 +117,33 @@ def test_lbfgs_ad_tau0_bound_is_respected(setup):
     assert boxed.error > free.error
     with pytest.raises(ValueError, match="tau0_bound"):
         LBFGSAD(tau0_bound=-1.0)
+
+
+def test_recentring_with_data_weights_uses_the_data_row_weighting(setup):
+    """With the measured trace supplied, the marginal is formed with the per-row
+    factors mapping model rows onto data rows; a uniformly scaled data trace gives
+    the same shift as no weighting, and a red-weighted one moves the peak of an
+    asymmetric model trace the way the data's own marginal does."""
+    g, ew, delays = setup
+    base = maketrace(g.omega, delays, ew, "shg")
+    dtau = delays[1] - delays[0]
+    # an asymmetric model trace: a delayed, weaker replica in the red rows only
+    n_om = base.shape[0]
+    asym = base.copy()
+    asym[: n_om // 2] += 0.5 * _shift(base, delays, 1.3 * dtau)[: n_om // 2]
+    fn = lambda: jnp.asarray(asym)  # noqa: E731
+    plain = np.asarray(recentring(fn, delays, "marginal_peak")())
+    same = np.asarray(recentring(fn, delays, "marginal_peak", t_meas=3.0 * asym)())
+    assert np.allclose(plain, same, atol=1e-9 * asym.max())
+    # data whose red rows are 10x heavier: the weighted marginal peaks later
+    heavy = asym.copy()
+    heavy[: n_om // 2] *= 10.0
+    weighted = np.asarray(recentring(fn, delays, "marginal_peak", t_meas=heavy)())
+    peak_plain = marginal_peak_delay(delays, plain.sum(0))
+    peak_heavy_model = marginal_peak_delay(delays, (heavy.sum(0)))
+    # the re-centred model's marginal, weighted like the data, sits at 0 by
+    # construction; the plain-weighted one is therefore displaced the other way
+    mu = (heavy * asym).sum(1) / (asym * asym).sum(1)
+    assert abs(marginal_peak_delay(delays, (weighted * mu[:, None]).sum(0))) < 0.02 * dtau
+    assert abs(peak_plain) < 0.02 * dtau
+    assert peak_heavy_model != pytest.approx(0.0, abs=0.05 * dtau)

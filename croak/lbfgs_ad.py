@@ -319,7 +319,7 @@ class LBFGSAD(Retriever):
         # Delay origin: with "marginal_peak" every model trace is re-centred on
         # its own marginal peak, the convention the preprocessing gave the data,
         # so no delay offset is left for the pulse to absorb (croak.delay_origin).
-        trace_param = recentring(trace_param, delays, self.delay_origin)
+        trace_param = recentring(trace_param, delays, self.delay_origin, t_meas=t_meas)
         # Temporal-penalty mask (None when disabled); window defaults to the
         # measurement delay range.
         time_mask = None

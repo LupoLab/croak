@@ -63,15 +63,27 @@ def marginal_peak_delay_jax(delays: jnp.ndarray, marginal: jnp.ndarray) -> jnp.n
     return delays[i] + jnp.where(at_edge, 0.0, vertex * d)
 
 
-def recentre_trace(trace: jnp.ndarray, delays: jnp.ndarray) -> jnp.ndarray:
+def recentre_trace(
+    trace: jnp.ndarray, delays: jnp.ndarray, row_weights: jnp.ndarray | None = None
+) -> jnp.ndarray:
     """Shift ``trace`` (``(Nomega, Ndelay)``) so its delay-marginal peak sits at 0.
 
     Exact Fourier translation along the delay axis, which must be uniform (the
     retrieval grid is). The shift is periodic on the axis, so a trace that has
     decayed to zero at both ends -- the usual case -- is translated without artefact.
+
+    ``row_weights`` (``(Nomega,)``) weights the rows before the marginal is formed.
+    The data's marginal is taken *after* the generation-response scaling and the
+    per-frequency factors, so for the two conventions to coincide the model's
+    marginal must carry the same row weighting: pass the per-row least-squares
+    factors :math:`\\mu_\\omega` that map the model rows onto the data rows (see
+    :func:`recentring`). Without it, an asymmetric trace's marginal peak depends on
+    how the rows are weighted and the two sides drift apart by up to tens of
+    attoseconds when the response exponent is far from the model's own.
     """
     delays = jnp.asarray(delays)
-    tau_p = marginal_peak_delay_jax(delays, jnp.sum(trace, axis=0))
+    weighted = trace if row_weights is None else trace * row_weights[:, None]
+    tau_p = marginal_peak_delay_jax(delays, jnp.sum(weighted, axis=0))
     n = delays.shape[0]
     d = delays[1] - delays[0]
     f = jnp.fft.fftfreq(n, d=d)
@@ -80,7 +92,12 @@ def recentre_trace(trace: jnp.ndarray, delays: jnp.ndarray) -> jnp.ndarray:
     return jnp.real(jnp.fft.ifft(spec, axis=1))
 
 
-def recentring(trace_fn, delays: ArrayLike, origin: str = "coincidence"):
+def recentring(
+    trace_fn,
+    delays: ArrayLike,
+    origin: str = "coincidence",
+    t_meas: ArrayLike | None = None,
+):
     """Wrap a trace function so its output honours ``origin``.
 
     Parameters
@@ -92,6 +109,14 @@ def recentring(trace_fn, delays: ArrayLike, origin: str = "coincidence"):
         The (uniform) delay axis the trace is evaluated on (s).
     origin : {"coincidence", "marginal_peak"}
         ``"coincidence"`` returns ``trace_fn`` unchanged.
+    t_meas : array_like, optional
+        The measured trace on the same grid. When given, the model's marginal is
+        formed with the per-row least-squares factors
+        :math:`\\mu_\\omega = \\langle T_{meas}, T\\rangle_\\omega / \\langle T, T\\rangle_\\omega`
+        that map the model rows onto the data rows, so the two marginals carry
+        the same row weighting whatever generation-response exponent the data
+        were corrected with. Recommended; the factors are recomputed at every
+        evaluation from the current model.
 
     Returns
     -------
@@ -110,8 +135,18 @@ def recentring(trace_fn, delays: ArrayLike, origin: str = "coincidence"):
                 "retrieval grid is; pass the regridded delays)"
             )
 
+    tm = None if t_meas is None else jnp.asarray(np.asarray(t_meas, dtype=float))
+
     def wrapped(*args, **kwargs):
-        return recentre_trace(trace_fn(*args, **kwargs), delays_j)
+        trace = trace_fn(*args, **kwargs)
+        weights = None
+        if tm is not None:
+            num = jnp.sum(tm * trace, axis=1)
+            den = jnp.sum(trace * trace, axis=1)
+            weights = jnp.where(den > 0.0, num / jnp.where(den > 0.0, den, 1.0), 0.0)
+            # locate the peak only; the factors themselves are not fitted here
+            weights = jax.lax.stop_gradient(weights)
+        return recentre_trace(trace, delays_j, weights)
 
     return wrapped
 
