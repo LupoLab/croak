@@ -407,7 +407,11 @@ SIMULATED_TRUTH_SOURCES: tuple[str, ...] = ("beamlet", "beamlet_reimaged", "sour
 
 #: Dataset-name suffix of each truth source (``It<suffix>``, ``Ito<suffix>``,
 #: ``Iω<suffix>``, ``Eω<suffix>``).
-_TRUTH_SUFFIX = {"beamlet": "_beamlet", "beamlet_reimaged": "_beamlet_reimaged", "source": ""}
+_TRUTH_SUFFIX = {
+    "beamlet": "_beamlet",
+    "beamlet_reimaged": "_beamlet_reimaged",
+    "source": "",
+}
 
 
 @dataclass(frozen=True)
@@ -914,7 +918,9 @@ def read_simulated_scan(
         e_source = _read_complex("Eω")
         # pnps files also store the on-axis beamlet (the mixture's own frame)
         reimaged = (
-            _read_array(g, "Iω_beamlet_reimaged") if "Iω_beamlet_reimaged" in g else None
+            _read_array(g, "Iω_beamlet_reimaged")
+            if "Iω_beamlet_reimaged" in g
+            else None
         )
         e_reimaged = _read_complex("Eω_beamlet_reimaged")
         # Delay-convention marker: newer ModelPNPS files store the trace

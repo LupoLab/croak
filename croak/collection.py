@@ -504,7 +504,9 @@ def mask_hole_aperture(
         panels = [(0.0, radius)]
     elif apod == "rcos":
         if apod_param is None:
-            raise ValueError("the 'rcos' apodisation needs `apod_param` (edge half-width)")
+            raise ValueError(
+                "the 'rcos' apodisation needs `apod_param` (edge half-width)"
+            )
         width = float(apod_param)
         inner = max(radius - width, 0.0)
         panels = [(0.0, inner), (inner, radius + width)]

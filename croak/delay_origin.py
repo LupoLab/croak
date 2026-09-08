@@ -57,7 +57,9 @@ def marginal_peak_delay_jax(delays: jnp.ndarray, marginal: jnp.ndarray) -> jnp.n
     d = delays[i + 1] - delays[i]
     curv = y0 - 2.0 * y1 + y2
     # vertex of the parabola through (-1, y0), (0, y1), (1, y2), in units of d
-    vertex = jnp.where(curv < 0.0, 0.5 * (y0 - y2) / jnp.where(curv < 0.0, curv, -1.0), 0.0)
+    vertex = jnp.where(
+        curv < 0.0, 0.5 * (y0 - y2) / jnp.where(curv < 0.0, curv, -1.0), 0.0
+    )
     vertex = jnp.clip(vertex, -1.0, 1.0)
     at_edge = (jnp.argmax(marginal) == 0) | (jnp.argmax(marginal) == n - 1)
     return delays[i] + jnp.where(at_edge, 0.0, vertex * d)
@@ -66,7 +68,7 @@ def marginal_peak_delay_jax(delays: jnp.ndarray, marginal: jnp.ndarray) -> jnp.n
 def recentre_trace(
     trace: jnp.ndarray, delays: jnp.ndarray, row_weights: jnp.ndarray | None = None
 ) -> jnp.ndarray:
-    """Shift ``trace`` (``(Nomega, Ndelay)``) so its delay-marginal peak sits at 0.
+    r"""Shift ``trace`` so its delay-marginal peak sits at zero.
 
     Exact Fourier translation along the delay axis, which must be uniform (the
     retrieval grid is). The shift is periodic on the axis, so a trace that has
@@ -98,7 +100,7 @@ def recentring(
     origin: str = "coincidence",
     t_meas: ArrayLike | None = None,
 ):
-    """Wrap a trace function so its output honours ``origin``.
+    r"""Wrap a trace function so its output honours ``origin``.
 
     Parameters
     ----------
@@ -112,7 +114,8 @@ def recentring(
     t_meas : array_like, optional
         The measured trace on the same grid. When given, the model's marginal is
         formed with the per-row least-squares factors
-        :math:`\\mu_\\omega = \\langle T_{meas}, T\\rangle_\\omega / \\langle T, T\\rangle_\\omega`
+        :math:`\\mu_\\omega = \\langle T_{meas}, T\\rangle_\\omega /
+        \\langle T, T\\rangle_\\omega`
         that map the model rows onto the data rows, so the two marginals carry
         the same row weighting whatever generation-response exponent the data
         were corrected with. Recommended; the factors are recomputed at every

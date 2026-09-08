@@ -445,7 +445,7 @@ def test_mask_window_selects_numbered_record(tmp_path, simulated_truth):
     assert io.read_simulated_mask_window(path, "Iω_win_3") is None
 
 
-# --- the on-axis beamlet truth pnps files store ----------------------------------------
+# --- the on-axis beamlet truth pnps files store ------------------------------
 
 
 def test_reimaged_beamlet_truth_is_read_and_selectable(tmp_path, simulated_truth):
@@ -454,11 +454,18 @@ def test_reimaged_beamlet_truth_is_read_and_selectable(tmp_path, simulated_truth
     from conftest import write_simulated_h5
 
     from croak.io import read_simulated_scan, read_simulated_truth_keys
-    from croak.session.pipeline import (_reference_spectrum, _simulated_truth,
-                                        _truth_field)
+    from croak.session.pipeline import (
+        _reference_spectrum,
+        _simulated_truth,
+        _truth_field,
+    )
 
-    path = write_simulated_h5(tmp_path / "reimaged.h5", simulated_truth,
-                              store_complex=True, store_reimaged=True)
+    path = write_simulated_h5(
+        tmp_path / "reimaged.h5",
+        simulated_truth,
+        store_complex=True,
+        store_reimaged=True,
+    )
     # the fixture writes It (source) and It_beamlet_reimaged but no It_beamlet
     assert read_simulated_truth_keys(path) == ("beamlet_reimaged", "source")
 
@@ -482,7 +489,9 @@ def test_reimaged_beamlet_truth_is_read_and_selectable(tmp_path, simulated_truth
     assert truth_re.fwhm == pytest.approx(truth_b.fwhm)  # the fixture's 0.9*It shape
 
     # a ModelPNPS-style file (no on-axis record) falls back to the beamlet/source
-    legacy = write_simulated_h5(tmp_path / "legacy.h5", simulated_truth, store_complex=True)
+    legacy = write_simulated_h5(
+        tmp_path / "legacy.h5", simulated_truth, store_complex=True
+    )
     scan2 = read_simulated_scan(legacy, truth_source="beamlet_reimaged")
     assert scan2.Iomega_beamlet_reimaged is None
     np.testing.assert_allclose(scan2.It, simulated_truth.It)

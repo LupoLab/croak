@@ -399,7 +399,7 @@ def simulated_geometry(scan: io.SimulatedScan) -> SimulatedGeometry:
 
 
 def _reference_spectrum(scan: io.SimulatedScan, source: str) -> np.ndarray:
-    """The stored spectrum a ``spectrum_source``/``truth_source`` names.
+    """Return the stored spectrum named by ``spectrum_source``/``truth_source``.
 
     ``"beamlet_reimaged"`` is the on-axis beamlet (the chromatic focal mixture's
     own frame, so with it the mixture needs no ``spectrum_frame_p`` reweighting);
@@ -415,7 +415,7 @@ def _reference_spectrum(scan: io.SimulatedScan, source: str) -> np.ndarray:
 
 
 def _truth_field(scan: io.SimulatedScan, source: str) -> np.ndarray | None:
-    """The stored complex field matching :func:`_reference_spectrum`, same fallbacks."""
+    """Return the stored complex field with the spectrum-source fallbacks."""
     if source == "beamlet_reimaged" and scan.Eomega_beamlet_reimaged is not None:
         return scan.Eomega_beamlet_reimaged
     if source in ("beamlet", "beamlet_reimaged") and scan.Iomega_beamlet is not None:

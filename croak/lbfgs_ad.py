@@ -288,7 +288,9 @@ class LBFGSAD(Retriever):
             )
         self.delay_origin = str(delay_origin)
         if tau0_bound < 0.0:
-            raise ValueError(f"tau0_bound must be >= 0 (0 = unbounded), got {tau0_bound!r}")
+            raise ValueError(
+                f"tau0_bound must be >= 0 (0 = unbounded), got {tau0_bound!r}"
+            )
         self.tau0_bound = float(tau0_bound)
         self.reltol = float(reltol)
         self.abstol = float(abstol)
@@ -360,7 +362,9 @@ class LBFGSAD(Retriever):
         lower_bounds_aug = np.array(aug.lower_bounds, dtype=float, copy=True)
         if self.tau0_bound > 0.0 and aug.idx_tau0 is not None:
             scale_tau_fit = aug.scales[1]
-            lower_bounds_aug[aug.idx_tau0] = (-self.tau0_bound - self.tau0) / scale_tau_fit
+            lower_bounds_aug[aug.idx_tau0] = (
+                -self.tau0_bound - self.tau0
+            ) / scale_tau_fit
             upper_bounds[aug.idx_tau0] = (self.tau0_bound - self.tau0) / scale_tau_fit
 
         tm = jnp.asarray(t_meas)

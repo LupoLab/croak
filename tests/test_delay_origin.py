@@ -19,7 +19,6 @@ from croak.delay_origin import (
 )
 from croak.forward import maketrace
 from croak.grid import Grid
-from croak.maths import wlfreq
 from croak.lbfgs_ad import LBFGSAD
 from croak.preprocess import marginal_peak_delay
 from croak.pulses import gaussian_pulse
@@ -107,7 +106,9 @@ def test_lbfgs_ad_tau0_bound_is_respected(setup):
     g, ew, delays = setup
     tau0_true = 1.5e-15
     trace = maketrace(g.omega, delays - tau0_true, ew, "shg")
-    free = LBFGSAD(maxiters=300, fit_tau0=True).run(trace, g.omega, delays, "shg", guess=ew)
+    free = LBFGSAD(maxiters=300, fit_tau0=True).run(
+        trace, g.omega, delays, "shg", guess=ew
+    )
     bound = 0.5e-15
     boxed = LBFGSAD(maxiters=300, fit_tau0=True, tau0_bound=bound).run(
         trace, g.omega, delays, "shg", guess=ew
@@ -144,6 +145,8 @@ def test_recentring_with_data_weights_uses_the_data_row_weighting(setup):
     # the re-centred model's marginal, weighted like the data, sits at 0 by
     # construction; the plain-weighted one is therefore displaced the other way
     mu = (heavy * asym).sum(1) / (asym * asym).sum(1)
-    assert abs(marginal_peak_delay(delays, (weighted * mu[:, None]).sum(0))) < 0.02 * dtau
+    assert (
+        abs(marginal_peak_delay(delays, (weighted * mu[:, None]).sum(0))) < 0.02 * dtau
+    )
     assert abs(peak_plain) < 0.02 * dtau
     assert peak_heavy_model != pytest.approx(0.0, abs=0.05 * dtau)

@@ -115,20 +115,29 @@ def test_run_retrieval_builds_the_mixture_from_params(tracedata):
     assert res.spectrum.shape == (tracedata.grid.n,)
 
 
-def test_builder_file_collection_follows_the_loaded_window(tmp_path, tracedata, simulated_truth):
+def test_builder_file_collection_follows_the_loaded_window(
+    tmp_path, tracedata, simulated_truth
+):
     """``collection="file"`` rebuilds the aperture of the window the trace was
     loaded from, not silently the first hole's (a 0.5 mm aperture on a 2.0 mm
     trace was the GUI's failure mode on multi-window campaign files)."""
     import h5py
-
     from conftest import write_simulated_h5
 
     record = {
-        "type": "PhysicalMaskWindow", "holex": -1e-3, "holey": -1e-3,
-        "holediam": 0.5e-3, "zmask": 0.1, "apod": "hard", "apod_param": 0.0,
-        "delta_k": 7803.26, "reference_wavelength": 260e-9,
+        "type": "PhysicalMaskWindow",
+        "holex": -1e-3,
+        "holey": -1e-3,
+        "holediam": 0.5e-3,
+        "zmask": 0.1,
+        "apod": "hard",
+        "apod_param": 0.0,
+        "delta_k": 7803.26,
+        "reference_wavelength": 260e-9,
     }
-    path = write_simulated_h5(tmp_path / "multi.h5", simulated_truth, mask_window=record)
+    path = write_simulated_h5(
+        tmp_path / "multi.h5", simulated_truth, mask_window=record
+    )
     with h5py.File(path, "r+") as f:  # a second, numbered window: a 2.0 mm hole
         g = f["grid"]
         for key in ("type", "holex", "holey", "zmask", "apod", "apod_param"):
@@ -141,4 +150,9 @@ def test_builder_file_collection_follows_the_loaded_window(tmp_path, tracedata, 
     span = lambda ap: np.hypot(ap.x + 1e-3, ap.y + 1e-3).max()  # noqa: E731
     assert span(second) == pytest.approx(4.0 * span(first), rel=1e-6)
     # the wiring through run_retrieval accepts the window too
-    assert focal_mixture_from_params(p, tracedata, path, "Iω_win_2_reimaged").collection.nodes == second.nodes
+    assert (
+        focal_mixture_from_params(
+            p, tracedata, path, "Iω_win_2_reimaged"
+        ).collection.nodes
+        == second.nodes
+    )
