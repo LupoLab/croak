@@ -58,10 +58,10 @@ def test_truth_errors_are_zero_for_the_generating_field(grid, spectrum, truth):
     """A retrieval that returned the true field scores zero on all three."""
     errs = truth_errors(_result(grid, spectrum), truth)
     assert errs.eps_It < 1e-12
-    # the LS (sin-theta) form cannot resolve a perfect match below
-    # ~sqrt(eps) ~ 1.5e-8 (same caveat as eps_complex_field)
+    # The intensity-only overlap still has the sqrt(eps) cancellation floor;
+    # the complex-field implementation forms its projection residual directly.
     assert errs.eps_Iw == pytest.approx(0.0, abs=1e-7)
-    assert errs.eps_Ew == pytest.approx(0.0, abs=1e-7)
+    assert errs.eps_Ew == pytest.approx(0.0, abs=1e-12)
 
 
 @pytest.mark.parametrize("scale", [1.0, 3.7])
@@ -85,11 +85,9 @@ def test_truth_errors_ignore_the_unobservable_gauges(
     )
     errs = truth_errors(_result(grid, gauged), truth)
     assert errs.eps_It < 1e-4
-    # the LS (sin-theta) form cannot resolve a perfect match below
-    # ~sqrt(eps) ~ 1.5e-8 (same caveat as eps_complex_field)
+    # The intensity-only overlap still has the sqrt(eps) cancellation floor.
     assert errs.eps_Iw == pytest.approx(0.0, abs=1e-7)
-    # eps_Ew cannot resolve below ~sqrt(machine eps): see its Notes section.
-    assert errs.eps_Ew == pytest.approx(0.0, abs=1e-7)
+    assert errs.eps_Ew == pytest.approx(0.0, abs=1e-12)
 
 
 def test_sub_sample_alignment_beats_nearest_bin_on_a_half_step_delay(

@@ -8,6 +8,13 @@ semantic versioning.
 
 ### Fixed
 
+- **Two platform-sensitive numerical CI failures.** The known-truth complex-field
+  error now evaluates Geib's overlap through the equivalent least-squares
+  projection residual, avoiding the `sqrt(1 - x²)` cancellation that made an
+  identical field score either zero or `1.5e-8` depending on floating-point
+  rounding. The covariance/bootstrap cross-check now compares sample standard
+  deviations rather than bias-corrected interval widths, whose tail percentiles
+  were unstable with only 40 bootstrap samples.
 - **`delay_origin="marginal_peak"` stopped early.** The data-weighted model
   marginal held its row factors out of the gradient, so the objective and its
   gradient disagreed and L-BFGS terminated on a line-search failure (NLopt

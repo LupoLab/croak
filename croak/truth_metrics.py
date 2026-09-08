@@ -249,10 +249,11 @@ def eps_complex_field(spectrum: ArrayLike, truth: ArrayLike) -> float:
 
     Notes
     -----
-    The ``sqrt(1 - x^2)`` form cannot resolve a near-perfect match below about
-    ``1e-8``: as the overlap ``x`` approaches 1 the square root amplifies the
-    double-precision residue of ``1 - x^2``, so an exact match scores
-    ``~sqrt(eps) ~ 1.5e-8`` rather than 0. Read anything at that level as zero.
+    The displayed overlap formula is evaluated through its algebraically
+    equivalent least-squares projection residual. This avoids the catastrophic
+    cancellation in ``sqrt(1 - x**2)`` as the normalised overlap ``x`` approaches
+    one, so fields identical up to the removed gauges score zero to machine
+    precision rather than acquiring a platform-dependent ``~sqrt(eps)`` floor.
     """
     retrieved = np.asarray(spectrum, dtype=complex)
     known = np.asarray(truth, dtype=complex)
@@ -264,10 +265,23 @@ def eps_complex_field(spectrum: ArrayLike, truth: ArrayLike) -> float:
     product = np.conj(known) * retrieved
     padded = np.zeros(product.size * _DELAY_OVERSAMPLE, dtype=complex)
     padded[: product.size] = product
-    # ifft scales by 1/size, so multiplying back gives the plain sum -- the
-    # overlap at each interpolated delay.
-    best = float(np.abs(np.fft.ifft(padded)).max() * padded.size)
-    return float(np.sqrt(max(0.0, 1.0 - (best / denom) ** 2)))
+    # ifft scales by 1/size, so multiplying back gives the plain complex overlap
+    # at each interpolated delay. The centred frequency grid differs from the
+    # index-space phase ramp below only by a constant phase, which the fitted
+    # complex scale absorbs exactly.
+    overlaps = np.fft.ifft(padded) * padded.size
+    best_index = int(np.argmax(np.abs(overlaps)))
+    phase_ramp = np.exp(2j * np.pi * best_index * np.arange(product.size) / padded.size)
+    aligned = retrieved * phase_ramp
+
+    # min_c ||known - c aligned|| / ||known|| is algebraically identical to
+    # sqrt(1 - |<known, aligned>|^2 / (||known||^2 ||aligned||^2)), but forming
+    # the small residual directly retains relative accuracy near a perfect match.
+    # This is the complex least-squares scale: its phase removes CEP and its
+    # magnitude removes the arbitrary field-amplitude scale.
+    scale = np.vdot(aligned, known) / np.sum(np.abs(aligned) ** 2)
+    error = float(np.linalg.norm(known - scale * aligned) / np.linalg.norm(known))
+    return float(np.clip(error, 0.0, 1.0))
 
 
 def truth_errors(

@@ -293,8 +293,11 @@ Each removes exactly the gauge freedoms a PNPS measurement genuinely cannot
 determine, and no others. Read them together: $\epsilon_{I_\omega}$ small with
 $\epsilon_{E_\omega}$ large means the amplitude is right and the phase is not —
 the failure a trace error hides most easily. $\epsilon_{E_\omega}$ is Geib's
-$\epsilon$, the metric the PNPS literature quotes; it cannot resolve below about
-`1e-8` (see its docstring), so treat anything at that level as zero.
+$\epsilon$, the metric the PNPS literature quotes. croak evaluates its overlap
+through the equivalent least-squares projection residual, avoiding the
+`sqrt(1 - x²)` cancellation near a perfect match; fields differing only by the
+unobservable scale, absolute phase and delay therefore score zero to machine
+precision.
 
 ```python
 from croak.truth_metrics import truth_errors

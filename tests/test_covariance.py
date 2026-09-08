@@ -180,8 +180,11 @@ def test_covariance_matches_bootstrap_order_of_magnitude(chirped):
 
     In the well-conditioned B-spline basis the linearised covariance and the
     resampling bootstrap should agree to within a small factor; the Gaussian
-    estimate typically runs a little tighter. A loose factor-of-three band keeps
-    the test robust to the bootstrap's own Monte-Carlo scatter.
+    estimate typically runs a little tighter. Compare sample standard deviations:
+    unlike a bias-corrected interval width, this direct measure of spread does not
+    jump into a sparsely sampled tail when a platform's optimiser moves one or two
+    of the 40 bootstrap samples across the full-data point estimate. A loose
+    factor-of-three band keeps the test robust to Monte-Carlo scatter.
     """
     _g, omega0, _ew, _d, trace, _pw, res_bs = chirped
     uc = covariance_uncertainty(
@@ -205,7 +208,7 @@ def test_covariance_matches_bootstrap_order_of_magnitude(chirped):
         rng=np.random.default_rng(0),
     )
     assert uc.point_estimate == pytest.approx(ub.point_estimate, rel=0.02)
-    ratio = uc.plus_minus / ub.plus_minus
+    ratio = uc.std / ub.std
     assert 1.0 / 3.0 < ratio < 3.0
 
 
