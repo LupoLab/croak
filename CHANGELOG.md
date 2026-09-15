@@ -28,6 +28,16 @@ semantic versioning.
 
 ### Added
 
+- **"Reverse delay axis" on the measured loader** (`LoadParams.reverse_trace`;
+  GUI Load stage, "Units & interaction"). The simulated loader already had it;
+  a measured scan has the same ambiguity — which end of the stage scan is "gate
+  late" is a wiring convention no file records — but the only fix was to negate
+  the delay dataset outside croak. `assemble_load_data` now negates the scan
+  axis before sorting, mirroring the trace about τ = 0. A wrong convention
+  time-reverses the retrieved pulse and flips the sign of every phase order,
+  which is invisible on a symmetric transform-limited pulse. Off by default, and
+  deliberately outside the trace signature, so toggling it keeps the preprocess
+  windowing.
 - **`delay_origin="marginal_peak"`: the model trace re-centred on its own
   delay-marginal peak** (`croak.delay_origin`; AD solvers, session params, GUI
   "Delay origin"). The preprocessing centres the data on their marginal peak;

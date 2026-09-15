@@ -129,7 +129,10 @@ def assemble_load_data(p: LoadParams) -> dict:
     Returns ``{lam, scanaxis, input_unit, trace (Nlambda, Ndelay), lam_spec,
     Ilam_spec, interaction}``. The scale curve (calibration × 3rd-order) is
     applied eagerly to the trace, so everything downstream sees calibrated
-    counts and the calibration never has to be re-applied.
+    counts and the calibration never has to be re-applied. With
+    ``p.reverse_trace`` the scan axis is negated first, mirroring the trace
+    about τ = 0 (the measured counterpart of
+    :class:`~croak.session.params.SimulatedLoadParams`'s ``reverse_trace``).
     """
     fd = io.list_datasets(p.frog_path)
     lam = fd.load(p.lam_name) * io.unit_to_si(p.lam_unit)
@@ -142,7 +145,10 @@ def assemble_load_data(p: LoadParams) -> dict:
     if p.transpose:
         trace = trace.T
 
-    # centre + sort the scan axis (keeps the delay window around 0)
+    # Delay axis: optionally flip the sign convention, then centre + sort the
+    # scan axis (keeps the delay window around 0).
+    if p.reverse_trace:
+        scan = -scan
     scan = scan - scan.mean()
     order = np.argsort(scan)
     scan = scan[order]
