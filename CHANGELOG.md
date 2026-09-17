@@ -33,9 +33,13 @@ semantic versioning.
   a measured scan has the same ambiguity — which end of the stage scan is "gate
   late" is a wiring convention no file records — but the only fix was to negate
   the delay dataset outside croak. `assemble_load_data` now negates the scan
-  axis before sorting, mirroring the trace about τ = 0. A wrong convention
+  axis before sorting, mirroring the trace about τ = 0. It matters for PG/SD,
+  whose kernels fix the direction of time: a wrong convention there
   time-reverses the retrieved pulse and flips the sign of every phase order,
-  which is invisible on a symmetric transform-limited pulse. Off by default, and
+  which is invisible on a symmetric transform-limited pulse. An SHG trace is
+  symmetric in delay, so the flip is a no-op for it and cannot settle SHG's
+  direction-of-time ambiguity (that remains
+  `croak.processing.resolve_time_direction`'s job). Off by default, and
   deliberately outside the trace signature, so toggling it keeps the preprocess
   windowing.
 - **`delay_origin="marginal_peak"`: the model trace re-centred on its own

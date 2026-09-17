@@ -215,10 +215,14 @@ class StageLoad(Stage):
                     "Flip the delay-sign convention: negate the scan axis, "
                     "mirroring the trace about τ = 0. Tick it when the scan ran "
                     "the other way round (which end is 'gate late' is a wiring "
-                    "convention the file does not record) — a wrong setting "
-                    "time-reverses the retrieved pulse and flips the sign of "
-                    "every phase order, which is invisible on a symmetric "
-                    "transform-limited pulse.",
+                    "convention the file does not record). It matters for PG "
+                    "and SD, which fix the direction of time: a wrong setting "
+                    "there time-reverses the retrieved pulse and flips the sign "
+                    "of every phase order, which is invisible on a symmetric "
+                    "transform-limited pulse. An SHG trace is symmetric in "
+                    "delay, so this is a no-op for it — SHG's direction-of-time "
+                    "ambiguity is settled after retrieval instead "
+                    "(resolve_time_direction).",
                 ),
                 (
                     "interaction",

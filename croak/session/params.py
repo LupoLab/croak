@@ -63,8 +63,12 @@ class LoadParams:
     #: a wiring convention of the measurement, and a measured file carries no
     #: marker recording it (unlike ``SimulatedLoadParams.reverse_trace``, which
     #: can auto-detect from ``/grid/delay_convention``), so this is a plain
-    #: off-by-default override. Getting it wrong time-reverses the retrieved
-    #: pulse and flips the sign of every phase order.
+    #: off-by-default override. It bites on PG/SD, whose kernels fix the
+    #: direction of time: getting it wrong there time-reverses the retrieved
+    #: pulse and flips the sign of every phase order. An SHG trace is symmetric
+    #: in delay (``Interaction.time_reversal_ambiguous``), so reversing it
+    #: changes nothing and cannot settle SHG's direction-of-time ambiguity —
+    #: that is :func:`croak.processing.resolve_time_direction`'s job.
     reverse_trace: bool = False
     interaction: str = "shg"
     third_order: bool = False
