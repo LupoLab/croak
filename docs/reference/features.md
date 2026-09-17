@@ -112,6 +112,9 @@ Further reading: [Materials and mirrors](../howto/materials_and_mirrors.md),
 - **Formats** — HDF5, NumPy `.npz` and delimited text, with dataset
   auto-detection by name, unit handling and position→delay conversion
   ({mod}`croak.io`).
+- **Axis conventions** — the trace orientation (`transpose`) and the delay sign
+  (`reverse_trace`, mirroring the trace about τ = 0) are per-load switches on
+  both the measured and the simulated loader.
 - **Simulated scans** — traces written by a propagation code, including
   multi-thickness scans selectable by thickness or slice index.
 - **Corrections** — background subtraction, calibration curves, χ⁽³⁾ efficiency

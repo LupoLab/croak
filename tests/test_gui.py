@@ -1024,13 +1024,19 @@ def test_load_autodetects_datasets_and_units(qtbot, experiment_h5, experiment):
     assert p.scan_type == "delay"
 
 
-def test_assemble_and_seed_defaults(experiment_h5, experiment):
-    state = WizardState()
+def _load_params(state, experiment_h5, experiment):
+    """Point a wizard state's load params at the synthetic experimental file."""
     p = state.load
     p.frog_path = experiment_h5
     p.ifrog_name, p.lam_name, p.scan_name = "trace", "wavelength", "delay"
     p.lam_unit, p.scan_unit, p.scan_type = "nm", "fs", "delay"
     p.interaction = experiment.interaction
+    return p
+
+
+def test_assemble_and_seed_defaults(experiment_h5, experiment):
+    state = WizardState()
+    p = _load_params(state, experiment_h5, experiment)
     data = assemble_load_data(p)
     assert data["trace"].shape == experiment.trace.shape
     assert data["input_unit"] == "delay"
@@ -1046,6 +1052,43 @@ def test_assemble_and_seed_defaults(experiment_h5, experiment):
     lam_nm = data["lam"] / 1e-9
     assert pp.lam_min_nm == pytest.approx(np.floor(lam_nm.min()), abs=1)
     assert pp.lamm_min_nm == pytest.approx(np.floor(lam_nm.min()), abs=1)
+
+
+def test_load_reverse_trace_mirrors_delay_columns(experiment_h5, experiment):
+    """``reverse_trace`` negates the measured scan axis, mirroring τ about 0."""
+    p = _load_params(WizardState(), experiment_h5, experiment)
+    p.reverse_trace = False
+    fwd = assemble_load_data(p)
+    p.reverse_trace = True
+    rev = assemble_load_data(p)
+    # the fixture's delay grid is symmetric, so negating it reproduces the same
+    # ascending axis and the flip shows up purely as reversed trace columns
+    np.testing.assert_allclose(rev["scanaxis"], fwd["scanaxis"], atol=1e-30)
+    np.testing.assert_allclose(rev["trace"], fwd["trace"][:, ::-1], rtol=1e-12)
+
+
+def test_load_reverse_trace_checkbox_sets_the_param(qtbot, experiment_h5, experiment):
+    """The Load stage's checkbox writes ``LoadParams.reverse_trace`` live."""
+    from PyQt6.QtWidgets import QCheckBox
+
+    w = Wizard()
+    qtbot.addWidget(w)
+    stage = w.stages[0]
+    box = next(
+        c for c in stage.findChildren(QCheckBox) if c.text() == "Reverse delay axis"
+    )
+    assert not box.isChecked()  # off by default: load the file as stored
+    assert box.toolTip()  # the HELP entry reached the control
+    box.setChecked(True)
+    assert w.state.load.reverse_trace is True
+    # a reload picks it up: the preview data is the mirrored trace
+    _load_params(w.state, experiment_h5, experiment)
+    stage._load_preview()
+    rev = w.state.load_data["trace"]
+    w.state.load.reverse_trace = False
+    np.testing.assert_allclose(
+        rev, assemble_load_data(w.state.load)["trace"][:, ::-1], rtol=1e-12
+    )
 
 
 def test_preprocess_widgets_show_seeded_wavelengths(qtbot, experiment_h5, experiment):

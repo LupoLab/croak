@@ -320,5 +320,27 @@ delays = fd.load("delay") * croak.io.unit_to_si("fs")
 trace = fd.load("trace")                       # (Nlambda, Ndelay)
 ```
 
+Two conventions the file does not record are yours to set. If the trace came in
+as (delay × wavelength), transpose it; if the scan ran the other way round —
+which end is "gate late" is a wiring convention — negate the delay axis:
+
+```python
+delays = -delays                               # mirror the trace about τ = 0
+```
+
+The delay sign matters for PG and SD, whose kernels fix the direction of time: a
+wrong one there time-reverses the retrieved pulse and flips the sign of every
+phase order, and it is invisible on a symmetric transform-limited pulse, so check
+it against a known chirp. An SHG trace is symmetric in delay for any pulse
+(`Interaction.time_reversal_ambiguous`), so the flip is a no-op for it and
+settles nothing — SHG's direction-of-time ambiguity is resolved after retrieval
+with {func}`~croak.processing.resolve_time_direction`, see
+[Post-processing](postprocessing.md#shg-settle-the-direction-of-time-first).
+The GUI's Load stage exposes both as the **Transpose**
+and **Reverse delay axis** switches
+({class}`~croak.session.params.LoadParams`); `croak.session` applies the flip in
+{func}`~croak.session.pipeline.assemble_load_data`, before the axis is sorted, so
+the trace's delay columns are permuted with it.
+
 See the [experimental-workflow tutorial](../tutorials/04_experimental_workflow.md)
 for the full load → clean → retrieve → save run.
