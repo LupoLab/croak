@@ -28,6 +28,15 @@ semantic versioning.
 
 ### Added
 
+- **Per-panel retrieval plotting API.** `croak.plotting.retrieval_plot_data`
+  bundles a result's plot inputs once (`RetrievalPlotData`; the spectrogram is
+  computed lazily and cached), twelve `draw_<panel>(ax, data)` functions draw
+  one panel each and return their artists (`TraceArtists`, `TemporalArtists`, …),
+  and `RETRIEVAL_PANELS`, `RETRIEVAL_PAGES` (Traces / Pulse / Diagnostics, 2×2
+  each), `RETRIEVAL_OVERVIEW` and `plot_retrieval_page` lay them out.
+  `plot_retrieval` is the overview page drawn through the same registry; its
+  figure is unchanged apart from the colorbar axes now following the data axes
+  in `fig.axes`. `plot_convergence` and `plot_marginal` return their artists.
 - **Remembered window layout.** The wizard's un-maximised window geometry and
   the width of its control column persist between launches in an INI `QSettings`
   store (`croak.gui.settings`, organisation `LupoLab`); a restored geometry is
@@ -115,6 +124,10 @@ semantic versioning.
 
 ### Changed
 
+- **`plot_temporal` and `plot_spectral` draw the whole truth overlay.** Passing
+  `truth=` now overlays the known intensity (labelled with its FWHM) and spectrum
+  as well as the known phase; previously the intensity overlay was drawn only by
+  `plot_retrieval`.
 - **The wizard fits 1366×768 displays.** Plot text (titles, labels, ticks,
   legends and their padding) now scales with its canvas: `croak.plotting.PlotScale`,
   `plot_scale` and `scaled_rc` derive a density from how far a canvas has fallen
@@ -140,6 +153,11 @@ semantic versioning.
   unregularised behaviour. `REG_DEFAULTS`/`reg_family`/`reg_defaults` moved
   from `croak.session.params` to `croak.solver` (still re-exported from the
   old location).
+
+### Removed
+
+- **`croak.plotting.plot_trace`**, which nothing used; the raw-trace previews and
+  the retrieval trace panels draw with `signed_pcolormesh`.
 
 ## [0.1.0] - 2026-08-31
 

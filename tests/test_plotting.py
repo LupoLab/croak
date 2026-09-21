@@ -579,3 +579,157 @@ def test_scaled_rc_sizes_artists_created_inside_the_context():
     late = fig.add_subplot()
     late.set_title("late")
     assert late.title.get_fontsize() == pytest.approx(12.0)
+
+
+# -- retrieval panels and pages ----------------------------------------------------
+def _plot_data(res, trace, **kw):
+    return plotting.retrieval_plot_data(
+        res, measured=trace, lam_min=700e-9, lam_max=950e-9, **kw
+    )
+
+
+def test_retrieval_registry_pages_partition_the_panels():
+    """Every panel is on exactly one page and once in the overview; colorbar
+    pairs never straddle a page."""
+    keys = set(plotting.RETRIEVAL_PANELS)
+    assert len(keys) == 12
+    page_keys = [k for page in plotting.RETRIEVAL_PAGES.values() for k in page.keys]
+    assert sorted(page_keys) == sorted(keys)
+    assert sorted(plotting.RETRIEVAL_OVERVIEW.keys) == sorted(keys)
+    assert [len(row) for row in plotting.RETRIEVAL_OVERVIEW.mosaic] == [4, 4, 4]
+    for page in plotting.RETRIEVAL_PAGES.values():
+        assert [len(row) for row in page.mosaic] == [2, 2]
+    for cbar in plotting.RETRIEVAL_COLORBARS:
+        assert any(
+            set(cbar.panels) <= set(page.keys)
+            for page in plotting.RETRIEVAL_PAGES.values()
+        ), cbar
+    for key, spec in plotting.RETRIEVAL_PANELS.items():
+        assert spec.key == key and spec.title
+
+
+def test_plot_retrieval_titles_match_the_registry(result_and_trace):
+    res, trace = result_and_trace
+    fig = plotting.plot_retrieval(res, measured=trace, lam_min=700e-9, lam_max=950e-9)
+    titles = sorted(ax.get_title() for ax in fig.axes if ax.get_title())
+    assert titles == sorted(s.title for s in plotting.RETRIEVAL_PANELS.values())
+
+
+@pytest.mark.parametrize("key", ["traces", "pulse", "diagnostics"])
+def test_plot_retrieval_page_draws_the_page_in_mosaic_order(result_and_trace, key):
+    res, trace = result_and_trace
+    page = plotting.RETRIEVAL_PAGES[key]
+    fig = plotting.plot_retrieval_page(_plot_data(res, trace), page)
+    titled = [ax.get_title() for ax in fig.axes if ax.get_title()]
+    assert titled == [plotting.RETRIEVAL_PANELS[k].title for k in page.keys]
+    colorbars = [ax for ax in fig.axes if ax.get_label() == "<colorbar>"]
+    if key == "traces":
+        assert len(colorbars) >= 2  # one per trace pair, plus any negative bars
+    elif key == "pulse":
+        assert not colorbars
+        assert len(fig.axes) == 6  # four panels and the two phase twins
+    else:
+        assert len(colorbars) == 1  # the residual's
+
+
+def test_each_panel_alone_matches_its_overview_twin(result_and_trace):
+    """A panel drawn on its own carries the same title and axis labels as in
+    the full figure — the pages show exactly what the overview shows."""
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    data = _plot_data(res, trace)
+    full = plotting.plot_retrieval_page(data, plotting.RETRIEVAL_OVERVIEW)
+    by_title = {ax.get_title(): ax for ax in full.axes if ax.get_title()}
+    for spec in plotting.RETRIEVAL_PANELS.values():
+        ax = Figure().add_subplot()
+        spec.draw(ax, data)
+        twin = by_title[spec.title]
+        assert ax.get_title() == spec.title, spec.key
+        assert (ax.get_xlabel(), ax.get_ylabel()) == (
+            twin.get_xlabel(),
+            twin.get_ylabel(),
+        ), spec.key
+
+
+def test_retrieval_plot_data_validates_like_plot_retrieval(result_and_trace):
+    from dataclasses import replace
+
+    res, trace = result_and_trace
+    with pytest.raises(ValueError, match="carrying a simulated trace"):
+        plotting.retrieval_plot_data(replace(res, trace=None))
+    other = replace(res)  # a different object: its ProcessedResult is not ours
+    pr_other = processing.process_result(other, measured=trace)
+    with pytest.raises(ValueError, match="ProcessedResult of this result"):
+        plotting.retrieval_plot_data(res, measured=trace, processed=pr_other)
+    data = plotting.retrieval_plot_data(res, measured=trace)
+    lams = wlfreq(res.omega + res.omega0)
+    assert data.lam_min == pytest.approx(float(lams.min()))
+    assert data.lam_max == pytest.approx(float(lams.max()))
+    assert data.power_scale is None
+    with_energy = plotting.retrieval_plot_data(res, measured=trace, energy=1e-6)
+    assert with_energy.processed.peak_power is not None
+    assert with_energy.power_scale is not None
+
+
+def test_spectrogram_is_lazy_and_cached(result_and_trace, monkeypatch):
+    """The Gabor transform runs only for a page that shows it, and only once."""
+    res, trace = result_and_trace
+    calls = []
+    real = plotting.spectrogram
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(plotting, "spectrogram", counted)
+    data = _plot_data(res, trace)
+    assert calls == []
+    plotting.plot_retrieval_page(data, plotting.RETRIEVAL_PAGES["traces"])
+    plotting.plot_retrieval_page(data, plotting.RETRIEVAL_PAGES["pulse"])
+    assert calls == []
+    plotting.plot_retrieval_page(data, plotting.RETRIEVAL_PAGES["diagnostics"])
+    assert len(calls) == 1
+    plotting.plot_retrieval_page(data, plotting.RETRIEVAL_PAGES["diagnostics"])
+    assert len(calls) == 1
+
+
+def test_truth_overlay_survives_the_split(result_and_trace):
+    """Truth intensity and phase reach the Pulse page and a lone temporal panel."""
+    from matplotlib.figure import Figure
+
+    from croak.processing import TruthPulse
+
+    res, trace = result_and_trace
+    g = Grid(96, dt=0.5e-15)
+    truth = TruthPulse.from_spectrum(g, gaussian_pulse(g, 7e-15), float(wlfreq(800e-9)))
+    data = _plot_data(res, trace, truth=truth)
+    fig = plotting.plot_retrieval_page(data, plotting.RETRIEVAL_PAGES["pulse"])
+    labels = {
+        ax.get_title(): [t.get_text() for t in ax.get_legend().get_texts()]
+        for ax in fig.axes
+        if ax.get_legend() is not None
+    }
+    assert any(t.startswith("truth (") for t in labels["Retrieved pulse"])
+    assert "truth phase" in labels["Retrieved pulse"]
+    assert "truth" in labels["Spectrum"]
+    assert "truth phase" in labels["Spectrum"]
+    alone = plotting.draw_temporal(Figure().add_subplot(), data)
+    assert alone.line_truth is not None
+    assert alone.line_truth_phase is not None
+    assert alone.legend_retr.get_text().startswith("R (")
+    assert alone.legend_tl.get_text().startswith("TL (")
+
+
+def test_plot_convergence_returns_its_artists_even_when_empty():
+    from matplotlib.figure import Figure
+
+    artists = plotting.plot_convergence(Figure().add_subplot(), [])
+    assert artists.line.get_xydata().shape == (0, 2)
+    assert artists.boundaries == ()
+    assert artists.legend is None
+    with_rule = plotting.plot_convergence(
+        Figure().add_subplot(), [1.0, 0.5, 0.2, 0.1], boundaries=[2]
+    )
+    assert len(with_rule.boundaries) == 1
+    assert with_rule.legend is not None

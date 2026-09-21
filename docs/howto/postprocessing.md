@@ -213,15 +213,49 @@ fig = croak.plot_retrieval(result, measured=trace,
                            flim=(2 * f0 - 0.3e15, 2 * f0 + 0.3e15))  # SHG
 ```
 
+### Panels and pages
+
+The twelve panels are independent functions over one data bundle, so any subset
+can be drawn. {func}`~croak.plotting.retrieval_plot_data` computes everything the
+panels share once — the processed result, axis bounds, colour scales, and the
+spectrogram on first use; {func}`~croak.plotting.plot_retrieval_page` lays a
+{class}`~croak.plotting.PageSpec` of panel keys out as a figure; and each
+`draw_<key>(ax, data)` draws one panel into an axis of your own:
+
+```python
+data = croak.plotting.retrieval_plot_data(result, measured=td.trace,
+                                          Iomega_meas=td.Iomega,
+                                          lam_min=td.lam_min, lam_max=td.lam_max)
+fig = croak.plotting.plot_retrieval_page(data, croak.plotting.RETRIEVAL_PAGES["pulse"])
+
+ax = Figure().add_subplot()
+croak.plotting.draw_spectral(ax, data)   # one panel, in your own figure
+```
+
+{data}`~croak.plotting.RETRIEVAL_PANELS` maps the keys — `measured_log`,
+`retrieved_log`, `measured_lin`, `retrieved_lin`, `temporal`, `spectral`,
+`convergence`, `residual`, `spectral_filter`, `freq_marginal`, `delay_marginal`,
+`spectrogram` — to their titles and draw functions;
+{data}`~croak.plotting.RETRIEVAL_PAGES` holds the three 2×2 pages the wizard shows
+as tabs (**Traces**, **Pulse**, **Diagnostics**), and
+{data}`~croak.plotting.RETRIEVAL_OVERVIEW` the 3×4 layout `plot_retrieval` draws.
+Colorbars shared by a pair of trace panels are drawn whenever both panels are on
+the page. Every `draw_*` returns the artists it created (for example
+{class}`~croak.plotting.TemporalArtists`), which is what a live view updates in
+place instead of redrawing.
+
 Other composites and single-axis plotters:
 
 | Function | Shows |
 |----------|-------|
 | {func}`~croak.plotting.plot_retrieval` | 12-panel overview (trace, residual, time, spectrum, marginals, convergence) |
+| {func}`~croak.plotting.plot_retrieval_page` | one page of retrieval panels (a `PageSpec`) |
+| {func}`~croak.plotting.retrieval_plot_data` | the shared inputs of the retrieval panels |
+| `draw_measured_log`, …, `draw_spectrogram` | one retrieval panel each (see `RETRIEVAL_PANELS`) |
 | {func}`~croak.plotting.plot_frog_filter` | 6-panel preprocessing before/after |
 | {func}`~croak.plotting.plot_simulated_trace` | retrieved vs measured trace |
-| `plot_trace`, `plot_residual` | a single trace / residual image |
-| `plot_temporal`, `plot_spectral` | intensity + phase in one axis |
+| `plot_residual` | a single residual image |
+| `plot_temporal`, `plot_spectral` | intensity + phase in one axis (with a truth overlay) |
 | `plot_convergence` | trace error vs iteration |
 | `plot_marginal`, `plot_spectrogram` | a marginal / Gabor spectrogram |
 

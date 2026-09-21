@@ -159,10 +159,11 @@ Further reading: [Preprocessing](../howto/preprocessing.md),
   the trace cannot constrain it. This catches the common failure in which a low
   trace error hides a spectrum that has grown spurious energy outside the measured
   band — most often from `R_omega` used without a spectral anchor.
-- **Plotting** — a twelve-panel retrieval summary, a six-panel filter
-  before/after view, spectrograms, uncertainty and thickness-sensitivity plots.
-  Every composite is built from single-axis functions, so the GUI embeds exactly
-  the same code.
+- **Plotting** — a twelve-panel retrieval summary built from twelve independent
+  panels (also laid out as three 2×2 pages), a six-panel filter before/after
+  view, spectrograms, uncertainty and thickness-sensitivity plots. Every
+  composite is built from single-axis functions, so the GUI embeds exactly the
+  same code.
 
 Further reading: [Marginal checks](../howto/marginal_checks.md),
 [Post-processing](../howto/postprocessing.md).
