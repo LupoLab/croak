@@ -28,6 +28,12 @@ semantic versioning.
 
 ### Added
 
+- **Remembered window layout.** The wizard's un-maximised window geometry and
+  the width of its control column persist between launches in an INI `QSettings`
+  store (`croak.gui.settings`, organisation `LupoLab`); a restored geometry is
+  clamped to the screen it opens on and a first run fits 90 % of the screen. The
+  new `croak.gui.canvas.collapsible` helper folds an auxiliary strip beneath a
+  plot and can remember its state.
 - **`delay_origin="marginal_peak"`: the model trace re-centred on its own
   delay-marginal peak** (`croak.delay_origin`; AD solvers, session params, GUI
   "Delay origin"). The preprocessing centres the data on their marginal peak;
@@ -109,6 +115,19 @@ semantic versioning.
 
 ### Changed
 
+- **The wizard fits 1366×768 displays.** Plot text (titles, labels, ticks,
+  legends and their padding) now scales with its canvas: `croak.plotting.PlotScale`,
+  `plot_scale` and `scaled_rc` derive a density from how far a canvas has fallen
+  below its figure's design size (down to 70 %), and
+  `croak.gui.canvas.MplCanvas.render` applies it around every draw and re-plots
+  when a resize crosses a density step. The fixed 315 px control column is a
+  collapsible `QSplitter` (minimum 240 px, shared by every stage and remembered),
+  plot-area margins are zeroed, and the marginal-check stage's two canvases share
+  a vertical splitter. The Retrieve, Dispersion and Uncertainty **Save…** PDFs are
+  drawn afresh at the figure's design size (`MplCanvas.save_figure`) rather than
+  copying the shrunken on-screen figure, and the Uncertainty stage skips its PDF
+  when nothing has been plotted yet. Two absolute `legend(fontsize=7)` calls
+  became relative sizes so they scale too.
 - **The settled regularisation weights are now the library-wide defaults.**
   The penalty-capable solvers (`lbfgs`, `lbfgs-hand`, `lbfgs-ad`,
   `lbfgs-optx`, `cma-es` with `reg_spectrum=0.01`/`reg_amp=0.03`, and

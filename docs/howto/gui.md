@@ -29,8 +29,19 @@ python -c "import croak.gui; croak.gui.run_wizard()"
 
 {func}`croak.gui.main` is the console-script entry point;
 {func}`croak.gui.run_wizard` creates the `QApplication` and shows the window
-**maximised** — the twelve-panel retrieval summary needs the room. Un-maximising
-gives a 1500×950 window.
+**maximised** — the plots want the room. Un-maximising gives the window the size
+you last left it (remembered between launches and clamped to the screen it opens
+on), or on a first run a window filling 90 % of the screen.
+
+The wizard is laid out for displays of **1366×768 logical pixels and up** (a
+1920×1080 monitor at Windows' 125 % scaling is 1536×864 logical pixels). Plot text
+— titles, axis labels, tick labels, legends and their padding — shrinks as a plot
+canvas gets smaller than the size its figure was designed for, down to 70 % of the
+default size, and grows back when the window does, so a laptop shows the same
+panels at a smaller type size rather than losing the axes behind their labels.
+Figures written by a stage's **Save…** button are drawn afresh at full size,
+whatever the window size ({class}`~croak.plotting.PlotScale` and
+{meth}`~croak.gui.canvas.MplCanvas.render` are the mechanism).
 
 ### Desktop integration
 
@@ -65,6 +76,13 @@ forward button does the page's own work and is labelled accordingly —
 **Load raw → Retrieve →**) on the simulated loader — and is disabled until the
 page has something to hand on. **Back** from either entry page returns to the
 Welcome menu.
+
+### Layout
+
+Each stage keeps its controls in a scrollable column on the left and its plots on
+the right, separated by a draggable divider. Drag it to trade control space for
+plot space, or drag it fully to the left to hide the controls altogether; the width
+you choose applies to every stage and is remembered for the next launch.
 
 ## The stages
 
@@ -121,7 +139,8 @@ and hand the trace straight to the marginal-check stage.
    an SHG trace with an independent spectrum, and previews the snap onto the
    prediction live (the correction itself is applied during Preprocess). All three
    entry paths (experimental, simulated, synthetic) pass through this stage; see
-   [Marginal consistency checks](marginal_checks.md).
+   [Marginal consistency checks](marginal_checks.md). The trace and the marginal
+   comparison share a draggable divider, so either plot can be given the height.
 6. **Preprocess** — fringe/DC/low-pass filtering, windowing and regridding
    ({func}`~croak.preprocess.load_and_clean`), with a live before/after preview.
    The controls always show the settings that were actually applied: re-entering

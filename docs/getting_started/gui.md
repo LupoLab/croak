@@ -59,6 +59,9 @@ fails to appear on Windows, run
 `croak-gui` entry point opens no console, so that variant is the one that
 shows a traceback.
 
+The window opens maximised and is laid out for displays from 1366×768 up;
+un-maximised, it remembers the size you leave it at.
+
 ```{image} ../_static/gui_retrieve.png
 :alt: The wizard after a retrieval — measured and retrieved traces, residuals, the retrieved pulse and spectrum, and a numeric read-out.
 :width: 95%
