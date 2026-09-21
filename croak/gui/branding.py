@@ -17,10 +17,13 @@ from pathlib import Path
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
-__all__ = ["APP_NAME", "ICON_PATH", "app_icon", "apply_identity"]
+__all__ = ["APP_NAME", "ORGANISATION_NAME", "ICON_PATH", "app_icon", "apply_identity"]
 
 #: Name the desktop shows for the application (menu bar, taskbar, About/Quit).
 APP_NAME = "croak"
+#: Organisation the settings store is filed under (with :data:`APP_NAME`); the
+#: GitHub organisation that publishes the package.
+ORGANISATION_NAME = "LupoLab"
 
 #: Reverse-DNS-ish identifier Windows uses to group and pin taskbar entries.
 _APP_USER_MODEL_ID = "croak.gui"
@@ -70,6 +73,7 @@ def apply_identity() -> None:
     """
     from .. import __version__
 
+    QApplication.setOrganizationName(ORGANISATION_NAME)
     QApplication.setApplicationName(APP_NAME)
     QApplication.setApplicationDisplayName(APP_NAME)
     QApplication.setApplicationVersion(__version__)

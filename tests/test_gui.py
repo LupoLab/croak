@@ -20,8 +20,9 @@ import croak
 
 pytest.importorskip("PyQt6")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSettings, QSize, Qt
 
+from croak.gui import settings
 from croak.gui.canvas import MplCanvas
 from croak.gui.stage_load import assemble_load_data, seed_preproc_defaults
 from croak.gui.stage_marginal_check import StageMarginalCheck
@@ -53,6 +54,20 @@ def _uresult(method, sd, rng):
         base_error=0.01,
         profiles=prof,
         t_profile=t,
+    )
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path):
+    """Point QSettings at a per-test directory so no test touches real preferences.
+
+    ``croak.gui.settings`` only ever uses the explicit ``QSettings(IniFormat,
+    UserScope, org, app)`` constructor, which honours this redirect.
+    """
+    QSettings.setPath(
+        QSettings.Format.IniFormat,
+        QSettings.Scope.UserScope,
+        str(tmp_path / "settings"),
     )
 
 
@@ -2185,7 +2200,7 @@ def test_apply_identity_names_the_application(qtbot):
     """Name, display name and window icon reach the running QApplication."""
     from PyQt6.QtWidgets import QApplication
 
-    from croak.gui.branding import APP_NAME, apply_identity
+    from croak.gui.branding import APP_NAME, ORGANISATION_NAME, apply_identity
 
     app = QApplication.instance()
     assert app is not None
@@ -2193,9 +2208,11 @@ def test_apply_identity_names_the_application(qtbot):
         QApplication.applicationName(),
         QApplication.applicationDisplayName(),
         QApplication.windowIcon(),
+        QApplication.organizationName(),
     )
     try:
         apply_identity()
+        assert QApplication.organizationName() == ORGANISATION_NAME
         assert QApplication.applicationName() == APP_NAME
         assert QApplication.applicationDisplayName() == APP_NAME
         assert not QApplication.windowIcon().isNull()
@@ -2204,6 +2221,7 @@ def test_apply_identity_names_the_application(qtbot):
         QApplication.setApplicationName(before[0])
         QApplication.setApplicationDisplayName(before[1])
         QApplication.setWindowIcon(before[2])
+        QApplication.setOrganizationName(before[3])
 
 
 def test_wizard_carries_the_icon_under_a_foreign_qapplication(qtbot):
@@ -2420,3 +2438,65 @@ def test_canvas_save_figure_exports_at_the_design_size(qtbot, tmp_path):
     qtbot.addWidget(blank)
     with pytest.raises(RuntimeError, match="nothing has been rendered"):
         blank.save_figure(tmp_path / "none.pdf", dpi=72)
+
+
+# -- remembered layout -----------------------------------------------------------
+@pytest.mark.parametrize(
+    ("size", "available", "expected"),
+    [
+        ((1500, 950), (800, 800), (720, 720)),  # first run on a small screen
+        ((700, 600), (800, 800), (700, 600)),  # already fits: untouched
+        ((1500, 950), (2560, 1400), (1500, 950)),  # never enlarged
+    ],
+)
+def test_fit_to_screen_never_enlarges_and_caps_at_the_screen_fill(
+    size, available, expected
+):
+    assert settings.fit_to_screen(QSize(*size), QSize(*available)) == QSize(*expected)
+
+
+def test_settings_file_lives_under_the_redirected_path(tmp_path):
+    """Guards the isolation fixture: nothing here can reach real preferences."""
+    assert settings.user_settings().fileName().startswith(str(tmp_path))
+
+
+def test_new_window_is_clamped_to_the_screen(qtbot):
+    """With nothing saved, a fresh window fills at most 90 % of the screen."""
+    from PyQt6.QtWidgets import QApplication
+
+    screen = QApplication.primaryScreen()
+    assert screen is not None
+    available = screen.availableGeometry().size()  # 800x800 offscreen
+    w = Wizard()
+    qtbot.addWidget(w)
+    assert w.width() <= settings.SCREEN_FILL * available.width()
+    assert w.height() <= settings.SCREEN_FILL * available.height()
+    assert w.width() < settings.DEFAULT_WINDOW_SIZE.width()
+
+
+def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot):
+    """Closing saves the geometry; the next window restores it, kept on screen."""
+    from PyQt6.QtWidgets import QMainWindow
+
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.resize(700, 600)  # the width is clamped up to the window's minimum
+    w.show()
+    qtbot.waitExposed(w)
+    shown = (w.width(), w.height())
+    assert shown != (settings.DEFAULT_WINDOW_SIZE.width(), 600)
+    w.close()
+    again = Wizard()
+    qtbot.addWidget(again)
+    assert (again.width(), again.height()) == shown
+    # a geometry saved on a larger display never restores wider than this screen
+    big = QMainWindow()
+    qtbot.addWidget(big)
+    big.resize(1500, 950)
+    big.show()
+    qtbot.waitExposed(big)
+    settings.save_window(big)
+    clamped = Wizard()
+    qtbot.addWidget(clamped)
+    assert clamped.width() <= 800
+    assert clamped.height() <= 800

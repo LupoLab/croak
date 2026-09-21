@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 
 import numpy as np
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from .. import save
 from ..session import retarget
+from . import settings
 from .base import Stage
 from .branding import app_icon
 from .stage_dispersion import StageDispersion
@@ -120,7 +122,9 @@ class Wizard(QMainWindow):
         # it opens; setting it here too means an embedder who built their own
         # QApplication still gets the icon.
         self.setWindowIcon(app_icon())
-        self.resize(1500, 950)
+        # Un-maximised size: as the user last left it, else a default clamped to
+        # the screen (run_wizard maximises on top of this).
+        settings.restore_window(self)
         self.state = state or WizardState()
 
         central = QWidget()
@@ -218,6 +222,11 @@ class Wizard(QMainWindow):
         if self._page == "simulated":
             return self.simulated
         return None
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override
+        """Remember the window geometry for the next launch, then close."""
+        settings.save_window(self)
+        super().closeEvent(event)
 
     def _show_help(self) -> None:
         """Open the help dialog for the page currently on screen."""

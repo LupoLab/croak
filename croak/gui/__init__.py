@@ -25,9 +25,10 @@ __all__ = ["main", "run_wizard", "Wizard", "WizardState"]
 def run_wizard(argv=None) -> int:
     """Create a ``QApplication`` (if needed) and run the wizard event loop.
 
-    The window opens maximised — the twelve-panel retrieval summary and the
-    side-by-side trace previews need the room. ``Wizard.resize`` still sets the
-    restored-down geometry, so un-maximising gives a sensible window.
+    The window opens maximised — the plot pages want the room. Un-maximising
+    gives the size the user last left it (remembered between launches by
+    :mod:`croak.gui.settings`, clamped to the current screen), or on a first run
+    a default fitted to 90 % of the screen.
 
     ``argv[0]`` is replaced with the application name before the ``QApplication``
     is built: macOS takes its menu-bar title (and the "About …"/"Quit …" items)
