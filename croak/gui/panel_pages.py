@@ -12,18 +12,30 @@ Only the visible page is drawn when new data arrive; the others are marked stale
 and drawn when their tab is selected. Before the first full live preview of a run
 the stage shows the convergence curve instead ("convergence mode"), on whichever
 page is visible.
+
+A page is drawn once and later results are pushed onto its artists in place
+(:class:`~croak.plotting.RetrievalPageView`), so a live preview costs no layout
+solve and nothing jumps between frames; the page is redrawn from scratch only
+when the result's shape, its optional curves, or the canvas's text density change.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from matplotlib.figure import Figure
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QTabWidget, QToolButton, QVBoxLayout, QWidget
 
 from .. import plotting
-from ..plotting import RETRIEVAL_PAGES, PageSpec, RetrievalPlotData
+from ..plotting import (
+    RETRIEVAL_PAGES,
+    ConvergenceArtists,
+    PageSpec,
+    PlotScale,
+    RetrievalPageView,
+    RetrievalPlotData,
+)
 from .canvas import MplCanvas, with_toolbar
 
 __all__ = ["RetrievalPages", "PagePopout", "PAGE_FIGSIZE"]
@@ -84,6 +96,12 @@ class RetrievalPages(QWidget):
         self._stale: set[str] = set()
         self._canvases: dict[str, MplCanvas] = {}
         self._popouts: dict[str, PagePopout] = {}
+        # Per-canvas presentation state (tabs and pop-outs alike): the artist-
+        # reusing view of its page, the convergence-curve artists while a run has
+        # no full preview yet, and the text density the canvas was last drawn at.
+        self._views: dict[MplCanvas, RetrievalPageView] = {}
+        self._conv: dict[MplCanvas, ConvergenceArtists] = {}
+        self._scales: dict[MplCanvas, PlotScale] = {}
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)  # a slim tab bar: every pixel is the plot's
@@ -151,6 +169,9 @@ class RetrievalPages(QWidget):
         self._data = None
         self._errors = None
         self._stale = set()
+        self._conv.clear()
+        for view in self._views.values():
+            view.reset()
         for canvas in self._all_canvases():
             canvas.clear()
 
@@ -160,9 +181,9 @@ class RetrievalPages(QWidget):
         popout = self._popouts.get(key)
         if popout is None:
             popout = PagePopout(self._pages[key], self)
-            popout.finished.connect(lambda _result, k=key: self._popouts.pop(k, None))
+            popout.finished.connect(lambda _result, k=key: self._forget_popout(k))
             self._popouts[key] = popout
-            self._redraw_canvas(popout.canvas, key)
+            self._present_canvas(popout.canvas, key)
         popout.show()
         popout.raise_()
         popout.activateWindow()
@@ -172,33 +193,90 @@ class RetrievalPages(QWidget):
     def _all_canvases(self) -> list[MplCanvas]:
         return [*self._canvases.values(), *(p.canvas for p in self._popouts.values())]
 
-    def _plot_fn(self, key: str) -> Callable[[Figure], object] | None:
-        """The plot function for page ``key`` given the current mode, or None."""
-        if self._errors is not None:
-            errors = self._errors
-            return lambda fig: plotting.plot_convergence(fig.add_subplot(111), errors)
-        if self._data is not None:
-            data, page = self._data, self._pages[key]
-            return lambda fig: plotting.plot_retrieval_page(data, page, fig=fig)
-        return None
+    def _forget_popout(self, key: str) -> None:
+        popout = self._popouts.pop(key, None)
+        if popout is not None:
+            for store in (self._views, self._conv, self._scales):
+                store.pop(popout.canvas, None)
 
-    def _redraw_canvas(self, canvas: MplCanvas, key: str) -> None:
-        plot_fn = self._plot_fn(key)
-        if plot_fn is None:
-            canvas.clear()
+    def _present_canvas(self, canvas: MplCanvas, key: str) -> None:
+        """Bring ``canvas`` (showing page ``key``) up to date with the current mode."""
+        if self._errors is not None:
+            self._present_convergence(canvas)
+        elif self._data is not None:
+            self._present_data(canvas, key, self._data)
         else:
-            canvas.render(plot_fn)
+            canvas.clear()
+
+    def _present_convergence(self, canvas: MplCanvas) -> None:
+        """Show the live error curve on ``canvas``, growing it in place if it exists."""
+        errors = self._errors
+        if errors is None:
+            return
+        artists = self._conv.get(canvas)
+        if (
+            artists is not None
+            and canvas.rendered
+            and self._scales.get(canvas) == canvas.scale
+        ):
+            plotting.update_convergence_curve(artists, errors)
+            canvas.draw_idle()
+            return
+        view = self._views.get(canvas)
+        if view is not None:
+            view.reset()  # the page's artists go with the cleared figure
+
+        def plot(fig: Figure) -> None:
+            # Re-run by the canvas on a density change; `errors` is read live.
+            self._conv[canvas] = plotting.plot_convergence(fig.add_subplot(111), errors)
+            self._scales[canvas] = canvas.scale
+
+        canvas.render(plot)
+
+    def _present_data(
+        self, canvas: MplCanvas, key: str, data: RetrievalPlotData
+    ) -> None:
+        """Show ``data`` on ``canvas``: update in place when possible, else redraw.
+
+        A redraw is needed when the page has never been drawn on this figure,
+        when the result changed shape or gained/lost optional curves
+        (:meth:`~croak.plotting.RetrievalPageView.can_update`), or when the
+        canvas's text density changed: rc sizes bind at artist creation, so an
+        in-place update would keep the stale size.
+        """
+        view = self._views.get(canvas)
+        if view is None:
+            view = self._views[canvas] = RetrievalPageView(self._pages[key])
+        if (
+            view.attached
+            and view.fig is canvas.figure
+            and self._scales.get(canvas) == canvas.scale
+            and view.can_update(data)
+        ):
+            view.update(data)
+            canvas.draw_idle()
+            return
+        self._conv.pop(canvas, None)
+
+        def plot(fig: Figure) -> None:
+            # Re-run by the canvas on a density change: draw the latest result.
+            latest = self._data
+            if latest is not None:
+                view.draw(fig, latest)
+                self._scales[canvas] = canvas.scale
+
+        canvas.render(plot)
 
     def _present(self) -> None:
-        """Draw the visible page and every pop-out; mark the other pages stale."""
+        """Bring the visible page and every pop-out up to date; mark the rest stale."""
         current = self.current_page()
         self._stale = set(self._pages) - {current}
-        self._redraw_canvas(self._canvases[current], current)
+        self._present_canvas(self._canvases[current], current)
         for key, popout in self._popouts.items():
-            self._redraw_canvas(popout.canvas, key)
+            self._present_canvas(popout.canvas, key)
 
     def _on_tab_changed(self, index: int) -> None:
         key = self.page_keys()[index]
         if key in self._stale:
-            self._redraw_canvas(self._canvases[key], key)
+            self._present_canvas(self._canvases[key], key)
             self._stale.discard(key)

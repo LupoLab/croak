@@ -2642,8 +2642,8 @@ def test_retrieve_pages_pop_out_opens_a_window_that_follows_the_result(qtbot):
     assert dlg.isVisible()
     assert _titles(dlg.canvas.figure) == _page_titles("pulse")
     before = dlg.canvas.figure.axes[0]
-    rs._update_view()  # a new result redraws the pop-out too
-    assert dlg.canvas.figure.axes[0] is not before
+    rs._update_view()  # the pop-out follows, updated in place
+    assert dlg.canvas.figure.axes[0] is before
     assert rs.pages.pop_out("pulse") is dlg  # one window per page
     dlg.close()
     qtbot.waitUntil(lambda: "pulse" not in rs.pages._popouts)
@@ -2662,8 +2662,12 @@ def test_retrieve_progress_curve_shows_on_the_visible_page(qtbot):
     rs._on_progress(1, 0.1, 0.1)
     rs._on_progress(2, 0.05, 0.05)
     fig = rs.pages.canvas("pulse").figure
-    assert _titles(fig) == ["Convergence"]
-    assert fig.axes[0].lines[0].get_xydata().shape == (2, 2)
+    qtbot.waitUntil(lambda: _titles(fig) == ["Convergence"])  # after the debounce
+    line = fig.axes[0].lines[0]
+    assert line.get_xydata().shape == (2, 2)
+    rs._on_progress(3, 0.02, 0.02)
+    qtbot.waitUntil(lambda: line.get_xydata().shape == (3, 2))  # grown in place
+    assert fig.axes[0].lines[0] is line
     # switching tabs while running shows the curve there too
     rs.pages.set_current_page("traces")
     assert _titles(rs.pages.canvas("traces").figure) == ["Convergence"]
@@ -2721,3 +2725,68 @@ def test_retrieve_save_writes_the_full_overview_pdf(qtbot, tmp_path, monkeypatch
     page, fig = seen[-1]
     assert page is croak.plotting.RETRIEVAL_OVERVIEW
     assert len(_titles(fig)) == 12
+
+
+# -- live preview in place -----------------------------------------------------------
+def test_retrieve_live_preview_updates_the_page_in_place(qtbot):
+    """A later snapshot of the same run reuses the drawn axes and artists."""
+    from dataclasses import replace
+
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    r1 = w.state.result
+    assert r1 is not None
+    r2 = replace(r1, errors=list(r1.errors[:5]), error=float(r1.errors[4]))
+    rs._on_preview(r1)
+    figure = rs.pages.canvas("traces").figure
+    axes = list(figure.axes)
+    retrieved_lin = next(
+        ax for ax in figure.axes if ax.get_title() == "Retrieved (lin)"
+    )
+    label = retrieved_lin.texts[0]  # the bold error/shape annotation
+    rs._on_preview(r2)
+    assert list(figure.axes) == axes
+    assert rs._live_full
+    assert f"{r2.error * 100:.2f}%" in label.get_text()
+    assert "iter 5" in rs.status_label.text()
+    # a stale page drawn later shows the latest snapshot
+    rs.pages.set_current_page("pulse")
+    assert rs.pages.data is not None
+    assert rs.pages.data.result is r2
+
+
+def test_retrieve_post_filter_updates_in_place(qtbot):
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    figure = rs.pages.canvas("traces").figure
+    axes = list(figure.axes)
+    status = rs.status_label.text()
+    rs.pf_lam.setChecked(True)  # re-plots the stored result through _update_view
+    assert list(figure.axes) == axes
+    assert rs.state.retrieve.post_filter_lam is True
+    assert rs.status_label.text() != status or "Done" in rs.status_label.text()
+
+
+def test_retrieve_convergence_redraw_is_throttled(qtbot, monkeypatch):
+    """A thousand iterations in a burst draw the curve once, after the debounce."""
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.show_synthetic()
+    w.synthetic.advance()
+    w.state.stage = 3
+    w.state.stage = 4
+    rs = w.stages[3]
+    calls = []
+    monkeypatch.setattr(
+        rs.pages, "show_progress", lambda errors: calls.append(len(errors))
+    )
+    rs._errors = []
+    for i in range(1000):
+        rs._on_progress(i + 1, 0.5 / (i + 1), 0.5 / (i + 1))
+    assert calls == []
+    assert rs._conv_timer.isActive()
+    qtbot.waitUntil(lambda: calls == [1000])
+    qtbot.wait(3 * rs._conv_timer.interval())
+    assert calls == [1000]  # and nothing more without new iterations

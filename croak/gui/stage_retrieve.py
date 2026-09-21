@@ -43,6 +43,10 @@ from .worker import RetrievalWorker
 
 #: How often the elapsed-time read-out ticks during a run (ms).
 _ELAPSED_TICK_MS = 500
+#: Shortest interval (ms) between redraws of the convergence curve before the first
+#: full preview: a fast solver can report thousands of iterations a second, and
+#: ten frames a second is all the eye needs.
+_CONVERGENCE_REDRAW_MS = 100
 
 _INITIAL_GUESSES = {
     "Automatic (centroid phase)": None,
@@ -337,6 +341,10 @@ class StageRetrieve(Stage):
         # value is the authoritative one reported on completion); this one only has
         # to tick while the run is in flight, so the few-ms offset is immaterial.
         self._t0 = 0.0
+        self._conv_timer = QTimer(self)
+        self._conv_timer.setSingleShot(True)
+        self._conv_timer.setInterval(_CONVERGENCE_REDRAW_MS)
+        self._conv_timer.timeout.connect(self._draw_convergence)
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(_ELAPSED_TICK_MS)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
@@ -1424,6 +1432,7 @@ class StageRetrieve(Stage):
         self.save_btn.setEnabled(False)
         self.retarget_btn.setEnabled(False)
         self._live_full = False
+        self._conv_timer.stop()
         self.pages.clear()
         self._worker = RetrievalWorker(
             td,
@@ -1461,10 +1470,17 @@ class StageRetrieve(Stage):
         # Cheap: this fires every iteration and has no processed result to draw on.
         self.readout.set_scalars({"iteration": str(iteration), "error": f"{R:.4%}"})
         # Until the first full-plot preview arrives (or for convergence-only
-        # solvers), animate the cheap convergence curve on the visible page. Once
-        # a live full plot has taken over, leave it to :meth:`_on_preview`.
-        if not self._live_full:
-            self.pages.show_progress(self._errors)
+        # solvers), animate the convergence curve on the visible page — at most
+        # every _CONVERGENCE_REDRAW_MS, however fast the iterations come. Once a
+        # live full plot has taken over, leave it to :meth:`_on_preview`.
+        if not self._live_full and not self._conv_timer.isActive():
+            self._conv_timer.start()
+
+    def _draw_convergence(self) -> None:
+        """Show the run's error history so far (debounced by ``_conv_timer``)."""
+        if self._live_full or not self._errors:
+            return
+        self.pages.show_progress(self._errors)
 
     def _on_preview(self, result):
         """Show a throttled in-progress result on the pages.
@@ -1479,6 +1495,7 @@ class StageRetrieve(Stage):
         td = self.state.tracedata
         if td is None:
             return
+        self._conv_timer.stop()
         self._live_full = True
         energy = self.state.load.energy_j or None
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -1805,6 +1822,7 @@ class StageRetrieve(Stage):
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self._elapsed_timer.stop()
+        self._conv_timer.stop()
         # Keep the last true iteration/error/elapsed; blank the curve table, whose
         # numbers would otherwise be silently stale.
         self.readout.clear()

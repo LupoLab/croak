@@ -22,7 +22,7 @@ import contextlib
 import functools
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from matplotlib.colors import ListedColormap
@@ -106,6 +106,20 @@ __all__ = [
     "draw_freq_marginal",
     "draw_delay_marginal",
     "draw_spectrogram",
+    "update_measured_log",
+    "update_retrieved_log",
+    "update_measured_lin",
+    "update_retrieved_lin",
+    "update_temporal",
+    "update_spectral",
+    "update_convergence",
+    "update_convergence_curve",
+    "update_residual",
+    "update_spectral_filter",
+    "update_freq_marginal",
+    "update_delay_marginal",
+    "update_spectrogram",
+    "RetrievalPageView",
     "plot_frog_filter",
     "filter_view_vmax",
     "FrogFilterView",
@@ -352,6 +366,22 @@ def _white_red():
     return LinearSegmentedColormap.from_list("white_red", ["white", "red"])
 
 
+def _signed_magnitude(
+    C, *, db: bool, tracedb: float, vmax: float | None
+) -> tuple[NDArray[np.float64], NDArray[np.bool_], float, float]:
+    """Split ``C`` into magnitude, negative mask and the shared ``(vmin, vmax)``.
+
+    One code path for drawing and for updating in place.
+    """
+    C = np.asarray(C, dtype=float)
+    neg = C < 0
+    if db:
+        mag = np.clip(10 * np.log10(np.maximum(np.abs(C), 1e-30)), -tracedb, 0.0)
+        return mag, neg, -tracedb, 0.0
+    mag = np.abs(C)
+    return mag, neg, 0.0, float(np.nanmax(mag)) if vmax is None else vmax
+
+
 def signed_pcolormesh(ax, x, y, C, *, db, tracedb=30.0, cmap_pos, vmax=None):
     """Pcolormesh that splits an image's sign onto two colormaps.
 
@@ -367,15 +397,7 @@ def signed_pcolormesh(ax, x, y, C, *, db, tracedb=30.0, cmap_pos, vmax=None):
     Returns ``(mappable_pos, mappable_neg)`` (the second is ``None`` when there
     are no negative samples).
     """
-    C = np.asarray(C, dtype=float)
-    neg = C < 0
-    if db:
-        mag = np.clip(10 * np.log10(np.maximum(np.abs(C), 1e-30)), -tracedb, 0.0)
-        vmin, vhi = -tracedb, 0.0
-    else:
-        mag = np.abs(C)
-        vmin = 0.0
-        vhi = float(np.nanmax(mag)) if vmax is None else vmax
+    mag, neg, vmin, vhi = _signed_magnitude(C, db=db, tracedb=tracedb, vmax=vmax)
     mpos = ax.pcolormesh(
         x,
         y,
@@ -469,8 +491,12 @@ def _prepare_fig(fig, figsize):
     return fig
 
 
-def _combined_legend(ax, axp, *, loc: str = "best") -> Legend:
-    """Draw one legend containing intensity and twin-axis phase curves."""
+def _combined_legend(ax, axp, *, loc: str) -> Legend:
+    """Draw one legend containing intensity and twin-axis phase curves.
+
+    ``loc`` is a fixed corner: matplotlib's ``"best"`` re-evaluates on every draw
+    and made the legend jump between frames of the live preview.
+    """
     handles, labels = ax.get_legend_handles_labels()
     phase_handles, phase_labels = axp.get_legend_handles_labels()
     return ax.legend(
@@ -626,6 +652,70 @@ type PanelArtists = (
 )
 
 
+def _temporal_curves(pr: ProcessedResult, power_scale):
+    """Return ``(retr, tl, r_label, tl_label, ylabel, power_scale)`` for the pulse.
+
+    In absolute power when ``pr.peak_power`` is known (deriving the SI prefix if
+    ``power_scale`` is None), else normalised. Shared by draw and update.
+    """
+    if pr.peak_power is not None:
+        if power_scale is None:
+            power_scale = si_power(max(pr.peak_power, pr.peak_power_tl or 0.0))
+        scale, unit = power_scale
+        retr = pr.It_retr * pr.peak_power / scale
+        tl = pr.It_tl * (pr.peak_power_tl or 0.0) / scale
+        r_label = f"R ({_fs(pr.fwhm_retr)} fs, {pr.peak_power / scale:.1f} {unit})"
+        tl_label = (
+            f"TL ({_fs(pr.fwhm_tl)} fs, {(pr.peak_power_tl or 0.0) / scale:.1f} {unit})"
+        )
+        return retr, tl, r_label, tl_label, f"Power ({unit})", power_scale
+    r_label = f"R ({_fs(pr.fwhm_retr)} fs)"
+    tl_label = f"TL ({_fs(pr.fwhm_tl)} fs)"
+    return pr.It_retr, pr.It_tl, r_label, tl_label, "Power (a.u.)", None
+
+
+def _truth_intensity(truth: TruthPulse, energy, power_scale) -> NDArray[np.float64]:
+    """Return the truth's intensity on the temporal panel's scale.
+
+    With a pulse energy the truth is shown in absolute power on the shared SI
+    scale: it carries the same energy, so its peak power is energy/∫(I/I_peak)dt
+    over its *own* duration (:meth:`~croak.processing.TruthPulse.peak_power`).
+    """
+    peak_power = truth.peak_power(energy)
+    if peak_power is None:
+        return np.asarray(truth.It, dtype=float)
+    scale = power_scale[0] if power_scale is not None else 1.0
+    return np.asarray(truth.It, dtype=float) * peak_power / scale
+
+
+def _intensity_ylim(*curves) -> tuple[float, float]:
+    """``(0, 1.05 × max)`` over the given curves (``None`` entries ignored).
+
+    Set explicitly because ``Axes.set_ylim`` switches autoscaling off, so an
+    in-place update could not rely on it; the 5 % headroom is matplotlib's
+    default margin.
+    """
+    tops = [float(np.nanmax(c)) for c in curves if c is not None and np.size(c)]
+    top = max(tops, default=1.0)
+    return 0.0, 1.05 * top if top > 0 else 1.0
+
+
+def _phase_ylim(*curves) -> tuple[float, float] | None:
+    """Phase-axis limits centred on the shown phases with their span as margin.
+
+    Finite samples of every non-empty curve count; ``None`` when nothing is shown.
+    """
+    arrays = [np.asarray(c, dtype=float) for c in curves if c is not None]
+    arrays = [a[np.isfinite(a)] for a in arrays]
+    arrays = [a for a in arrays if a.size]
+    if not arrays:
+        return None
+    pm = np.concatenate(arrays)
+    d = pm.max() - pm.min()
+    mid = (pm.max() + pm.min()) / 2
+    return mid - d - 1e-9, mid + d + 1e-9
+
+
 def _temporal_panel(
     ax,
     pr: ProcessedResult,
@@ -636,48 +726,24 @@ def _temporal_panel(
 ) -> TemporalArtists:
     """Draw the temporal panel into ``ax``; return its artists (see plot_temporal)."""
     t = pr.t_over / 1e-15
-    if pr.peak_power is not None:
-        if power_scale is None:
-            ref = max(pr.peak_power, pr.peak_power_tl or 0.0)
-            power_scale = si_power(ref)
-        scale, unit = power_scale
-        retr = pr.It_retr * pr.peak_power / scale
-        tl = pr.It_tl * (pr.peak_power_tl or 0.0) / scale
-        r_label = f"R ({_fs(pr.fwhm_retr)} fs, {pr.peak_power / scale:.1f} {unit})"
-        tl_label = (
-            f"TL ({_fs(pr.fwhm_tl)} fs, {(pr.peak_power_tl or 0.0) / scale:.1f} {unit})"
-        )
-        ylabel = f"Power ({unit})"
-    else:
-        retr, tl = pr.It_retr, pr.It_tl
-        r_label = f"R ({_fs(pr.fwhm_retr)} fs)"
-        tl_label = f"TL ({_fs(pr.fwhm_tl)} fs)"
-        ylabel = "Power (a.u.)"
+    retr, tl, r_label, tl_label, ylabel, power_scale = _temporal_curves(pr, power_scale)
     (line_retr,) = ax.plot(t, retr, c="C0", label=r_label)
     # The TL pulse is peak-centred on its own oversampled axis (its peak index
     # need not coincide with the retrieved pulse's), so plot it against t_tl —
     # using t_over would shift its peak off t=0 by a sample or two.
     (line_tl,) = ax.plot(pr.t_tl / 1e-15, tl, c="C1", label=tl_label)
     line_truth = None
+    truth_curve = None
     if truth is not None:
         # The known pulse as a thin black line *under* the retrieved/TL curves, in
         # physical units so it is independent of the retrieval grid. A retrieval
         # is defined only up to the time-direction ambiguity, so the truth may
         # appear shifted or flipped. Its legend entry carries its own FWHM so the
-        # three durations read side by side. With a pulse energy the truth is
-        # shown in absolute power on the shared scale: it carries the same energy,
-        # so its peak power is energy/∫(I/I_peak)dt over its *own* duration.
-        It_plot = truth.It
-        peak_power = truth.peak_power(pr.energy)
-        if peak_power is not None:
-            It_plot = (
-                truth.It
-                * peak_power
-                / (power_scale[0] if power_scale is not None else 1.0)
-            )
+        # three durations read side by side.
+        truth_curve = _truth_intensity(truth, pr.energy, power_scale)
         (line_truth,) = ax.plot(
             truth.t / 1e-15,
-            It_plot,
+            truth_curve,
             c="k",
             lw=0.8,
             zorder=1,
@@ -685,34 +751,32 @@ def _temporal_panel(
         )
     ax.set_xlabel("Time (fs)")
     ax.set_ylabel(ylabel)
-    ax.set_ylim(bottom=0.0)
+    ax.set_ylim(*_intensity_ylim(retr, tl, truth_curve))
     ax.set_title("Retrieved pulse")
     if halfwidth is not None:
         ax.set_xlim(-halfwidth / 1e-15, halfwidth / 1e-15)
     axp = ax.twinx()
     (line_phase,) = axp.plot(t[pr.mask_t], pr.phi_t[pr.mask_t], c="C2")
     axp.set_ylabel("Phase (rad)")
-    shown = [pr.phi_t[pr.mask_t]] if np.any(pr.mask_t) else []
     line_truth_phase = None
+    truth_phase = None
     if truth is not None and truth.phi_t is not None:
         truth_mask = np.asarray(truth.It) > 0.01
+        truth_phase = np.asarray(truth.phi_t)[truth_mask]
         (line_truth_phase,) = axp.plot(
             np.asarray(truth.t)[truth_mask] / 1e-15,
-            np.asarray(truth.phi_t)[truth_mask],
+            truth_phase,
             ":",
             c="0.35",
             lw=1.2,
             label="truth phase",
         )
-        truth_phase = np.asarray(truth.phi_t)[truth_mask]
-        if truth_phase.size:
-            shown.append(truth_phase)
-    if shown:
-        pm = np.concatenate(shown)
-        d = pm.max() - pm.min()
-        mid = (pm.max() + pm.min()) / 2
-        axp.set_ylim(mid - d - 1e-9, mid + d + 1e-9)
-    legend = _combined_legend(ax, axp)
+    limits = _phase_ylim(pr.phi_t[pr.mask_t], truth_phase)
+    if limits is not None:
+        axp.set_ylim(*limits)
+    # Upper left: the pulse and its masked phase sit at the centre, the wings are
+    # empty, and a fixed corner cannot jump between live frames.
+    legend = _combined_legend(ax, axp, loc="upper left")
     texts = legend.get_texts()
     return TemporalArtists(
         line_retr=line_retr,
@@ -758,6 +822,42 @@ def plot_temporal(
     ).ax_phase
 
 
+def _truth_spectral_phase(
+    wavelength: NDArray[np.float64], truth: TruthPulse | None
+) -> NDArray[np.float64] | None:
+    """Return the truth's spectral phase interpolated onto ``wavelength``, or None.
+
+    The truth is stored on the simulation's own frequency grid, which is neither
+    the same spacing nor the same extent as the retrieval's; NaN outside it.
+    """
+    tphi_src = getattr(truth, "phi_w", None) if truth is not None else None
+    tlam_src = getattr(truth, "lam", None) if truth is not None else None
+    if tphi_src is None or tlam_src is None:
+        return None
+    return np.interp(
+        wavelength,
+        np.asarray(tlam_src, dtype=float),
+        np.asarray(tphi_src, dtype=float),
+        left=np.nan,
+        right=np.nan,
+    )
+
+
+def _dispersion_text(pr: ProcessedResult) -> str:
+    """Return the GDD/TOD annotation of the spectrum panel."""
+    return f"GDD: {pr.gdd_fs2:.1f} fs²\nTOD: {pr.tod_fs3:.1f} fs³"
+
+
+def _edge_text(pr: ProcessedResult) -> tuple[str, str]:
+    """Return the edge-energy annotation and its colour (red once it matters).
+
+    Energy parked in the unmeasured grid-edge bins is an artefact indicator; the
+    1 % threshold sits comfortably above what a sound retrieval produces.
+    """
+    color = "C3" if pr.edge_energy > EDGE_ENERGY_WARN else "0.35"
+    return f"Edge: {100 * pr.edge_energy:.2f} %", color
+
+
 def _spectral_panel(
     ax,
     pr: ProcessedResult,
@@ -790,21 +890,9 @@ def _spectral_panel(
         lam_nm[pr.mask_w], pr.phi_w_fit[pr.mask_w], "--", c="C4", alpha=0.7
     )
     axp.set_ylabel("Phase (rad)")
-    shown = [pr.phi_w[pr.mask_w]] if np.any(pr.mask_w) else []
+    tphi = _truth_spectral_phase(pr.wavelength, truth)
     line_truth_phase = None
-    tphi_src = getattr(truth, "phi_w", None) if truth is not None else None
-    tlam_src = getattr(truth, "lam", None) if truth is not None else None
-    if tphi_src is not None and tlam_src is not None:
-        # Interpolated onto the retrieved wavelength axis: the truth is stored
-        # on the simulation's own frequency grid, which is neither the same
-        # spacing nor the same extent.
-        tphi = np.interp(
-            pr.wavelength,
-            np.asarray(tlam_src, dtype=float),
-            np.asarray(tphi_src, dtype=float),
-            left=np.nan,
-            right=np.nan,
-        )
+    if tphi is not None:
         (line_truth_phase,) = axp.plot(
             lam_nm[pr.mask_w],
             tphi[pr.mask_w],
@@ -813,33 +901,18 @@ def _spectral_panel(
             lw=1.2,
             label="truth phase",
         )
-        finite = tphi[pr.mask_w][np.isfinite(tphi[pr.mask_w])]
-        if finite.size:
-            shown.append(finite)
-    if shown:
-        allp = np.concatenate(shown)
-        d = allp.max() - allp.min()
-        mid = (allp.max() + allp.min()) / 2
-        axp.set_ylim(mid - d - 1e-9, mid + d + 1e-9)
+    limits = _phase_ylim(pr.phi_w[pr.mask_w], None if tphi is None else tphi[pr.mask_w])
+    if limits is not None:
+        axp.set_ylim(*limits)
     text_dispersion = ax.text(
-        0.05,
-        0.78,
-        f"GDD: {pr.gdd_fs2:.1f} fs²\nTOD: {pr.tod_fs3:.1f} fs³",
-        transform=ax.transAxes,
-        fontsize="small",
+        0.05, 0.78, _dispersion_text(pr), transform=ax.transAxes, fontsize="small"
     )
-    # Energy parked in the unmeasured grid-edge bins: an artefact indicator, so it
-    # is drawn in red once it is large enough to distort the reported duration.
-    # Threshold is 1 %, comfortably above what a sound retrieval produces.
+    edge, edge_color = _edge_text(pr)
     text_edge = ax.text(
-        0.05,
-        0.70,
-        f"Edge: {100 * pr.edge_energy:.2f} %",
-        transform=ax.transAxes,
-        fontsize="small",
-        color="C3" if pr.edge_energy > EDGE_ENERGY_WARN else "0.35",
+        0.05, 0.70, edge, transform=ax.transAxes, fontsize="small", color=edge_color
     )
-    legend = _combined_legend(ax, axp)
+    # Upper right: the GDD/TOD and edge annotations occupy the upper left.
+    legend = _combined_legend(ax, axp, loc="upper right")
     return SpectralArtists(
         line_retr=line_retr,
         line_phase=line_phase,
@@ -910,9 +983,9 @@ def plot_convergence(
                 )
             )
     legend = None
-    if rules:
+    if rules:  # upper right: a decreasing curve leaves that corner empty
         legend = ax.legend(
-            loc="best", handlelength=1.2, frameon=False, fontsize="small"
+            loc="upper right", handlelength=1.2, frameon=False, fontsize="small"
         )
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Error")
@@ -933,7 +1006,9 @@ def plot_marginal(
     ax.set_ylim(0, 1.05)
     if halfwidth is not None:
         ax.set_xlim(-halfwidth / scale, halfwidth / scale)
-    legend = ax.legend(loc="best", handlelength=1.0, frameon=False, fontsize="small")
+    legend = ax.legend(
+        loc="upper left", handlelength=1.0, frameon=False, fontsize="small"
+    )
     return MarginalArtists(line_retr=line_retr, legend=legend, line_meas=line_meas)
 
 
@@ -1123,6 +1198,14 @@ def retrieval_plot_data(
     )
 
 
+def _trace_label(data: RetrievalPlotData) -> str:
+    """Return the retrieved-linear panel's annotation: FROG error and shape."""
+    return (
+        f"{data.result.error * 100:.2f}%\n"
+        f"{data.retrieved.shape[0]}×{data.retrieved.shape[1]}"
+    )
+
+
 def _draw_trace_image(
     ax, data: RetrievalPlotData, C: NDArray[np.float64], *, db: bool, title: str
 ) -> tuple[QuadMesh, QuadMesh | None]:
@@ -1178,8 +1261,7 @@ def draw_retrieved_lin(ax, data: RetrievalPlotData) -> TraceArtists:
     label = ax.text(
         0.04,
         0.96,
-        f"{data.result.error * 100:.2f}%\n"
-        f"{data.retrieved.shape[0]}×{data.retrieved.shape[1]}",
+        _trace_label(data),
         transform=ax.transAxes,
         ha="left",
         va="top",
@@ -1307,16 +1389,226 @@ def draw_spectrogram(ax, data: RetrievalPlotData) -> SpectrogramArtists:
     return SpectrogramArtists(mesh=mesh)
 
 
+# ---------------------------------------------------------------------------
+# In-place updates
+# ---------------------------------------------------------------------------
+# Each update_<key>(artists, data) pushes a new result onto the artists its
+# draw_<key> twin created: set_data / set_array / set_text and explicit limits,
+# never new artists. The invariant is update(draw(d1), d2) ≡ draw(d2), which the
+# tests check panel by panel. Whether an update is possible at all — same grid
+# shapes, same optional artists — is decided by _update_signature.
+
+
+def _axes_of(artist) -> Axes:
+    """Return the axes an artist is drawn on (an updated artist always has one)."""
+    ax = artist.axes
+    if ax is None:
+        raise RuntimeError("the artist is not on any axes")
+    return ax
+
+
+def _update_trace(artists: TraceArtists, data: RetrievalPlotData, C, *, db: bool):
+    mag, neg, vmin, vhi = _signed_magnitude(
+        C, db=db, tracedb=data.tracedb, vmax=None if db else data.lin_vmax
+    )
+    artists.mesh_pos.set_array(np.ma.masked_where(neg, mag))
+    artists.mesh_pos.set_clim(vmin, vhi)  # a shared colorbar follows the norm
+    if artists.mesh_neg is not None:
+        artists.mesh_neg.set_array(np.ma.masked_where(~neg, mag))
+        artists.mesh_neg.set_clim(vmin, vhi)
+
+
+def update_measured_log(artists: TraceArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_measured_log`'s artists in place."""
+    _update_trace(artists, data, data.measured, db=True)
+
+
+def update_retrieved_log(artists: TraceArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_retrieved_log`'s artists in place."""
+    _update_trace(artists, data, data.retrieved, db=True)
+
+
+def update_measured_lin(artists: TraceArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_measured_lin`'s artists in place."""
+    _update_trace(artists, data, data.measured, db=False)
+
+
+def update_retrieved_lin(artists: TraceArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_retrieved_lin`'s artists in place."""
+    _update_trace(artists, data, data.retrieved, db=False)
+    if artists.label is not None:
+        artists.label.set_text(_trace_label(data))
+
+
+def update_temporal(artists: TemporalArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_temporal`'s artists in place."""
+    pr = data.processed
+    t = pr.t_over / 1e-15
+    retr, tl, r_label, tl_label, ylabel, power_scale = _temporal_curves(
+        pr, data.power_scale
+    )
+    artists.line_retr.set_data(t, retr)
+    artists.line_tl.set_data(pr.t_tl / 1e-15, tl)
+    artists.legend_retr.set_text(r_label)
+    artists.legend_tl.set_text(tl_label)
+    ax = _axes_of(artists.line_retr)
+    ax.set_ylabel(ylabel)
+    truth_curve = None
+    if artists.line_truth is not None and data.truth is not None:
+        truth_curve = _truth_intensity(data.truth, pr.energy, power_scale)
+        artists.line_truth.set_ydata(truth_curve)
+    ax.set_ylim(*_intensity_ylim(retr, tl, truth_curve))
+    artists.line_phase.set_data(t[pr.mask_t], pr.phi_t[pr.mask_t])
+    truth_phase = None  # static within a run: the truth does not change
+    if artists.line_truth_phase is not None:
+        truth_phase = np.asarray(artists.line_truth_phase.get_ydata(), dtype=float)
+    limits = _phase_ylim(pr.phi_t[pr.mask_t], truth_phase)
+    if limits is not None:
+        artists.ax_phase.set_ylim(*limits)
+
+
+def update_spectral(artists: SpectralArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_spectral`'s artists in place."""
+    pr = data.processed
+    lam_nm = pr.wavelength / 1e-9
+    artists.line_retr.set_data(lam_nm, pr.Ilam)
+    if artists.line_meas is not None and pr.Iw_meas is not None:
+        artists.line_meas.set_data(lam_nm, pr.Iw_meas)
+    artists.line_phase.set_data(lam_nm[pr.mask_w], pr.phi_w[pr.mask_w])
+    artists.line_phase_fit.set_data(lam_nm[pr.mask_w], pr.phi_w_fit[pr.mask_w])
+    # The truth phase is static but its mask (where the spectrum is bright) moves.
+    tphi = _truth_spectral_phase(pr.wavelength, data.truth)
+    if artists.line_truth_phase is not None and tphi is not None:
+        artists.line_truth_phase.set_data(lam_nm[pr.mask_w], tphi[pr.mask_w])
+    limits = _phase_ylim(pr.phi_w[pr.mask_w], None if tphi is None else tphi[pr.mask_w])
+    if limits is not None:
+        artists.ax_phase.set_ylim(*limits)
+    artists.text_dispersion.set_text(_dispersion_text(pr))
+    edge, edge_color = _edge_text(pr)
+    artists.text_edge.set_text(edge)
+    artists.text_edge.set_color(edge_color)
+
+
+def update_convergence_curve(artists: ConvergenceArtists, errors: ArrayLike) -> None:
+    """Grow the error curve of :func:`plot_convergence` in place and rescale."""
+    errors = np.asarray(errors, dtype=float)
+    artists.line.set_data(np.arange(1, errors.size + 1), errors)
+    ax = _axes_of(artists.line)
+    ax.relim()  # autoscaling is still on here: plot_convergence sets no limits
+    ax.autoscale_view()
+
+
+def update_convergence(artists: ConvergenceArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_convergence`'s artists in place."""
+    update_convergence_curve(artists, data.processed.errors)
+
+
+def update_residual(artists: ResidualArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_residual`'s artists in place."""
+    resid = data.processed.residual
+    if artists.mesh is None or resid is None:
+        return
+    mr = float(np.max(np.abs(resid))) or 1.0
+    artists.mesh.set_array(resid)
+    artists.mesh.set_clim(-mr, mr)
+
+
+def update_spectral_filter(artists: LineArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_spectral_filter`'s artists in place (x is the fixed grid)."""
+    artists.line.set_ydata(_filter_factor(data.result))
+
+
+def update_freq_marginal(artists: MarginalArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_freq_marginal`'s artists in place."""
+    pr = data.processed
+    artists.line_retr.set_ydata(pr.omega_marg_retr)
+    if artists.line_meas is not None and pr.omega_marg_meas is not None:
+        artists.line_meas.set_ydata(pr.omega_marg_meas)
+
+
+def update_delay_marginal(artists: MarginalArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_delay_marginal`'s artists in place."""
+    pr = data.processed
+    artists.line_retr.set_ydata(pr.tau_marg_retr)
+    if artists.line_meas is not None and pr.tau_marg_meas is not None:
+        artists.line_meas.set_ydata(pr.tau_marg_meas)
+
+
+def update_spectrogram(artists: SpectrogramArtists, data: RetrievalPlotData) -> None:
+    """Update :func:`draw_spectrogram`'s artists in place.
+
+    Raises
+    ------
+    ValueError
+        If the spectrogram's shape differs from the drawn one (a different grid):
+        the panel has to be redrawn, not updated.
+    """
+    _tc, _lam, S = data.spectrogram
+    array = artists.mesh.get_array()
+    drawn = () if array is None else tuple(np.shape(array))
+    if drawn != S.shape:
+        raise ValueError(f"spectrogram shape changed from {drawn} to {S.shape}")
+    artists.mesh.set_array(S)
+    artists.mesh.autoscale()  # what the first draw did implicitly
+
+
+def _update_signature(data: RetrievalPlotData) -> tuple:
+    """Everything that decides which artists exist and the mesh geometry.
+
+    Two bundles with equal signatures differ only in values, so a panel drawn for
+    one can be updated in place for the other. Components: the trace, grid and
+    oversampled-axis shapes; whether the traces hold negatives (the second
+    colormap); which optional curves exist (residual, measured spectrum and
+    marginals, absolute power, the truth and its phases); how many stage-handover
+    rules are visible; and the fixed axis bounds.
+    """
+    pr = data.processed
+    result = data.result
+    truth = data.truth
+    n_rules = sum(1 for edge in result.stage_boundaries if 0 < edge < len(pr.errors))
+    return (
+        data.retrieved.shape,
+        data.measured.shape,
+        result.omega.size,
+        result.delays.size,
+        pr.t_over.size,
+        pr.t_tl.size,
+        pr.wavelength.size,
+        bool((data.measured < 0).any()),
+        bool((data.retrieved < 0).any()),
+        pr.residual is not None,
+        pr.Iw_meas is not None,
+        pr.omega_marg_meas is not None,
+        pr.tau_marg_meas is not None,
+        pr.peak_power is not None,
+        truth is not None,
+        truth is not None and truth.phi_t is not None,
+        truth is not None and truth.lam is not None and truth.Iw is not None,
+        truth is not None and truth.lam is not None and truth.phi_w is not None,
+        n_rules,
+        data.lam_min,
+        data.lam_max,
+        data.flim,
+        data.halfwidth,
+        data.tracedb,
+    )
+
+
 type PanelDraw = Callable[[Axes, RetrievalPlotData], PanelArtists]
+# Any: each update_<key> takes its own artists dataclass, and a registry entry
+# typed with the union would reject them (parameters are contravariant). The draw
+# side keeps the precise union because a return type is covariant.
+type PanelUpdate = Callable[[Any, RetrievalPlotData], None]
 
 
 @dataclass(frozen=True)
 class PanelSpec:
-    """One retrieval panel: its registry key, axes title and draw function."""
+    """One retrieval panel: registry key, axes title, draw and in-place update."""
 
     key: str
     title: str
     draw: PanelDraw
+    update: PanelUpdate
 
 
 @dataclass(frozen=True)
@@ -1359,18 +1651,41 @@ class ColorbarSpec:
 RETRIEVAL_PANELS: Mapping[str, PanelSpec] = {
     spec.key: spec
     for spec in (
-        PanelSpec("measured_log", "Measured (log)", draw_measured_log),
-        PanelSpec("retrieved_log", "Retrieved (log)", draw_retrieved_log),
-        PanelSpec("temporal", "Retrieved pulse", draw_temporal),
-        PanelSpec("freq_marginal", "Frequency marginal", draw_freq_marginal),
-        PanelSpec("measured_lin", "Measured (lin)", draw_measured_lin),
-        PanelSpec("retrieved_lin", "Retrieved (lin)", draw_retrieved_lin),
-        PanelSpec("spectral", "Spectrum", draw_spectral),
-        PanelSpec("delay_marginal", "Delay marginal", draw_delay_marginal),
-        PanelSpec("convergence", "Convergence", draw_convergence),
-        PanelSpec("residual", "Residuals", draw_residual),
-        PanelSpec("spectral_filter", "Spectral filter", draw_spectral_filter),
-        PanelSpec("spectrogram", "Spectrogram", draw_spectrogram),
+        PanelSpec(
+            "measured_log", "Measured (log)", draw_measured_log, update_measured_log
+        ),
+        PanelSpec(
+            "retrieved_log", "Retrieved (log)", draw_retrieved_log, update_retrieved_log
+        ),
+        PanelSpec("temporal", "Retrieved pulse", draw_temporal, update_temporal),
+        PanelSpec(
+            "freq_marginal",
+            "Frequency marginal",
+            draw_freq_marginal,
+            update_freq_marginal,
+        ),
+        PanelSpec(
+            "measured_lin", "Measured (lin)", draw_measured_lin, update_measured_lin
+        ),
+        PanelSpec(
+            "retrieved_lin", "Retrieved (lin)", draw_retrieved_lin, update_retrieved_lin
+        ),
+        PanelSpec("spectral", "Spectrum", draw_spectral, update_spectral),
+        PanelSpec(
+            "delay_marginal",
+            "Delay marginal",
+            draw_delay_marginal,
+            update_delay_marginal,
+        ),
+        PanelSpec("convergence", "Convergence", draw_convergence, update_convergence),
+        PanelSpec("residual", "Residuals", draw_residual, update_residual),
+        PanelSpec(
+            "spectral_filter",
+            "Spectral filter",
+            draw_spectral_filter,
+            update_spectral_filter,
+        ),
+        PanelSpec("spectrogram", "Spectrogram", draw_spectrogram, update_spectrogram),
     )
 }
 
@@ -1444,12 +1759,100 @@ def _draw_colorbars(
             fig.colorbar(neg, ax=axes, shrink=spec.shrink, label=spec.neg_label)
 
 
-def _draw_panels(fig, page: PageSpec, data: RetrievalPlotData) -> dict[str, Axes]:
+def _draw_panels(
+    fig, page: PageSpec, data: RetrievalPlotData
+) -> tuple[dict[str, Axes], dict[str, PanelArtists]]:
     """Lay ``page``'s mosaic out in ``fig``, draw every panel and its colorbars."""
     axd = fig.subplot_mosaic([list(row) for row in page.mosaic])
     artists = {key: RETRIEVAL_PANELS[key].draw(ax, data) for key, ax in axd.items()}
     _draw_colorbars(fig, axd, artists)
-    return axd
+    return axd, artists
+
+
+class RetrievalPageView:
+    """An artist-reusing view of one page of retrieval panels (GUI support).
+
+    The live preview hands the Retrieve stage a new result about once a second.
+    Clearing a figure and rebuilding a page's axes, colorbars and legends for each
+    one costs a full constrained-layout solve and lets legends jump between frames;
+    this view draws the page once and then pushes later results onto the existing
+    artists, as :class:`FrogFilterView` does for the preprocessing figure.
+
+    Parameters
+    ----------
+    page : PageSpec
+        Which panels, in which grid.
+
+    Examples
+    --------
+    >>> view = RetrievalPageView(RETRIEVAL_PAGES["pulse"])  # doctest: +SKIP
+    >>> view.draw(fig, data1)  # doctest: +SKIP
+    >>> if view.can_update(data2):  # doctest: +SKIP
+    ...     view.update(data2)
+    ... else:
+    ...     view.draw(fig, data2)
+    """
+
+    def __init__(self, page: PageSpec):
+        self.page = page
+        self.fig: Figure | None = None
+        self.axd: dict[str, Axes] = {}
+        self.artists: dict[str, PanelArtists] = {}
+        self._signature: tuple | None = None
+
+    @property
+    def attached(self) -> bool:
+        """Whether the view has drawn into a figure."""
+        return self.fig is not None
+
+    def draw(self, fig: Figure, data: RetrievalPlotData) -> None:
+        """Clear ``fig`` and draw the page afresh for ``data``.
+
+        Constrained layout is solved on the first real draw and then frozen (the
+        engine is swapped for matplotlib's placeholder), so later in-place updates
+        neither re-solve it nor nudge the panels as tick labels change width.
+        """
+        _prepare_fig(fig, None)
+        self.fig = fig
+        self.axd, self.artists = _draw_panels(fig, self.page, data)
+        self._signature = _update_signature(data)
+        canvas = fig.canvas
+
+        def freeze(_event) -> None:
+            canvas.mpl_disconnect(cid)
+            if self.fig is fig:
+                fig.set_layout_engine("none")
+
+        cid = canvas.mpl_connect("draw_event", freeze)
+
+    def can_update(self, data: RetrievalPlotData) -> bool:
+        """Whether ``data`` differs from the drawn result in values only."""
+        return self.attached and _update_signature(data) == self._signature
+
+    def update(self, data: RetrievalPlotData) -> None:
+        """Push ``data`` onto the drawn artists.
+
+        Raises
+        ------
+        RuntimeError
+            If nothing has been drawn yet.
+        ValueError
+            If :meth:`can_update` is false (different grid or optional artists);
+            :meth:`draw` it instead.
+        """
+        if not self.attached:
+            raise RuntimeError("draw(fig, data) before update(data)")
+        if not self.can_update(data):
+            raise ValueError("the result's shape or contents changed: draw() it")
+        for key, artists in self.artists.items():
+            RETRIEVAL_PANELS[key].update(artists, data)
+
+    def reset(self) -> None:
+        """Forget the figure (someone else cleared it); the next call must draw."""
+        self.fig = None
+        self.axd = {}
+        self.artists = {}
+        self._signature = None
 
 
 def plot_retrieval_page(

@@ -733,3 +733,222 @@ def test_plot_convergence_returns_its_artists_even_when_empty():
     )
     assert len(with_rule.boundaries) == 1
     assert with_rule.legend is not None
+
+
+# -- in-place updates ----------------------------------------------------------------
+def _retrieve_on(n_delays, maxiters):
+    g = Grid(96, dt=0.5e-15)
+    omega0 = wlfreq(800e-9)
+    ew = gaussian_pulse(g, 7e-15, phases=[20e-30])
+    delays = np.linspace(-50e-15, 50e-15, n_delays)
+    trace = maketrace(g.omega, delays, ew, "pg")
+    res = retrieve(
+        trace,
+        g.omega,
+        delays,
+        "pg",
+        algorithm="copra",
+        maxiters=maxiters,
+        guess=ew,
+        omega0=omega0,
+    )
+    return res, trace
+
+
+@pytest.fixture(scope="module")
+def update_results():
+    """Two retrievals on one grid (same shapes, different values) and a third on
+    another delay grid (different shapes)."""
+    r1, trace = _retrieve_on(60, 60)
+    r2, _ = _retrieve_on(60, 15)
+    r3, trace3 = _retrieve_on(40, 15)
+    return (r1, trace), (r2, trace), (r3, trace3)
+
+
+def _artist_state(value):
+    from matplotlib.axes import Axes
+    from matplotlib.collections import QuadMesh
+    from matplotlib.colors import to_rgba
+    from matplotlib.legend import Legend
+    from matplotlib.lines import Line2D
+    from matplotlib.text import Text
+
+    if value is None:
+        return None
+    if isinstance(value, tuple):
+        return [_artist_state(v) for v in value]
+    if isinstance(value, Line2D):
+        return value.get_xydata()
+    if isinstance(value, QuadMesh):
+        arr = np.ma.filled(np.ma.asarray(value.get_array(), dtype=float), np.nan)
+        return [arr, value.get_clim()]
+    if isinstance(value, Text):
+        return [value.get_text(), to_rgba(value.get_color())]
+    if isinstance(value, Legend):
+        return [t.get_text() for t in value.get_texts()]
+    if isinstance(value, Axes):
+        return [value.get_xlim(), value.get_ylim()]
+    raise TypeError(type(value))
+
+
+def _panel_state(artists, ax):
+    """Everything a viewer sees: axes limits/labels plus every artist's data."""
+    from dataclasses import fields
+
+    state = {
+        "xlim": ax.get_xlim(),
+        "ylim": ax.get_ylim(),
+        "ylabel": ax.get_ylabel(),
+        "title": ax.get_title(),
+    }
+    for f in fields(artists):
+        state[f.name] = _artist_state(getattr(artists, f.name))
+    return state
+
+
+def _assert_equal(x, y, where):
+    if isinstance(x, np.ndarray):
+        np.testing.assert_allclose(x, np.asarray(y), rtol=1e-12, atol=0, err_msg=where)
+    elif isinstance(x, (list, tuple)):
+        assert len(x) == len(y), where
+        for i, (p, q) in enumerate(zip(x, y, strict=True)):
+            _assert_equal(p, q, f"{where}[{i}]")
+    else:
+        assert x == y, (where, x, y)
+
+
+@pytest.mark.parametrize("key", list(plotting.RETRIEVAL_PANELS))
+def test_update_panel_matches_a_fresh_draw(update_results, key):
+    """update(draw(d1), d2) shows exactly what draw(d2) shows, on the same artists."""
+    from matplotlib.figure import Figure
+
+    (r1, trace), (r2, _), _ = update_results
+    d1 = _plot_data(r1, trace)
+    d2 = _plot_data(r2, trace)
+    spec = plotting.RETRIEVAL_PANELS[key]
+    fig_u = Figure()
+    ax_u = fig_u.add_subplot()
+    artists = spec.draw(ax_u, d1)
+    ids = [id(a) for a in fig_u.axes] + [id(v) for v in vars(artists).values()]
+    spec.update(artists, d2)
+    assert [id(a) for a in fig_u.axes] + [id(v) for v in vars(artists).values()] == ids
+    fig_f = Figure()
+    ax_f = fig_f.add_subplot()
+    fresh = spec.draw(ax_f, d2)
+    for k, v in _panel_state(fresh, ax_f).items():
+        _assert_equal(_panel_state(artists, ax_u)[k], v, f"{key}.{k}")
+
+
+def test_retrieval_legends_sit_in_fixed_corners(result_and_trace):
+    """No retrieval-panel legend uses loc="best", which jumps between live frames."""
+    res, trace = result_and_trace
+    fig = plotting.plot_retrieval(res, measured=trace, lam_min=700e-9, lam_max=950e-9)
+    legends = [ax.get_legend() for ax in fig.axes if ax.get_legend() is not None]
+    assert legends
+    for legend in legends:
+        assert legend._loc != 0, legend  # 0 is matplotlib's code for "best"
+
+
+def test_update_temporal_legend_follows_the_fwhm(update_results):
+    from matplotlib.figure import Figure
+
+    (r1, trace), (r2, _), _ = update_results
+    artists = plotting.draw_temporal(Figure().add_subplot(), _plot_data(r1, trace))
+    plotting.update_temporal(artists, _plot_data(r2, trace))
+    pr2 = processing.process_result(r2, measured=trace)
+    assert plotting._fs(pr2.fwhm_retr) in artists.legend_retr.get_text()
+    assert plotting._fs(pr2.fwhm_tl) in artists.legend_tl.get_text()
+
+
+def test_update_convergence_curve_grows_and_rescales():
+    from matplotlib.figure import Figure
+
+    ax = Figure().add_subplot()
+    artists = plotting.plot_convergence(ax, [1.0, 0.5, 0.3])
+    line = artists.line
+    plotting.update_convergence_curve(artists, [1.0, 0.5, 0.3, 0.1, 0.01])
+    assert artists.line is line
+    assert line.get_xydata().shape == (5, 2)
+    assert ax.get_xlim()[1] >= 5
+    assert ax.get_ylim()[0] <= 0.01
+    plotting.update_convergence_curve(artists, [])  # a rehydrated result
+    assert line.get_xydata().shape == (0, 2)
+
+
+def test_update_residual_colorbar_follows_the_new_scale(update_results):
+    from matplotlib.figure import Figure
+
+    (r1, trace), (r2, _), _ = update_results
+    fig = Figure()
+    ax = fig.add_subplot()
+    artists = plotting.draw_residual(ax, _plot_data(r1, trace))
+    assert artists.mesh is not None
+    cbar = fig.colorbar(artists.mesh, ax=ax)
+    d2 = _plot_data(r2, trace)
+    plotting.update_residual(artists, d2)
+    assert d2.processed.residual is not None
+    mr = float(np.max(np.abs(d2.processed.residual)))
+    assert artists.mesh.get_clim() == pytest.approx((-mr, mr))
+    assert cbar.ax.get_ylim() == pytest.approx((-mr, mr))
+
+
+def test_update_signature_separates_shapes_from_values(update_results):
+    from croak.processing import TruthPulse
+
+    (r1, trace), (r2, _), (r3, trace3) = update_results
+    d1 = _plot_data(r1, trace)
+    d2 = _plot_data(r2, trace)
+    d3 = _plot_data(r3, trace3)
+    assert plotting._update_signature(d1) == plotting._update_signature(d2)
+    assert plotting._update_signature(d1) != plotting._update_signature(d3)
+    g = Grid(96, dt=0.5e-15)
+    truth = TruthPulse.from_spectrum(g, gaussian_pulse(g, 7e-15), float(wlfreq(800e-9)))
+    assert plotting._update_signature(d1) != plotting._update_signature(
+        _plot_data(r1, trace, truth=truth)
+    )
+
+
+@pytest.mark.parametrize("key", ["traces", "pulse", "diagnostics"])
+def test_page_view_updates_in_place_and_falls_back_to_draw(update_results, key):
+    from matplotlib.figure import Figure
+
+    (r1, trace), (r2, _), (r3, trace3) = update_results
+    view = plotting.RetrievalPageView(plotting.RETRIEVAL_PAGES[key])
+    assert not view.attached
+    with pytest.raises(RuntimeError, match="draw"):
+        view.update(_plot_data(r1, trace))
+    fig = Figure(layout="constrained")
+    view.draw(fig, _plot_data(r1, trace))
+    axes_before = list(fig.axes)
+    d2 = _plot_data(r2, trace)
+    assert view.can_update(d2)
+    view.update(d2)
+    assert list(fig.axes) == axes_before
+    d3 = _plot_data(r3, trace3)
+    assert not view.can_update(d3)
+    with pytest.raises(ValueError, match="draw"):
+        view.update(d3)
+    view.draw(fig, d3)  # the fallback: a fresh page
+    assert list(fig.axes) != axes_before
+    view.reset()
+    assert not view.attached
+
+
+def test_page_view_freezes_the_layout_after_the_first_draw(update_results):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.layout_engine import (
+        ConstrainedLayoutEngine,
+        PlaceHolderLayoutEngine,
+    )
+
+    (r1, trace), _, _ = update_results
+    view = plotting.RetrievalPageView(plotting.RETRIEVAL_PAGES["pulse"])
+    fig = Figure(layout="constrained")
+    FigureCanvasAgg(fig)
+    view.draw(fig, _plot_data(r1, trace))
+    assert isinstance(fig.get_layout_engine(), ConstrainedLayoutEngine)
+    fig.canvas.draw()  # the first real draw solves the layout, then holds it
+    assert isinstance(fig.get_layout_engine(), PlaceHolderLayoutEngine)
+    view.draw(fig, _plot_data(r1, trace))  # a redraw solves it again
+    assert isinstance(fig.get_layout_engine(), ConstrainedLayoutEngine)
