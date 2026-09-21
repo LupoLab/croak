@@ -28,6 +28,10 @@ semantic versioning.
 
 ### Added
 
+- **In-place update API for the retrieval panels.** `update_<panel>(artists,
+  data)` for each of the twelve panels, `update_convergence_curve`, and
+  `RetrievalPageView`; `plot_convergence` and `plot_marginal` return their
+  artists.
 - **The Retrieve stage shows three pages of panels.** Traces, Pulse and
   Diagnostics tabs (2×2 each — the twelve panels of `plot_retrieval`) replace the
   single twelve-panel figure, so each axes has room on a 1366×768 display (about
@@ -132,6 +136,18 @@ semantic versioning.
 
 ### Changed
 
+- **The Retrieve live preview updates its page in place.** Each page is drawn
+  once per run and later snapshots are pushed onto its artists
+  (`croak.plotting.RetrievalPageView` and the `update_<panel>` twins of every
+  `draw_<panel>`, with constrained layout solved once and then held), so a
+  preview costs no layout pass; a page is redrawn only when the result changes
+  shape or the canvas's text density changes. The pre-preview convergence curve
+  grows in place at most ten times a second however fast the solver iterates,
+  and the spectrogram is computed only while the Diagnostics page is showing.
+  Retrieval-panel legends now sit in fixed corners (temporal and marginals upper
+  left, spectrum and convergence upper right) instead of matplotlib's `"best"`,
+  which jumped between frames — this also moves them in `plot_retrieval`
+  figures.
 - **Save… on the Retrieve stage draws the twelve-panel `retrieval.pdf` afresh**
   from the result at the figure's design size instead of copying the on-screen
   canvas; each tab's toolbar Save writes that page.

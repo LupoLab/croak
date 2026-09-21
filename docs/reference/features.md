@@ -201,9 +201,10 @@ Further reading: [Estimating FWHM uncertainty](../howto/uncertainty.md),
 - **Library first** — every stage is callable without the GUI.
 - **The wizard** — a six-stage PyQt6 application (Load → Marginal check →
   Preprocess → Retrieve → Dispersion → Uncertainty) with threaded retrieval, a
-  live preview and a numeric read-out of retrieved, measured, transform-limited
-  and (for synthetic sessions) true pulse parameters. Importing `croak` does not
-  import Qt.
+  live preview that updates three pages of panels in place, and a numeric
+  read-out of retrieved, measured, transform-limited and (for synthetic
+  sessions) true pulse parameters. Laid out for 1366×768 displays and up.
+  Importing `croak` does not import Qt.
 - **Sessions** — a Qt-free engine replays a saved TOML session end to end, so a
   session built in the GUI and one rerun from a script are the same computation.
 - **CLI** — `croak replay` reruns a session headlessly, including batch

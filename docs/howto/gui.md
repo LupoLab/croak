@@ -172,7 +172,14 @@ and hand the trace straight to the marginal-check stage.
    as the run converges — throttled to about once a second, since the full redraw
    is far costlier than a single iteration — so a long Levenberg–Marquardt run
    shows its progress in full rather than only an error curve; until the first
-   preview arrives, the convergence curve is shown on whichever page is visible.
+   preview arrives, the convergence curve is shown on whichever page is visible,
+   growing at up to ten frames a second however fast the solver iterates. A page
+   is drawn once per run and later snapshots are pushed onto its existing curves,
+   images and labels, so a preview costs no layout pass and nothing shifts
+   between frames (legends sit in fixed corners for the same reason); the page is
+   redrawn from scratch only when the result changes shape or the window's text
+   density changes. The spectrogram, the costliest panel, is computed only while
+   the Diagnostics page is showing.
    Pressing **Stop** halts the run at that point and leaves the latest full plot
    on screen as a (non-converged) result you can inspect, save or post-filter.
    Untick **Live full-plot preview** to fall back to the cheaper
