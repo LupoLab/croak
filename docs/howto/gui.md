@@ -160,8 +160,8 @@ and hand the trace straight to the marginal-check stage.
    parameters and run. Retrieval executes in a background thread so the UI stays
    responsive, driven by the solver `callback`. The result is shown on three
    **pages** of panels, as tabs: **Traces** (measured and retrieved trace, log and
-   linear, with their colorbars), **Pulse** (retrieved pulse, spectrum, frequency
-   and delay marginals) and **Diagnostics** (convergence, residuals, spectral
+   linear, with their colorbars), **Pulse** (retrieved pulse over the delay marginal, spectrum over the
+   frequency marginal) and **Diagnostics** (convergence, residuals, spectral
    filter, spectrogram) — the same twelve panels as
    {func}`~croak.plotting.plot_retrieval`, two by two so each has room even on a
    laptop display. **Pop out** (top right of the tabs) opens the current page in

@@ -142,6 +142,9 @@ semantic versioning.
 
 ### Changed
 
+- **The marginals swapped places**: on the Pulse page and in the twelve-panel
+  overview the delay marginal now sits under the time-domain pulse and the
+  frequency marginal under the spectrum.
 - **The spectrum panel defaults to a frequency axis** in `plot_spectral`,
   `plot_retrieval` and the GUI (previously wavelength); the Dispersion stage keeps
   wavelength to match its applied-phase panel.

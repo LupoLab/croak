@@ -1734,10 +1734,10 @@ RETRIEVAL_PANELS: Mapping[str, PanelSpec] = {
         ),
         PanelSpec("temporal", "Retrieved pulse", draw_temporal, update_temporal),
         PanelSpec(
-            "freq_marginal",
-            "Frequency marginal",
-            draw_freq_marginal,
-            update_freq_marginal,
+            "delay_marginal",
+            "Delay marginal",
+            draw_delay_marginal,
+            update_delay_marginal,
         ),
         PanelSpec(
             "measured_lin", "Measured (lin)", draw_measured_lin, update_measured_lin
@@ -1747,10 +1747,10 @@ RETRIEVAL_PANELS: Mapping[str, PanelSpec] = {
         ),
         PanelSpec("spectral", "Spectrum", draw_spectral, update_spectral),
         PanelSpec(
-            "delay_marginal",
-            "Delay marginal",
-            draw_delay_marginal,
-            update_delay_marginal,
+            "freq_marginal",
+            "Frequency marginal",
+            draw_freq_marginal,
+            update_freq_marginal,
         ),
         PanelSpec("convergence", "Convergence", draw_convergence, update_convergence),
         PanelSpec("residual", "Residuals", draw_residual, update_residual),
@@ -1780,10 +1780,12 @@ RETRIEVAL_PAGES: Mapping[str, PageSpec] = {
             "Traces",
             (("measured_log", "retrieved_log"), ("measured_lin", "retrieved_lin")),
         ),
+        # Each marginal sits under the domain it belongs to: delay under the
+        # time-domain pulse, frequency under the spectrum.
         PageSpec(
             "pulse",
             "Pulse",
-            (("temporal", "spectral"), ("freq_marginal", "delay_marginal")),
+            (("temporal", "spectral"), ("delay_marginal", "freq_marginal")),
         ),
         PageSpec(
             "diagnostics",
@@ -1793,14 +1795,15 @@ RETRIEVAL_PAGES: Mapping[str, PageSpec] = {
     )
 }
 
-#: The 3×4 overview :func:`plot_retrieval` draws: traces left, pulse right,
-#: diagnostics along the bottom.
+#: The 3×4 overview :func:`plot_retrieval` draws: traces left, pulse right (the
+#: delay marginal beside the time-domain pulse, the frequency marginal beside the
+#: spectrum), diagnostics along the bottom.
 RETRIEVAL_OVERVIEW = PageSpec(
     "overview",
     "Retrieval overview",
     (
-        ("measured_log", "retrieved_log", "temporal", "freq_marginal"),
-        ("measured_lin", "retrieved_lin", "spectral", "delay_marginal"),
+        ("measured_log", "retrieved_log", "temporal", "delay_marginal"),
+        ("measured_lin", "retrieved_lin", "spectral", "freq_marginal"),
         ("convergence", "residual", "spectral_filter", "spectrogram"),
     ),
 )
