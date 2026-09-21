@@ -492,3 +492,90 @@ def test_plot_convergence_ignores_out_of_range_boundaries():
     assert not [ln for ln in ax.lines if ln.get_linestyle() == "--"]
     assert ax.get_legend() is None
     fig.clf()
+
+
+# -- on-screen density -------------------------------------------------------
+@pytest.mark.parametrize(
+    ("width", "height", "design"),
+    [(15.45, 7.33, (12.0, 7.0)), (13.53, 7.70, (12.0, 7.0)), (9.73, 5.73, (5.0, 4.0))],
+)
+def test_plot_scale_is_full_at_or_above_the_design_size(width, height, design):
+    """A canvas at or above its design size keeps matplotlib's default text size."""
+    assert plotting.plot_scale(width, height, design) == plotting.FULL_SCALE
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "design", "expected"),
+    [
+        (9.91, 4.21, (12.0, 7.0), 0.7),  # Retrieve canvas at 1366x768 (clamped)
+        (9.91, 5.91, (9.0, 7.0), 0.85),  # the 2x2 stages at 1366x768
+        (9.73, 2.64, (5.0, 4.0), 0.7),  # the stacked marginal-check pair
+        (9.91, 5.91, (11.0, 4.5), 0.9),  # Uncertainty at 1366x768
+    ],
+)
+def test_plot_scale_follows_the_tighter_dimension_and_clamps(
+    width, height, design, expected
+):
+    assert plotting.plot_scale(width, height, design).font == pytest.approx(expected)
+
+
+def test_plot_scale_is_quantised_to_the_step():
+    """0.883 of the design height rounds to the nearest 0.05 step, 0.9."""
+    font = plotting.plot_scale(10.6, 7.0, (12.0, 7.0)).font
+    assert font == pytest.approx(0.9)
+    steps = font / plotting.FONT_SCALE_STEP
+    assert steps == pytest.approx(round(steps))
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "design"),
+    [(0.0, 4.0, (5.0, 4.0)), (5.0, 4.0, (5.0, 0.0)), (-1.0, 4.0, (5.0, 4.0))],
+)
+def test_plot_scale_rejects_non_positive_sizes(width, height, design):
+    with pytest.raises(ValueError, match="must be positive"):
+        plotting.plot_scale(width, height, design)
+
+
+def test_plot_scale_compact_flag():
+    assert plotting.PlotScale(0.85).compact
+    assert not plotting.PlotScale(0.9).compact
+    assert not plotting.FULL_SCALE.compact
+
+
+def test_scaled_rc_keys_are_valid_and_scale_uniformly():
+    """Every key is a real rc key, values scale together, full scale = defaults."""
+    from matplotlib.font_manager import FontProperties
+
+    small = plotting.scaled_rc(plotting.PlotScale(0.7))
+    full = plotting.scaled_rc(plotting.FULL_SCALE)
+    with matplotlib.rc_context(small):  # unknown keys would raise KeyError
+        pass
+    for key, value in small.items():
+        assert value == pytest.approx(0.7 * full[key])
+    for key, value in full.items():
+        default = matplotlib.rcParamsDefault[key]
+        if isinstance(default, str):  # 'large'/'medium' resolve against 10 pt
+            default = FontProperties(size=default).get_size_in_points()
+        assert value == pytest.approx(default)
+
+
+def test_scaled_rc_sizes_artists_created_inside_the_context():
+    """rc sizes bind at artist creation: inside the context text is scaled, and an
+    axes created afterwards is back at the defaults even on the same figure."""
+    from matplotlib.figure import Figure
+
+    with matplotlib.rc_context(plotting.scaled_rc(plotting.PlotScale(0.7))):
+        fig = Figure()
+        ax = fig.add_subplot()
+        ax.plot([0.0, 1.0], [0.0, 1.0], label="x")
+        ax.set_title("t")
+        ax.set_xlabel("x")
+        legend = ax.legend()
+    fig.canvas.draw()  # drawing later, outside the context, does not undo it
+    assert ax.title.get_fontsize() == pytest.approx(8.4)
+    assert ax.xaxis.label.get_fontsize() == pytest.approx(7.0)
+    assert ax.xaxis.get_majorticklabels()[0].get_fontsize() == pytest.approx(7.0)
+    assert legend.get_texts()[0].get_fontsize() == pytest.approx(7.0)
+    late = fig.add_subplot()
+    late.set_title("late")
+    assert late.title.get_fontsize() == pytest.approx(12.0)
