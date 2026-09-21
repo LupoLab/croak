@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+
+import matplotlib
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -15,6 +21,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from ..plotting import FULL_SCALE, PlotScale, plot_scale, scaled_rc
 
 __all__ = [
     "MplCanvas",
@@ -29,31 +37,116 @@ __all__ = [
 
 
 class MplCanvas(FigureCanvasQTAgg):
-    """A reusable matplotlib canvas with a constrained-layout figure."""
+    """A matplotlib canvas whose text density follows its on-screen size.
 
-    def __init__(self, figsize=(5, 4)):
-        self.figure = Figure(figsize=figsize, layout="constrained")
-        super().__init__(self.figure)
+    ``figsize`` is the size in inches the figure's layout was *designed* for: the
+    canvas prefers it, but Qt resizes the figure freely to fill its slot. Text is
+    sized in points, so in a small window the axes would shrink while the text did
+    not (on a 1366x768 laptop the twelve-panel retrieval figure spent 78 % of its
+    area on text and padding). :meth:`render` therefore plots inside a
+    :func:`matplotlib.rc_context` scaled by :func:`croak.plotting.plot_scale`
+    (down to 70 % of the default sizes), and a resize that crosses a density step
+    re-runs the remembered plot function after a short debounce.
 
-    def show_figure(self, fig: Figure) -> None:
-        """Replace the canvas figure's content by copying axes from ``fig``.
+    Parameters
+    ----------
+    figsize : tuple of float
+        Design size ``(width, height)`` in inches; also the initial figure size.
+    """
 
-        Simplest robust approach: swap the managed figure. We clear and re-draw
-        by transferring the new figure's manager — but since axes can't be moved
-        between figures, callers instead use :meth:`clear_axes` + plot helpers.
+    #: Debounce (ms) between a resize and the re-plot: a window drag fires many
+    #: resize events, and one redraw once it settles is enough.
+    REPLOT_DELAY_MS = 150
+
+    def __init__(self, figsize: tuple[float, float] = (5.0, 4.0)):
+        self.design_size: tuple[float, float] = figsize
+        figure = Figure(figsize=figsize, layout="constrained")
+        super().__init__(figure)
+        self._plot_fn: Callable[[Figure], object] | None = None
+        self._drawn_scale: PlotScale | None = None
+        self._replot_timer = QTimer(self)
+        self._replot_timer.setSingleShot(True)
+        self._replot_timer.setInterval(self.REPLOT_DELAY_MS)
+        self._replot_timer.timeout.connect(self._replot)
+
+    @property
+    def rendered(self) -> bool:
+        """Whether :meth:`render` has been called (so there is a plot to export)."""
+        return self._plot_fn is not None
+
+    @property
+    def scale(self) -> PlotScale:
+        """Text density for the canvas's current on-screen size."""
+        width, height = self.figure.get_size_inches()
+        return plot_scale(float(width), float(height), self.design_size)
+
+    def render(self, plot_fn: Callable[[Figure], object]) -> None:
+        """Clear the figure, run ``plot_fn(figure)`` at the current density, redraw.
+
+        ``plot_fn`` is remembered and re-run whenever a resize changes the density,
+        so it must read current state rather than values that go stale, and it
+        must tolerate being called again. Matplotlib resolves font sizes when an
+        artist is *created*, so everything that creates text has to happen inside
+        ``plot_fn``; call :meth:`draw_idle` directly only for in-place data updates
+        that create no new artists (see :meth:`croak.plotting.FrogFilterView.update`).
+
+        Parameters
+        ----------
+        plot_fn : callable
+            Receives the cleared :class:`~matplotlib.figure.Figure` and draws into
+            it. Its return value is ignored.
         """
-        raise NotImplementedError  # use draw_with(callback) instead
+        self._plot_fn = plot_fn
+        self._draw_at(self.scale)
 
-    def draw_with(self, plot_fn) -> None:
-        """Clear the figure and let ``plot_fn(figure)`` populate it, then redraw."""
-        self.figure.clear()
-        plot_fn(self.figure)
+    def save_figure(self, path: str | Path, *, dpi: int) -> None:
+        """Save the remembered plot at the design size and full text density.
+
+        The on-screen figure may be small and drawn with shrunken text; the export
+        is drawn afresh into a headless figure of :attr:`design_size` inches at
+        matplotlib's default sizes, so a PDF saved from a laptop window is the same
+        file a large display would produce.
+
+        Parameters
+        ----------
+        path : str or Path
+            Output file; the format follows the extension (``.pdf``, ``.png``, …).
+        dpi : int
+            Raster resolution for image content (the pcolormesh panels are
+            rasterised even inside a PDF).
+
+        Raises
+        ------
+        RuntimeError
+            If nothing has been rendered on this canvas yet.
+        """
+        if self._plot_fn is None:
+            raise RuntimeError("nothing has been rendered on this canvas yet")
+        figure = Figure(figsize=self.design_size, layout="constrained")
+        with matplotlib.rc_context(scaled_rc(FULL_SCALE)):
+            self._plot_fn(figure)
+        figure.savefig(path, dpi=dpi)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 — Qt override
+        """Let matplotlib resize the figure, then schedule a re-plot if needed."""
+        super().resizeEvent(event)
+        if self._plot_fn is not None and self.scale != self._drawn_scale:
+            self._replot_timer.start()
+
+    def _draw_at(self, scale: PlotScale) -> None:
+        """Run the remembered plot function at ``scale`` and repaint."""
+        if self._plot_fn is None:  # pragma: no cover — guarded by both callers
+            raise RuntimeError("no plot function to draw; call render() first")
+        self._drawn_scale = scale
+        with matplotlib.rc_context(scaled_rc(scale)):
+            self.figure.clear()
+            self._plot_fn(self.figure)
         self.draw_idle()
 
-    def single_axes(self):
-        """Clear and return a single Axes for simple plots."""
-        self.figure.clear()
-        return self.figure.add_subplot(111)
+    def _replot(self) -> None:
+        """Debounced resize handler: re-plot only if the density really changed."""
+        if self._plot_fn is not None and self.scale != self._drawn_scale:
+            self._draw_at(self.scale)
 
 
 def with_toolbar(canvas: MplCanvas) -> QWidget:
@@ -62,8 +155,8 @@ def with_toolbar(canvas: MplCanvas) -> QWidget:
     Returns a container widget to drop into a layout; the caller keeps its own
     reference to ``canvas`` for plotting. The toolbar adds the standard
     Home/Back/Forward, Pan, Zoom-to-rectangle, Subplots, and Save controls, plus a
-    live cursor read-out. A full redraw (``single_axes``/``figure.clear``) resets
-    the view, so zoom is most useful between control changes; Home restores it.
+    live cursor read-out. A full redraw (:meth:`MplCanvas.render`) resets the
+    view, so zoom is most useful between control changes; Home restores it.
     """
     panel = QWidget()
     layout = QVBoxLayout(panel)

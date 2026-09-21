@@ -647,13 +647,27 @@ class StagePreprocess(Stage):
     def _show_tracedata(self, td):
         """Store and draw a freshly computed trace (main thread)."""
         self.state.set_tracedata(td)
-        if not self._view.attached:
-            self._view.attach(self.canvas.figure)
-        self._view.update(td)
-        self.canvas.draw_idle()
+        if self._view.attached:
+            # Fast path: the artists exist, so push the data and repaint.
+            self._view.update(td)
+            self.canvas.draw_idle()
+        else:
+            self.canvas.render(self._replot_view)
         self.set_status(
             f"Regridded to {td.grid.n}×{td.delays.size}. Proceed to Retrieve."
         )
+
+    def _replot_view(self, fig) -> None:
+        """(Re)build the filter view in ``fig`` and fill it from the current trace.
+
+        Handed to :meth:`~croak.gui.canvas.MplCanvas.render`, which re-runs it when
+        a resize changes the text density; the view is rebuilt on the cleared
+        figure and refilled from ``state.tracedata`` (nothing to fill if none yet).
+        """
+        self._view.attach(fig)
+        td = self.state.tracedata
+        if td is not None:
+            self._view.update(td)
 
     def _on_preprocess_done(self, td, req_id, was_fast):
         if req_id != self._req_id:

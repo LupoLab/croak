@@ -744,8 +744,10 @@ class StageDispersion(Stage):
         )
 
     def _draw(self, mod, pr):
-        fig = self.canvas.figure
-        fig.clear()
+        self.canvas.render(lambda fig: self._plot(fig, mod, pr))
+
+    def _plot(self, fig, mod, pr) -> None:
+        """Draw the four dispersion panels into ``fig``."""
         axd = fig.subplot_mosaic("ab\ncd")
         plotting.plot_spectral(axd["a"], pr)  # total spectral phase + fit
         plotting.plot_temporal(axd["b"], pr)
@@ -760,7 +762,6 @@ class StageDispersion(Stage):
         axd["c"].set_title("Applied phase")
         tc, lam, S = spectrogram(mod)
         plotting.plot_spectrogram(axd["d"], tc, lam, S)
-        self.canvas.draw_idle()
 
     def _auto_taylor(self):
         if self._base is None:
@@ -877,5 +878,5 @@ class StageDispersion(Stage):
             force=True,
         )
         save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        self.canvas.figure.savefig(os.path.join(folder, "dispersion.pdf"), dpi=600)
+        self.canvas.save_figure(os.path.join(folder, "dispersion.pdf"), dpi=600)
         self.set_status(f"Saved to {folder}")

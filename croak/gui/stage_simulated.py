@@ -550,55 +550,56 @@ class StageSimulated(Stage):
         if peak > 0:
             trace = trace / peak
         sig = freq[trace.max(axis=1) > 1e-2] if peak > 0 else freq
-        fig = self.canvas.figure
-        fig.clear()
-        axd = fig.subplot_mosaic("ab\ncd")
-        # linear and dB views with the filtering-stage colour scheme (white→viridis
-        # positive, white→red negative). Simulated traces carry no detector noise,
-        # so the linear vmax is the full-range peak (no trust window needed).
-        cmap_pos = cmap_white("viridis")
-        signed_pcolormesh(
-            axd["a"],
-            delays,
-            freq,
-            trace,
-            db=False,
-            cmap_pos=cmap_pos,
-            vmax=1.0 if peak > 0 else None,
-        )
-        axd["a"].set_title("Simulated FROG trace (lin)")
-        signed_pcolormesh(
-            axd["b"], delays, freq, trace, db=True, tracedb=40.0, cmap_pos=cmap_pos
-        )
-        axd["b"].set_title("Simulated FROG trace (dB)")
-        for key in ("a", "b"):
-            axd[key].set_xlabel("Delay (fs)")
-            axd[key].set_ylabel("Frequency (PHz)")
+
+        def plot(fig):
+            axd = fig.subplot_mosaic("ab\ncd")
+            # linear and dB views with the filtering-stage colour scheme (white→viridis
+            # positive, white→red negative). Simulated traces carry no detector noise,
+            # so the linear vmax is the full-range peak (no trust window needed).
+            cmap_pos = cmap_white("viridis")
+            signed_pcolormesh(
+                axd["a"],
+                delays,
+                freq,
+                trace,
+                db=False,
+                cmap_pos=cmap_pos,
+                vmax=1.0 if peak > 0 else None,
+            )
+            axd["a"].set_title("Simulated FROG trace (lin)")
+            signed_pcolormesh(
+                axd["b"], delays, freq, trace, db=True, tracedb=40.0, cmap_pos=cmap_pos
+            )
+            axd["b"].set_title("Simulated FROG trace (dB)")
+            for key in ("a", "b"):
+                axd[key].set_xlabel("Delay (fs)")
+                axd[key].set_ylabel("Frequency (PHz)")
+                if sig.size:
+                    axd[key].set_ylim(sig.min(), sig.max())
+            # delay marginal
+            tmarg = trace.sum(axis=0)
+            tmarg = tmarg / tmarg.max() if tmarg.max() > 0 else tmarg
+            axd["c"].plot(delays, tmarg, c="C0")
+            axd["c"].set_xlabel("Delay (fs)")
+            axd["c"].set_ylabel("Delay marginal")
+            # spectral marginal (ω-density) + the known input spectrum, if provided
+            wmarg = trace.sum(axis=1)
+            wmarg = wmarg / wmarg.max() if wmarg.max() > 0 else wmarg
+            axd["d"].plot(freq, wmarg, c="C0", label="trace marginal")
+            if data["lam_spec"] is not None and data["Ilam_spec"] is not None:
+                lam_s = data["lam_spec"]
+                f_s = wlfreq(lam_s) / _TWO_PI_PHZ
+                os_ = np.argsort(f_s)
+                spec = (data["Ilam_spec"] * lam_s**2)[os_]  # ω-density
+                spec = spec / spec.max() if spec.max() > 0 else spec
+                axd["d"].plot(f_s[os_], spec, c="C1", lw=1, label="input")
+                axd["d"].legend(fontsize="small")
+            axd["d"].set_xlabel("Frequency (PHz)")
+            axd["d"].set_ylabel("Spectral marginal (ω-density)")
             if sig.size:
-                axd[key].set_ylim(sig.min(), sig.max())
-        # delay marginal
-        tmarg = trace.sum(axis=0)
-        tmarg = tmarg / tmarg.max() if tmarg.max() > 0 else tmarg
-        axd["c"].plot(delays, tmarg, c="C0")
-        axd["c"].set_xlabel("Delay (fs)")
-        axd["c"].set_ylabel("Delay marginal")
-        # spectral marginal (ω-density) + the known input spectrum, if provided
-        wmarg = trace.sum(axis=1)
-        wmarg = wmarg / wmarg.max() if wmarg.max() > 0 else wmarg
-        axd["d"].plot(freq, wmarg, c="C0", label="trace marginal")
-        if data["lam_spec"] is not None and data["Ilam_spec"] is not None:
-            lam_s = data["lam_spec"]
-            f_s = wlfreq(lam_s) / _TWO_PI_PHZ
-            os_ = np.argsort(f_s)
-            spec = (data["Ilam_spec"] * lam_s**2)[os_]  # ω-density
-            spec = spec / spec.max() if spec.max() > 0 else spec
-            axd["d"].plot(f_s[os_], spec, c="C1", lw=1, label="input")
-            axd["d"].legend(fontsize=7)
-        axd["d"].set_xlabel("Frequency (PHz)")
-        axd["d"].set_ylabel("Spectral marginal (ω-density)")
-        if sig.size:
-            axd["d"].set_xlim(sig.min(), sig.max())
-        self.canvas.draw_idle()
+                axd["d"].set_xlim(sig.min(), sig.max())
+
+        self.canvas.render(plot)
 
     # -- load (the entry-page forward action) -------------------------------
     def next_label(self) -> str:

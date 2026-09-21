@@ -292,10 +292,13 @@ class StageUncertainty(Stage):
         )
         save.save_uncertainty(self.state.uncertainty_results, path, force=True)
         save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        self.canvas.figure.savefig(os.path.join(folder, "uncertainty.pdf"), dpi=300)
-        self.set_status(
-            f"Saved result.h5 (+uncertainty), options.toml, uncertainty.pdf to {folder}"
-        )
+        saved = "result.h5 (+uncertainty), options.toml"
+        # Estimates restored from a saved session may not have been plotted yet;
+        # the PDF documents the figure on screen, so there is nothing to export.
+        if self.canvas.rendered:
+            self.canvas.save_figure(os.path.join(folder, "uncertainty.pdf"), dpi=300)
+            saved += ", uncertainty.pdf"
+        self.set_status(f"Saved {saved} to {folder}")
 
     # -- lifecycle ----------------------------------------------------------
     def on_enter(self):
@@ -360,6 +363,6 @@ class StageUncertainty(Stage):
 
     def _draw(self, uresult):
         truth = _truth_fwhm(self.state.truth)
-        self.canvas.draw_with(
+        self.canvas.render(
             lambda fig: plotting.plot_uncertainty(uresult, truth=truth, fig=fig)
         )

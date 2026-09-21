@@ -428,7 +428,15 @@ class StageMarginalCheck(Stage):
 
     def _draw_trace(self, tau_fs, lam_nm, trace, in_band) -> None:
         """Trace image with the preprocess-page colour scheme and trust-scaled vmax."""
-        ax = self.trace_canvas.single_axes()
+        self.trace_canvas.render(
+            lambda fig: self._plot_trace(
+                fig.add_subplot(111), tau_fs, lam_nm, trace, in_band
+            )
+        )
+
+    @staticmethod
+    def _plot_trace(ax, tau_fs, lam_nm, trace, in_band) -> None:
+        """Draw the trace image into ``ax`` (the body of :meth:`_draw_trace`)."""
         # Scale to the in-trust-region peak so amplified out-of-band noise (the
         # (λ/µm)^exp tilt blows up the long-λ tail) cannot wash out the signal.
         band = trace[in_band] if np.any(in_band) else trace
@@ -449,13 +457,20 @@ class StageMarginalCheck(Stage):
         ax.set_xlabel("Delay (fs)")
         ax.set_ylabel("Wavelength (nm)")
         ax.set_title("Measured trace")
-        self.trace_canvas.draw_idle()
 
     def _draw_marginal(self, lam, lam_nm, trace, in_band, data) -> None:
+        """Trace marginal against the spectrum (see :meth:`_plot_marginal`)."""
+        self.marg_canvas.render(
+            lambda fig: self._plot_marginal(
+                fig.add_subplot(111), lam, lam_nm, trace, in_band, data
+            )
+        )
+
+    def _plot_marginal(self, ax, lam, lam_nm, trace, in_band, data) -> None:
+        """Draw the marginal comparison into ``ax``; reads the display combos live."""
         lo, hi = self._trust_nm  # nm
         log = self.scale_combo.currentText() == "log"
         freq = self.axis_combo.currentText() == "frequency"
-        ax = self.marg_canvas.single_axes()
 
         # Marginals are frequency densities. On the frequency axis we plot the
         # ω-density vs ν=ω/2π (undistorted). On the wavelength axis we plot the
@@ -545,8 +560,7 @@ class StageMarginalCheck(Stage):
             ax.set_xlim(lo, hi)
             ax.set_xlabel("Wavelength (nm)")
         ax.set_ylabel("Intensity (a.u.)")
-        ax.legend(fontsize=7)
-        self.marg_canvas.draw_idle()
+        ax.legend(fontsize="small")
 
     def _f_lo(self) -> float:
         """Low frequency edge (PHz) of the trust region (from its long-λ bound)."""

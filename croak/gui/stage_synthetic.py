@@ -443,14 +443,14 @@ class StageSynthetic(Stage):
         self.set_status("Adjust parameters, then Generate to run retrieval.")
 
     def _draw(self, grid, ew, omega0, lam_sig, delays, trace):
-        fig = self.canvas.figure
-        fig.clear()
-        axd = fig.subplot_mosaic("ab\ncd")
-        self._plot_temporal(axd["a"], grid, ew)
-        self._plot_spectral(axd["b"], grid, ew, omega0)
-        self._plot_spectrogram(axd["c"], grid, ew, omega0)
-        self._plot_frog(axd["d"], lam_sig, delays, trace)
-        self.canvas.draw_idle()
+        def plot(fig):
+            axd = fig.subplot_mosaic("ab\ncd")
+            self._plot_temporal(axd["a"], grid, ew)
+            self._plot_spectral(axd["b"], grid, ew, omega0)
+            self._plot_spectrogram(axd["c"], grid, ew, omega0)
+            self._plot_frog(axd["d"], lam_sig, delays, trace)
+
+        self.canvas.render(plot)
 
     @staticmethod
     def _masked_phase(intensity, field, frac=1e-3):

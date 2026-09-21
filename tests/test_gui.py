@@ -22,6 +22,7 @@ pytest.importorskip("PyQt6")
 
 from PyQt6.QtCore import Qt
 
+from croak.gui.canvas import MplCanvas
 from croak.gui.stage_load import assemble_load_data, seed_preproc_defaults
 from croak.gui.stage_marginal_check import StageMarginalCheck
 from croak.gui.state import WizardState
@@ -2337,3 +2338,85 @@ def test_solver_switch_rescales_regularisation(qtbot):
     stage.reg_spectrum_spin.setValue(0.05)
     stage.solver_combo.setCurrentText("copra")
     assert p.reg_spectrum == pytest.approx(0.05)
+
+
+# -- responsive canvas ---------------------------------------------------------
+@pytest.mark.parametrize(
+    ("size", "small"), [((1366, 768), True), ((1920, 1080), False)]
+)
+def test_canvas_density_follows_the_window_size(qtbot, size, small):
+    """Plot text shrinks in a small window and stays at full size in a large one."""
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.show_synthetic()
+    w.synthetic.advance()  # marginal check: two stacked (5, 4)-inch canvases
+    canvas = w.stages[1].marg_canvas
+    w.resize(*size)
+    w.show()
+    qtbot.waitExposed(w)
+    if small:
+        qtbot.waitUntil(lambda: canvas.scale.font < 0.8)
+    else:
+        qtbot.waitUntil(lambda: canvas.scale.font == 1.0)
+    # once the debounced re-plot has run, the title carries the scaled size
+    qtbot.waitUntil(
+        lambda: (
+            bool(canvas.figure.axes)
+            and canvas.figure.axes[0].title.get_fontsize()
+            == pytest.approx(12.0 * canvas.scale.font)
+        )
+    )
+
+
+def test_canvas_replots_when_a_resize_changes_the_density(qtbot):
+    canvas = MplCanvas(figsize=(12, 7))
+    qtbot.addWidget(canvas)
+    calls = []
+    canvas.render(lambda fig: calls.append(fig.add_subplot(111).set_title("t")))
+    canvas.resize(1200, 700)  # exactly the design size: no re-plot on show
+    canvas.show()
+    qtbot.waitExposed(canvas)
+    assert canvas.scale.font == 1.0
+    assert len(calls) == 1
+    canvas.resize(600, 350)  # half size -> density clamps to the 0.7 minimum
+    qtbot.waitUntil(lambda: len(calls) == 2)
+    assert canvas.scale.font == pytest.approx(0.7)
+    assert canvas.figure.axes[0].title.get_fontsize() == pytest.approx(8.4)
+
+
+def test_canvas_resize_without_a_density_change_does_not_replot(qtbot):
+    canvas = MplCanvas(figsize=(12, 7))
+    qtbot.addWidget(canvas)
+    calls = []
+    canvas.render(lambda fig: calls.append(fig.add_subplot(111)))
+    canvas.resize(1200, 700)
+    canvas.show()
+    qtbot.waitExposed(canvas)
+    canvas.resize(1180, 690)  # a few pixels: same quantised density
+    qtbot.wait(3 * MplCanvas.REPLOT_DELAY_MS)
+    assert len(calls) == 1
+
+
+def test_canvas_save_figure_exports_at_the_design_size(qtbot, tmp_path):
+    """The export is drawn afresh at the design size, not the shrunken screen size."""
+    canvas = MplCanvas(figsize=(12, 7))
+    qtbot.addWidget(canvas)
+    seen = []
+
+    def plot(fig):
+        seen.append(tuple(float(v) for v in fig.get_size_inches()))
+        fig.add_subplot(111).set_title("t")
+
+    canvas.render(plot)
+    canvas.resize(600, 350)
+    canvas.show()
+    qtbot.waitExposed(canvas)
+    qtbot.waitUntil(lambda: canvas.scale.font == pytest.approx(0.7))
+    path = tmp_path / "fig.pdf"
+    canvas.save_figure(path, dpi=72)
+    assert path.stat().st_size > 0
+    assert seen[-1] == pytest.approx((12.0, 7.0))
+    blank = MplCanvas()
+    qtbot.addWidget(blank)
+    with pytest.raises(RuntimeError, match="nothing has been rendered"):
+        blank.save_figure(tmp_path / "none.pdf", dpi=72)

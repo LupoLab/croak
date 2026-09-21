@@ -767,7 +767,15 @@ class StageLoad(Stage):
         in_band = (lam_nm >= lo) & (lam_nm <= hi)
         band = trace[in_band] if np.any(in_band) else trace
         vmax = float(np.nanmax(np.abs(band))) if band.size else 0.0
-        ax = self.trace_canvas.single_axes()
+        self.trace_canvas.render(
+            lambda fig: self._plot_trace(
+                fig.add_subplot(111), tau_fs, lam_nm, trace, in_band, vmax
+            )
+        )
+
+    @staticmethod
+    def _plot_trace(ax, tau_fs, lam_nm, trace, in_band, vmax) -> None:
+        """Draw the raw-trace preview into ``ax`` (the body of :meth:`_draw`)."""
         signed_pcolormesh(
             ax,
             tau_fs,
@@ -783,4 +791,3 @@ class StageLoad(Stage):
         ax.set_xlabel("Delay (fs)")
         ax.set_ylabel("Wavelength (nm)")
         ax.set_title("Measured trace")
-        self.trace_canvas.draw_idle()

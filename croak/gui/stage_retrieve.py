@@ -1458,9 +1458,11 @@ class StageRetrieve(Stage):
         # solvers), animate the cheap convergence curve. Once a live full plot has
         # taken over the canvas, leave it to :meth:`_on_preview`.
         if not self._live_full:
-            ax = self.canvas.single_axes()
-            plotting.plot_convergence(ax, self._errors)
-            self.canvas.draw_idle()
+            self.canvas.render(
+                lambda fig: plotting.plot_convergence(
+                    fig.add_subplot(111), self._errors
+                )
+            )
 
     def _on_preview(self, result):
         """Draw the full 12-panel view for a throttled in-progress result.
@@ -1481,18 +1483,23 @@ class StageRetrieve(Stage):
             pr = process_result(
                 result, measured=td.trace, Iomega_meas=td.Iomega, energy=energy
             )
-            plotting.plot_retrieval(
-                result,
-                measured=td.trace,
-                Iomega_meas=td.Iomega,
-                lam_min=td.lam_min,
-                lam_max=td.lam_max,
-                truth=self.state.truth,
-                energy=energy,
-                fig=self.canvas.figure,
-                processed=pr,
-            )
-        self.canvas.draw_idle()
+
+        def plot(fig):
+            # Re-run by the canvas on a resize, so it carries its own errstate.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                plotting.plot_retrieval(
+                    result,
+                    measured=td.trace,
+                    Iomega_meas=td.Iomega,
+                    lam_min=td.lam_min,
+                    lam_max=td.lam_max,
+                    truth=self.state.truth,
+                    energy=energy,
+                    fig=fig,
+                    processed=pr,
+                )
+
+        self.canvas.render(plot)
         # Snapshots carry the extras the solver has reached, so they move live too.
         self._update_curve_readout(pr, self.state.truth)
         self._update_extras_readout(result)
@@ -1564,18 +1571,19 @@ class StageRetrieve(Stage):
             result, measured=td.trace, Iomega_meas=td.Iomega, energy=energy
         )
         self.state.set_result(result, pr)
-        plotting.plot_retrieval(
-            result,
-            measured=td.trace,
-            Iomega_meas=td.Iomega,
-            lam_min=td.lam_min,
-            lam_max=td.lam_max,
-            truth=self.state.truth,
-            energy=energy,
-            fig=self.canvas.figure,
-            processed=pr,
+        self.canvas.render(
+            lambda fig: plotting.plot_retrieval(
+                result,
+                measured=td.trace,
+                Iomega_meas=td.Iomega,
+                lam_min=td.lam_min,
+                lam_max=td.lam_max,
+                truth=self.state.truth,
+                energy=energy,
+                fig=fig,
+                processed=pr,
+            )
         )
-        self.canvas.draw_idle()
         self._update_curve_readout(pr, self.state.truth)
         self._update_extras_readout(result)
         self._update_truth_error_readout(result, self.state.truth)
@@ -1834,5 +1842,5 @@ class StageRetrieve(Stage):
             force=True,
         )
         save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        self.canvas.figure.savefig(os.path.join(folder, "retrieval.pdf"), dpi=600)
+        self.canvas.save_figure(os.path.join(folder, "retrieval.pdf"), dpi=600)
         self.set_status(f"Saved result.h5, options.toml, retrieval.pdf to {folder}")
