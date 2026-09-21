@@ -102,6 +102,13 @@ class MplCanvas(FigureCanvasQTAgg):
         self._plot_fn = plot_fn
         self._draw_at(self.scale)
 
+    def clear(self) -> None:
+        """Blank the figure and forget the plot function (nothing to re-plot)."""
+        self._plot_fn = None
+        self._drawn_scale = None
+        self.figure.clear()
+        self.draw_idle()
+
     def save_figure(self, path: str | Path, *, dpi: int) -> None:
         """Save the remembered plot at the design size and full text density.
 

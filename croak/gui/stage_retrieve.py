@@ -1,4 +1,4 @@
-"""Stage 3 — run the retrieval (threaded) and show the 12-panel result.
+"""Stage 3 — run the retrieval (threaded) and show the result on pages of panels.
 
 Post-retrieval λ/τ filtering can be toggled on the result pane and re-plots the
 stored result without re-running the retrieval.
@@ -35,7 +35,8 @@ from ..session.params import reg_defaults, reg_family
 from ..session.pipeline import extra_param_centres, smearing_kernel
 from ..truth_metrics import truth_errors
 from .base import Stage
-from .canvas import MplCanvas, check, combo, dspin, group, spin, with_toolbar
+from .canvas import check, collapsible, combo, dspin, group, spin
+from .panel_pages import RetrievalPages
 from .readout import DASH, RetrievalReadout
 from .widgets import SciSpinBox
 from .worker import RetrievalWorker
@@ -57,8 +58,10 @@ class StageRetrieve(Stage):
     HELP_TITLE = "Retrieve"
     HELP_INTRO = (
         "Run the phase-retrieval algorithm on the preprocessed trace. The result "
-        "is shown in a 12-panel view. Post-retrieval λ/τ filtering re-plots the "
-        "stored result without re-running the retrieval."
+        "is shown on three pages of panels — Traces, Pulse and Diagnostics — each "
+        "of which can be popped out into its own window; Save… writes the full "
+        "twelve-panel overview. Post-retrieval λ/τ filtering re-plots the stored "
+        "result without re-running the retrieval."
     )
     HELP = [
         (
@@ -124,12 +127,12 @@ class StageRetrieve(Stage):
                 ),
                 (
                     "Live full-plot preview",
-                    "Redraw the full 12-panel view (retrieved trace, pulse, "
-                    "spectrum, marginals…) as the retrieval converges, throttled "
-                    "to about once a second, instead of only the convergence "
-                    "curve. Useful for long LM runs. Pressing Stop keeps the "
-                    "latest full plot on screen. Turn off for the cheaper "
-                    "convergence-only curve.",
+                    "Redraw the visible result page (retrieved trace, pulse, "
+                    "spectrum, marginals… — the other pages redraw when selected) "
+                    "as the retrieval converges, throttled to about once a "
+                    "second, instead of only the convergence curve. Useful for "
+                    "long LM runs. Pressing Stop keeps the latest full plot on "
+                    "screen. Turn off for the cheaper convergence-only curve.",
                 ),
             ],
         ),
@@ -848,9 +851,17 @@ class StageRetrieve(Stage):
 
         # Figure on top (it takes every spare pixel), numeric read-out beneath it
         # at its natural height — see croak.gui.readout.
-        self.canvas = MplCanvas(figsize=(12, 7))
+        # Pages of panels on top (they take every spare pixel; see
+        # croak.gui.panel_pages), the numeric read-out beneath at its natural
+        # height, folding away with a click and remembering that.
+        self.pages = RetrievalPages()
         self.readout = RetrievalReadout()
-        self.set_plot_area(with_toolbar(self.canvas), self.readout)
+        self.readout_strip = collapsible(
+            "Numeric read-out",
+            self.readout,
+            settings_key="retrieve/readout_expanded",
+        )
+        self.set_plot_area(self.pages, self.readout_strip)
         self._update_extras_readout(None)
 
         self.apply_help()
@@ -1413,6 +1424,7 @@ class StageRetrieve(Stage):
         self.save_btn.setEnabled(False)
         self.retarget_btn.setEnabled(False)
         self._live_full = False
+        self.pages.clear()
         self._worker = RetrievalWorker(
             td,
             p,
@@ -1449,24 +1461,20 @@ class StageRetrieve(Stage):
         # Cheap: this fires every iteration and has no processed result to draw on.
         self.readout.set_scalars({"iteration": str(iteration), "error": f"{R:.4%}"})
         # Until the first full-plot preview arrives (or for convergence-only
-        # solvers), animate the cheap convergence curve. Once a live full plot has
-        # taken over the canvas, leave it to :meth:`_on_preview`.
+        # solvers), animate the cheap convergence curve on the visible page. Once
+        # a live full plot has taken over, leave it to :meth:`_on_preview`.
         if not self._live_full:
-            self.canvas.render(
-                lambda fig: plotting.plot_convergence(
-                    fig.add_subplot(111), self._errors
-                )
-            )
+            self.pages.show_progress(self._errors)
 
     def _on_preview(self, result):
-        """Draw the full 12-panel view for a throttled in-progress result.
+        """Show a throttled in-progress result on the pages.
 
         Mirrors :meth:`_update_view` but for a transient snapshot: no post-filter,
         and the result is not stored as the session result. ``process_result``
         divides by the wavelength axis, which has a zero crossing on the centred
         grid — harmless for the live panels, so the divide warning is suppressed.
-        The processed result is built here and handed to ``plot_retrieval`` so the
-        read-out can share it instead of deriving everything a second time.
+        The processed result is built here and shared with the pages and the
+        read-out instead of being derived twice.
         """
         td = self.state.tracedata
         if td is None:
@@ -1477,27 +1485,8 @@ class StageRetrieve(Stage):
             pr = process_result(
                 result, measured=td.trace, Iomega_meas=td.Iomega, energy=energy
             )
-
-        def plot(fig):
-            # Re-run by the canvas on a resize, so it carries its own errstate.
-            with np.errstate(divide="ignore", invalid="ignore"):
-                plotting.plot_retrieval(
-                    result,
-                    measured=td.trace,
-                    Iomega_meas=td.Iomega,
-                    lam_min=td.lam_min,
-                    lam_max=td.lam_max,
-                    truth=self.state.truth,
-                    energy=energy,
-                    fig=fig,
-                    processed=pr,
-                )
-
-        self.canvas.render(plot)
         # Snapshots carry the extras the solver has reached, so they move live too.
-        self._update_curve_readout(pr, self.state.truth)
-        self._update_extras_readout(result)
-        self._update_truth_error_readout(result, self.state.truth)
+        self._show(result, pr)
         self.set_status(
             f"iter {len(result.errors)}: R = {result.error:.4%}  (live preview)"
         )
@@ -1540,6 +1529,33 @@ class StageRetrieve(Stage):
         self.state.retrieve.post_filter_tau = self.pf_tau.isChecked()
         self._update_view()
 
+    def _plot_data(self, result, pr) -> plotting.RetrievalPlotData:
+        """Bundle ``result`` and its processed form for the panels.
+
+        Draws against the session's trace data (measured trace, independent
+        spectrum, wavelength window), the known truth if any, and the pulse energy.
+        """
+        td = self.state.tracedata
+        if td is None:
+            raise RuntimeError("no trace data to plot the retrieval against")
+        return plotting.retrieval_plot_data(
+            result,
+            measured=td.trace,
+            Iomega_meas=td.Iomega,
+            lam_min=td.lam_min,
+            lam_max=td.lam_max,
+            truth=self.state.truth,
+            energy=self.state.load.energy_j or None,
+            processed=pr,
+        )
+
+    def _show(self, result, pr) -> None:
+        """Show ``result`` on the pages and refresh the numeric read-out from ``pr``."""
+        self.pages.set_data(self._plot_data(result, pr))
+        self._update_curve_readout(pr, self.state.truth)
+        self._update_extras_readout(result)
+        self._update_truth_error_readout(result, self.state.truth)
+
     def _update_view(self, *, done_label="Done"):
         """(Re)apply the post-filters to the stored result and redraw — no re-run.
 
@@ -1565,22 +1581,7 @@ class StageRetrieve(Stage):
             result, measured=td.trace, Iomega_meas=td.Iomega, energy=energy
         )
         self.state.set_result(result, pr)
-        self.canvas.render(
-            lambda fig: plotting.plot_retrieval(
-                result,
-                measured=td.trace,
-                Iomega_meas=td.Iomega,
-                lam_min=td.lam_min,
-                lam_max=td.lam_max,
-                truth=self.state.truth,
-                energy=energy,
-                fig=fig,
-                processed=pr,
-            )
-        )
-        self._update_curve_readout(pr, self.state.truth)
-        self._update_extras_readout(result)
-        self._update_truth_error_readout(result, self.state.truth)
+        self._show(result, pr)
         # A result rehydrated from file carries no error history, so there is no
         # honest iteration count to show.
         self.readout.set_scalars(
@@ -1836,5 +1837,10 @@ class StageRetrieve(Stage):
             force=True,
         )
         save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        self.canvas.save_figure(os.path.join(folder, "retrieval.pdf"), dpi=600)
+        # The PDF is the full twelve-panel overview drawn afresh at its design size
+        # (each tab's toolbar Save writes that page instead).
+        data = self._plot_data(self.state.result, self.state.processed)
+        plotting.plot_retrieval_page(data, plotting.RETRIEVAL_OVERVIEW).savefig(
+            os.path.join(folder, "retrieval.pdf"), dpi=600
+        )
         self.set_status(f"Saved result.h5, options.toml, retrieval.pdf to {folder}")

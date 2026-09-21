@@ -2583,3 +2583,141 @@ def test_collapsible_strip_folds_and_remembers_its_state(qtbot):
     plain = collapsible("Read-out", QLabel("z"))
     qtbot.addWidget(plain)
     assert plain.isExpanded()  # no key: the default
+
+
+# -- Retrieve pages ----------------------------------------------------------------
+def _titles(figure):
+    return [ax.get_title() for ax in figure.axes if ax.get_title()]
+
+
+def _page_titles(key):
+    page = croak.plotting.RETRIEVAL_PAGES[key]
+    return [croak.plotting.RETRIEVAL_PANELS[k].title for k in page.keys]
+
+
+class _IdleWorker:
+    """A retrieval worker that never runs, so a just-started state can be inspected."""
+
+    class _Sig:
+        def connect(self, _slot):
+            pass
+
+    def __init__(self, *a, **k):
+        self.progress = self.preview = self.finished_ok = self._Sig()
+        self.stopped = self.failed = self._Sig()
+
+    def start(self):
+        pass
+
+
+def test_retrieve_pages_show_three_tabs_and_draw_the_visible_page(qtbot):
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    pages = rs.pages
+    assert pages.page_keys() == ("traces", "pulse", "diagnostics")
+    assert pages.current_page() == "traces"
+    assert _titles(pages.canvas("traces").figure) == _page_titles("traces")
+    assert pages.is_stale("pulse") and pages.is_stale("diagnostics")
+    assert not pages.canvas("pulse").figure.axes  # not drawn until selected
+
+
+def test_retrieve_pages_redraw_a_stale_page_when_selected(qtbot):
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    rs.pages.set_current_page("pulse")
+    assert not rs.pages.is_stale("pulse")
+    assert _titles(rs.pages.canvas("pulse").figure) == _page_titles("pulse")
+    rs.pages.set_current_page("diagnostics")
+    assert _titles(rs.pages.canvas("diagnostics").figure) == _page_titles("diagnostics")
+
+
+def test_retrieve_pages_pop_out_opens_a_window_that_follows_the_result(qtbot):
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    dlg = rs.pages.pop_out("pulse")
+    assert dlg.isWindow()
+    assert dlg.isVisible()
+    assert _titles(dlg.canvas.figure) == _page_titles("pulse")
+    before = dlg.canvas.figure.axes[0]
+    rs._update_view()  # a new result redraws the pop-out too
+    assert dlg.canvas.figure.axes[0] is not before
+    assert rs.pages.pop_out("pulse") is dlg  # one window per page
+    dlg.close()
+    qtbot.waitUntil(lambda: "pulse" not in rs.pages._popouts)
+
+
+def test_retrieve_progress_curve_shows_on_the_visible_page(qtbot):
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.show_synthetic()
+    w.synthetic.advance()
+    w.state.stage = 3
+    w.state.stage = 4
+    rs = w.stages[3]
+    rs.pages.set_current_page("pulse")
+    rs._errors = []
+    rs._on_progress(1, 0.1, 0.1)
+    rs._on_progress(2, 0.05, 0.05)
+    fig = rs.pages.canvas("pulse").figure
+    assert _titles(fig) == ["Convergence"]
+    assert fig.axes[0].lines[0].get_xydata().shape == (2, 2)
+    # switching tabs while running shows the curve there too
+    rs.pages.set_current_page("traces")
+    assert _titles(rs.pages.canvas("traces").figure) == ["Convergence"]
+
+
+def test_retrieve_run_clears_the_pages(qtbot, monkeypatch):
+    from croak.gui import stage_retrieve as sr
+
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    assert rs.pages.canvas("traces").figure.axes
+    monkeypatch.setattr(sr, "RetrievalWorker", _IdleWorker)
+    rs._run()
+    assert all(not rs.pages.canvas(k).figure.axes for k in rs.pages.page_keys())
+    assert rs.pages.data is None
+
+
+def test_retrieve_readout_collapse_frees_canvas_height(qtbot):
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    w.resize(1366, 768)
+    w.show()
+    qtbot.waitExposed(w)
+    assert rs.readout_strip.isExpanded()
+    before = rs.pages.height()
+    rs.readout_strip.collapse(animate=False)
+    qtbot.waitUntil(lambda: rs.pages.height() > before + 100)
+    assert settings.value("retrieve/readout_expanded", True) is False
+
+
+def test_retrieve_save_writes_the_full_overview_pdf(qtbot, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QFileDialog
+
+    from croak.gui import stage_retrieve as sr
+
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path)
+    )
+    seen = []
+    real = sr.plotting.plot_retrieval_page
+
+    def spy(data, page, **kwargs):
+        fig = real(data, page, **kwargs)
+        seen.append((page, fig))
+        return fig
+
+    monkeypatch.setattr(sr.plotting, "plot_retrieval_page", spy)
+    rs._save()
+    assert (tmp_path / "retrieval.pdf").stat().st_size > 0
+    page, fig = seen[-1]
+    assert page is croak.plotting.RETRIEVAL_OVERVIEW
+    assert len(_titles(fig)) == 12

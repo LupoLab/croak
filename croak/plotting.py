@@ -1246,11 +1246,11 @@ def _filter_factor(result: RetrievalResult) -> NDArray[np.float64]:
 
 def draw_spectral_filter(ax, data: RetrievalPlotData) -> LineArtists:
     """Draw the per-frequency scale factor (Rω filter) against wavelength."""
-    (line,) = ax.plot(
-        wlfreq(data.result.omega + data.result.omega0) / 1e-9,
-        _filter_factor(data.result),
-        c="C2",
-    )
+    # A centred retrieval grid can cross zero frequency, where the wavelength
+    # axis has a pole: harmless for the plot, so the divide warning is silenced.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        lam_nm = wlfreq(data.result.omega + data.result.omega0) / 1e-9
+    (line,) = ax.plot(lam_nm, _filter_factor(data.result), c="C2")
     ax.set_xlabel("Wavelength (nm)")
     ax.set_ylabel("Filter factor")
     ax.set_title("Spectral filter")
