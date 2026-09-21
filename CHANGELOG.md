@@ -28,6 +28,14 @@ semantic versioning.
 
 ### Added
 
+- **The Retrieve stage shows three pages of panels.** Traces, Pulse and
+  Diagnostics tabs (2×2 each — the twelve panels of `plot_retrieval`) replace the
+  single twelve-panel figure, so each axes has room on a 1366×768 display (about
+  370×137 px instead of 124×61); only the visible page is drawn on each live
+  preview and the others redraw when selected, and until the first preview the
+  convergence curve shows on the visible page. **Pop out** opens the current page
+  in its own window that follows later results, and the numeric read-out beneath
+  the pages folds away with a click and remembers it (`croak.gui.panel_pages`).
 - **Per-panel retrieval plotting API.** `croak.plotting.retrieval_plot_data`
   bundles a result's plot inputs once (`RetrievalPlotData`; the spectrogram is
   computed lazily and cached), twelve `draw_<panel>(ax, data)` functions draw
@@ -124,6 +132,9 @@ semantic versioning.
 
 ### Changed
 
+- **Save… on the Retrieve stage draws the twelve-panel `retrieval.pdf` afresh**
+  from the result at the figure's design size instead of copying the on-screen
+  canvas; each tab's toolbar Save writes that page.
 - **`plot_temporal` and `plot_spectral` draw the whole truth overlay.** Passing
   `truth=` now overlays the known intensity (labelled with its FWHM) and spectrum
   as well as the known phase; previously the intensity overlay was drawn only by

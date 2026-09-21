@@ -1,6 +1,6 @@
 """Numeric read-out strip shown beneath the Retrieve stage's figure.
 
-The 12-panel figure is a *qualitative* view: it annotates only the FROG error, the
+The plot pages are a *qualitative* view: it annotates only the FROG error, the
 fitted GDD/TOD and the three temporal FWHMs. This strip carries the numbers you
 actually compare between runs, and it updates live as the retrieval converges.
 

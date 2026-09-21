@@ -63,7 +63,7 @@ The window opens maximised and is laid out for displays from 1366×768 up;
 un-maximised, it remembers the size you leave it at.
 
 ```{image} ../_static/gui_retrieve.png
-:alt: The wizard after a retrieval — measured and retrieved traces, residuals, the retrieved pulse and spectrum, and a numeric read-out.
+:alt: The wizard after a retrieval — the Traces page (measured and retrieved traces, log and linear) with the Pulse and Diagnostics tabs beside it, and the numeric read-out beneath.
 :width: 95%
 :align: center
 ```

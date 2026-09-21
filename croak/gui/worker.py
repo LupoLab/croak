@@ -76,7 +76,7 @@ class RetrievalWorker(QThread):
     :class:`~croak.result.RetrievalResult`. This worker throttles those to at most
     one every :attr:`PREVIEW_MIN_INTERVAL` seconds, building them off the GUI
     thread and emitting them via :attr:`preview` so the stage can show the full
-    12-panel view live (not just the convergence curve). A user Stop captures one
+    full plot page live (not just the convergence curve). A user Stop captures one
     final snapshot at the exact stopping point so the full plot stays on screen.
 
     Signals
@@ -96,7 +96,7 @@ class RetrievalWorker(QThread):
         An error message on failure (or a bare Stop with no snapshot available).
     """
 
-    #: Minimum wall-clock seconds between live full-plot previews. The 12-panel
+    #: Minimum wall-clock seconds between live full-plot previews. The full-page
     #: render (process + Gabor spectrogram + draw) is far costlier than one solver
     #: iteration, so previews are throttled rather than drawn every iteration.
     PREVIEW_MIN_INTERVAL = 1.0

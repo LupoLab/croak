@@ -82,7 +82,9 @@ Welcome menu.
 Each stage keeps its controls in a scrollable column on the left and its plots on
 the right, separated by a draggable divider. Drag it to trade control space for
 plot space, or drag it fully to the left to hide the controls altogether; the width
-you choose applies to every stage and is remembered for the next launch.
+you choose applies to every stage and is remembered for the next launch. A strip
+beneath a plot with a titled header (the Retrieve stage's numeric read-out) folds
+away with a click on the header, and that is remembered too.
 
 ## The stages
 
@@ -156,14 +158,24 @@ and hand the trace straight to the marginal-check stage.
 7. **Retrieve** — choose the algorithm (any of the ten, including the global
    [`cma-es`](../explanation/algorithms.md#global-retrieval-cma-es)) and its
    parameters and run. Retrieval executes in a background thread so the UI stays
-   responsive, driven by the solver `callback`. By default a **live full-plot
-   preview** redraws the complete 12-panel view (retrieved trace, pulse, spectrum,
-   marginals, convergence…) as the run converges — throttled to about once a
-   second, since the full redraw is far costlier than a single iteration — so a
-   long Levenberg–Marquardt run shows its progress in full rather than only an
-   error curve. Pressing **Stop** halts the run at that point and leaves the
-   latest full plot on screen as a (non-converged) result you can inspect, save or
-   post-filter. Untick **Live full-plot preview** to fall back to the cheaper
+   responsive, driven by the solver `callback`. The result is shown on three
+   **pages** of panels, as tabs: **Traces** (measured and retrieved trace, log and
+   linear, with their colorbars), **Pulse** (retrieved pulse, spectrum, frequency
+   and delay marginals) and **Diagnostics** (convergence, residuals, spectral
+   filter, spectrogram) — the same twelve panels as
+   {func}`~croak.plotting.plot_retrieval`, two by two so each has room even on a
+   laptop display. **Pop out** (top right of the tabs) opens the current page in
+   its own window, which follows later results; each tab's toolbar **Save** writes
+   that page, and the stage's **Save…** writes the full twelve-panel overview as
+   `retrieval.pdf` beside `result.h5` and `options.toml`. By default a **live
+   full-plot preview** redraws the visible page (the others redraw when selected)
+   as the run converges — throttled to about once a second, since the full redraw
+   is far costlier than a single iteration — so a long Levenberg–Marquardt run
+   shows its progress in full rather than only an error curve; until the first
+   preview arrives, the convergence curve is shown on whichever page is visible.
+   Pressing **Stop** halts the run at that point and leaves the latest full plot
+   on screen as a (non-converged) result you can inspect, save or post-filter.
+   Untick **Live full-plot preview** to fall back to the cheaper
    trace-error-vs-iteration curve (the full plot is still drawn once the run
    finishes). Every solver supports it, including `copra`/`copra-jax` and the
    COPRA warm-up stage of `warm-lbfgs` — which matters there, since that warm-up
@@ -188,8 +200,10 @@ and hand the trace straight to the marginal-check stage.
    panels and are named in their legends. The truth arrays are also written into
    the saved `result.h5`.
 
-   Beneath the figure sits a **numeric read-out** that updates as the run
-   converges. Its *Pulse parameters* table has one row per curve in the figure,
+   Beneath the pages sits a **numeric read-out** that updates as the run
+   converges; click its header to fold it away and give the plots its height
+   (remembered between launches). Its *Pulse parameters* table has one row per
+   curve in the figure,
    labelled to match the legends — `R` (retrieved), `M` (the independent measured
    spectrum), `TL` (transform-limited) and `truth` — and four columns: peak
    wavelength, spectral FWHM, temporal FWHM and peak power. Cells that are not

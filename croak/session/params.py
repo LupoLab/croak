@@ -298,7 +298,7 @@ class RetrieveParams:
     #: ``perfect_init`` is set.
     tl_init: bool = False
     reuse_result: bool = False  # seed from the previous retrieval's spectrum
-    # Live full-plot preview during retrieval (GUI only): redraw the 12-panel view
+    # Live full-plot preview during retrieval (GUI only): redraw the visible plot page
     # ~1/s as the solver converges, rather than only the convergence curve. When
     # off, the cheap convergence curve is shown. Ignored by the headless pipeline.
     live_preview: bool = True
