@@ -167,11 +167,18 @@ and hand the trace straight to the marginal-check stage.
    laptop display. **Pop out** (top right of the tabs) opens the current page in
    its own window, which follows later results; each tab's toolbar **Save** writes
    that page, and the stage's **Save…** writes the full twelve-panel overview as
-   `retrieval.pdf` beside `result.h5` and `options.toml`. By default a **live
+   `retrieval.pdf` beside `result.h5` and `options.toml`. The **Display** group's
+   **Spectrum axis** draws the spectrum panel against **frequency** (PHz, the
+   default — the space the retrieval works in) or **wavelength** (nm, the
+   spectrometer's axis, carrying the λ² Jacobian); both are unit-peak densities
+   in their own variable, the choice is remembered, and the exported PDF follows
+   it. By default a **live
    full-plot preview** redraws the visible page (the others redraw when selected)
-   as the run converges — throttled to about once a second, since the full redraw
-   is far costlier than a single iteration — so a long Levenberg–Marquardt run
-   shows its progress in full rather than only an error curve; until the first
+   as the run converges — at most four times a second, and less often on a machine
+   where presenting a preview is slow: the wizard measures what each one costs and
+   keeps that below about a quarter of the wall-clock time, so the preview never
+   starves the solver — so a long Levenberg–Marquardt run shows its progress in
+   full rather than only an error curve; until the first
    preview arrives, the convergence curve is shown on whichever page is visible,
    growing at up to ten frames a second however fast the solver iterates. A page
    is drawn once per run and later snapshots are pushed onto its existing curves,

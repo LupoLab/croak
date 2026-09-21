@@ -28,6 +28,12 @@ semantic versioning.
 
 ### Added
 
+- **Spectrum panel against frequency or wavelength.** `plot_spectral(axis=…)`,
+  `retrieval_plot_data(spectral_axis=…)` and `plot_retrieval(spectral_axis=…)`
+  take `"frequency"` (PHz, now the default) or `"wavelength"` (nm); both draw
+  unit-peak densities in their own variable, so the frequency view is `|E(ω)|²`
+  without the λ² Jacobian. The Retrieve stage's new **Display › Spectrum axis**
+  control switches the pages and the exported PDF, and is remembered.
 - **In-place update API for the retrieval panels.** `update_<panel>(artists,
   data)` for each of the twelve panels, `update_convergence_curve`, and
   `RetrievalPageView`; `plot_convergence` and `plot_marginal` return their
@@ -136,6 +142,14 @@ semantic versioning.
 
 ### Changed
 
+- **The spectrum panel defaults to a frequency axis** in `plot_spectral`,
+  `plot_retrieval` and the GUI (previously wavelength); the Dispersion stage keeps
+  wavelength to match its applied-phase panel.
+- **Live previews arrive up to four times a second** (`PREVIEW_MIN_INTERVAL`
+  0.25 s, was 1 s) and back off automatically: the Retrieve stage reports what
+  processing and presenting each preview cost and the worker stretches the
+  interval so that stays within a quarter of the wall-clock time
+  (`RetrievalWorker.PREVIEW_DUTY`, `report_preview_cost`).
 - **The Retrieve live preview updates its page in place.** Each page is drawn
   once per run and later snapshots are pushed onto its artists
   (`croak.plotting.RetrievalPageView` and the `update_<panel>` twins of every

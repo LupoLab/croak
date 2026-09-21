@@ -239,6 +239,11 @@ croak.plotting.draw_spectral(ax, data)   # one panel, in your own figure
 {data}`~croak.plotting.RETRIEVAL_PAGES` holds the three 2×2 pages the wizard shows
 as tabs (**Traces**, **Pulse**, **Diagnostics**), and
 {data}`~croak.plotting.RETRIEVAL_OVERVIEW` the 3×4 layout `plot_retrieval` draws.
+The spectrum panel is drawn against frequency by default; pass
+`spectral_axis="wavelength"` to `plot_retrieval` or `retrieval_plot_data` (or
+`axis="wavelength"` to `plot_spectral`) for the spectrometer's axis — both are
+unit-peak densities in their own variable, so the wavelength view carries the λ²
+Jacobian and the frequency view does not.
 Colorbars shared by a pair of trace panels are drawn whenever both panels are on
 the page. Every `draw_*` returns the artists it created (for example
 {class}`~croak.plotting.TemporalArtists`), which is what a live view updates in
@@ -255,7 +260,7 @@ Other composites and single-axis plotters:
 | {func}`~croak.plotting.plot_frog_filter` | 6-panel preprocessing before/after |
 | {func}`~croak.plotting.plot_simulated_trace` | retrieved vs measured trace |
 | `plot_residual` | a single residual image |
-| `plot_temporal`, `plot_spectral` | intensity + phase in one axis (with a truth overlay) |
+| `plot_temporal`, `plot_spectral` | intensity + phase in one axis (with a truth overlay); the spectrum against `axis="frequency"` (default) or `"wavelength"` |
 | `plot_convergence` | trace error vs iteration |
 | `plot_marginal`, `plot_spectrogram` | a marginal / Gabor spectrogram |
 
