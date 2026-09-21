@@ -8,6 +8,11 @@ semantic versioning.
 
 ### Fixed
 
+- **Back at Stage 1 could silently lose the session.** Pressing Back once too
+  often (or Main menu) reached the welcome menu, whose every entry starts a new
+  session, so going forward again found the loaded trace and retrieval gone. The
+  wizard now asks before leaving a session that holds data, with Cancel as the
+  default (`WizardState.has_data`, `Wizard.leave_to_welcome`).
 - **Two platform-sensitive numerical CI failures.** The known-truth complex-field
   error now evaluates Geib's overlap through the equivalent least-squares
   projection residual, avoiding the `sqrt(1 - x²)` cancellation that made an

@@ -2832,3 +2832,49 @@ def test_retrieve_preview_reports_its_cost_to_the_worker(qtbot):
     rs._on_preview(w.state.result)  # the second one is an in-place update
     assert len(rs._worker.costs) == 2
     assert all(cost > 0 for cost in rs._worker.costs)
+
+
+# -- leaving for the welcome menu -------------------------------------------------
+def test_back_to_the_menu_asks_before_leaving_a_session_with_data(qtbot, monkeypatch):
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.show_synthetic()
+    w.synthetic.advance()  # trace generated: on the marginal check, data in hand
+    w.go_back()  # to the generator page: nothing is lost, nothing is asked
+    assert w.stack.currentWidget() is w.synthetic
+    asked = []
+    monkeypatch.setattr(w, "_confirm_discard", lambda: asked.append("no") or False)
+    w.go_back()  # entry page -> menu would leave the session: ask; cancelled
+    assert asked == ["no"]
+    assert w.stack.currentWidget() is w.synthetic
+    assert w.state.load_data is not None
+    monkeypatch.setattr(w, "_confirm_discard", lambda: asked.append("yes") or True)
+    w.go_back()
+    assert asked == ["no", "yes"]
+    assert w.stack.currentIndex() == 0  # the welcome menu
+    assert w.state.load_data is not None  # kept until a menu entry starts anew
+
+
+def test_back_from_an_empty_stage_one_does_not_ask(qtbot, monkeypatch):
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.start_load()
+    assert not w.state.has_data
+    monkeypatch.setattr(
+        w, "_confirm_discard", lambda: pytest.fail("asked with nothing to lose")
+    )
+    w.go_back()
+    assert w.stack.currentIndex() == 0
+
+
+def test_main_menu_button_asks_when_the_session_holds_data(qtbot, monkeypatch):
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.show_synthetic()
+    w.synthetic.advance()
+    monkeypatch.setattr(w, "_confirm_discard", lambda: False)
+    w.menu_btn.click()
+    assert w.stack.currentWidget() is w.stages[1]  # stayed on the marginal check
+    monkeypatch.setattr(w, "_confirm_discard", lambda: True)
+    w.menu_btn.click()
+    assert w.stack.currentIndex() == 0

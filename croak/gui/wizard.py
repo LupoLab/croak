@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -179,7 +180,7 @@ class Wizard(QMainWindow):
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self.close)
         self.menu_btn = QPushButton("Main menu")
-        self.menu_btn.clicked.connect(self.show_welcome)
+        self.menu_btn.clicked.connect(self.leave_to_welcome)
         self.back_btn = QPushButton("← Back")
         self.back_btn.clicked.connect(self.go_back)
         self.next_btn = QPushButton("Next →")
@@ -237,6 +238,34 @@ class Wizard(QMainWindow):
         self._page = "welcome"
         self.stack.setCurrentIndex(0)
         self._chrome(False)
+
+    def leave_to_welcome(self) -> None:
+        """Return to the welcome menu, asking first if the session holds data.
+
+        Every menu entry starts a new session, so a loaded trace or a retrieval
+        reached this way is discarded the moment the user picks one. Back at
+        Stage 1 (or on an entry page) and the Main menu button therefore confirm
+        before leaving; the data itself stays until a menu entry is chosen.
+        """
+        if self.state.has_data and not self._confirm_discard():
+            return
+        self.show_welcome()
+
+    def _confirm_discard(self) -> bool:
+        """Ask whether to leave the current session behind; True to proceed."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Leave this session?")
+        box.setText("Going back to the main menu leaves the current session behind.")
+        box.setInformativeText(
+            "Every menu entry starts a new session, so the loaded trace and any "
+            "retrieval will be discarded. Save… on the Retrieve stage keeps them."
+        )
+        leave = box.addButton("Back to menu", QMessageBox.ButtonRole.DestructiveRole)
+        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(cancel)
+        box.exec()
+        return box.clickedButton() is leave
 
     def show_synthetic(self) -> None:
         self._new_session()
@@ -336,7 +365,7 @@ class Wizard(QMainWindow):
         # Back from an entry page returns to the welcome menu (it is the session's
         # "stage 1", so there is nowhere earlier to go).
         if self._entry_page() is not None:
-            self.show_welcome()
+            self.leave_to_welcome()
             return
         # Back from the marginal-check stage (stage 2) returns to whichever entry
         # page is this session's "stage 1": the synthetic generator or the
@@ -348,7 +377,7 @@ class Wizard(QMainWindow):
         elif self.state.stage > 1:
             self.state.stage -= 1
         else:
-            self.show_welcome()
+            self.leave_to_welcome()
 
     def enter_marginal_from_synthetic(self) -> None:
         """Show the marginal-check stage for the generated trace.

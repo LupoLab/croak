@@ -148,6 +148,19 @@ class WizardState(QObject):
         }.get(stage, False)
 
     # -- outputs with cascading invalidation --------------------------------
+    @property
+    def has_data(self) -> bool:
+        """Whether the session holds work a new session would discard.
+
+        True once a trace is loaded (or generated) or a retrieval exists; the
+        wizard asks before leaving such a session for the welcome menu.
+        """
+        return (
+            self.load_data is not None
+            or self.tracedata is not None
+            or self.result is not None
+        )
+
     def set_load_data(self, data) -> None:
         self.load_data = data
         self.tracedata = None

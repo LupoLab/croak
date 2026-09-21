@@ -75,7 +75,9 @@ forward button does the page's own work and is labelled accordingly —
 **Generate →** on the synthetic generator, **Load & continue →** (or
 **Load raw → Retrieve →**) on the simulated loader — and is disabled until the
 page has something to hand on. **Back** from either entry page returns to the
-Welcome menu.
+Welcome menu, as does **Back** on Stage 1 and the **Main menu** button. If the
+session already holds a loaded trace or a retrieval, the wizard asks first: every
+menu entry starts a new session, so choosing one would discard them.
 
 ### Layout
 
