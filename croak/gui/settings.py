@@ -39,6 +39,8 @@ __all__ = [
     "set_controls_width",
     "value",
     "set_value",
+    "text",
+    "set_text",
 ]
 
 #: Settings key holding ``QWidget.saveGeometry()`` of the main window.
@@ -145,4 +147,16 @@ def set_value(key: str, flag: bool) -> None:
     """Remember a flag."""
     store = user_settings()
     store.setValue(key, bool(flag))
+    store.sync()
+
+
+def text(key: str, default: str) -> str:
+    """Read a remembered choice (e.g. which axis a panel is drawn against)."""
+    return str(user_settings().value(key, default, str))
+
+
+def set_text(key: str, choice: str) -> None:
+    """Remember a choice."""
+    store = user_settings()
+    store.setValue(key, str(choice))
     store.sync()

@@ -2790,3 +2790,45 @@ def test_retrieve_convergence_redraw_is_throttled(qtbot, monkeypatch):
     qtbot.waitUntil(lambda: calls == [1000])
     qtbot.wait(3 * rs._conv_timer.interval())
     assert calls == [1000]  # and nothing more without new iterations
+
+
+# -- spectrum axis and preview cadence -------------------------------------------------
+def _spectrum_axes(rs):
+    return next(
+        ax
+        for ax in rs.pages.canvas("pulse").figure.axes
+        if ax.get_title() == "Spectrum"
+    )
+
+
+def test_retrieve_spectrum_axis_defaults_to_frequency_and_is_remembered(qtbot):
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    assert rs.spectrum_axis_combo.currentText() == "frequency"
+    rs.pages.set_current_page("pulse")
+    assert _spectrum_axes(rs).get_xlabel() == "Frequency (PHz)"
+    rs.spectrum_axis_combo.setCurrentText("wavelength")  # re-presents the result
+    assert _spectrum_axes(rs).get_xlabel() == "Wavelength (nm)"
+    assert settings.text("retrieve/spectrum_axis", "frequency") == "wavelength"
+    again = Wizard()
+    qtbot.addWidget(again)
+    assert again.stages[3].spectrum_axis_combo.currentText() == "wavelength"
+
+
+def test_retrieve_preview_reports_its_cost_to_the_worker(qtbot):
+    class _Recorder:
+        def __init__(self):
+            self.costs = []
+
+        def report_preview_cost(self, seconds):
+            self.costs.append(seconds)
+
+    w = Wizard()
+    qtbot.addWidget(w)
+    rs = _run_synthetic_retrieval(w, qtbot)
+    rs._worker = _Recorder()
+    rs._on_preview(w.state.result)
+    rs._on_preview(w.state.result)  # the second one is an in-place update
+    assert len(rs._worker.costs) == 2
+    assert all(cost > 0 for cost in rs._worker.costs)

@@ -184,6 +184,8 @@ def test_worker_throttles_previews(qtbot, monkeypatch):
     from croak.gui import worker as worker_mod
 
     w = worker_mod.RetrievalWorker(None, None, preview=True)
+    w.report_preview_cost(0.25)  # 0.25 s / PREVIEW_DUTY -> a 1 s interval
+    assert w.preview_interval == pytest.approx(1.0)
     seen: list[object] = []
     w.preview.connect(seen.append)
 
@@ -247,3 +249,25 @@ def test_worker_build_swallows_failures():
     assert RetrievalWorker._build(bad) is None
     sentinel = object()
     assert RetrievalWorker._build(lambda: sentinel) is sentinel
+
+
+def test_worker_preview_interval_follows_reported_cost():
+    """Cheap previews keep the minimum interval; costly ones stretch it."""
+    from croak.gui import worker as worker_mod
+
+    w = worker_mod.RetrievalWorker(None, None, preview=True)
+    assert w.preview_interval == pytest.approx(
+        worker_mod.RetrievalWorker.PREVIEW_MIN_INTERVAL
+    )
+    w.report_preview_cost(0.01)  # 40 ms of plotting per second at the minimum
+    assert w.preview_interval == pytest.approx(
+        worker_mod.RetrievalWorker.PREVIEW_MIN_INTERVAL
+    )
+    w.report_preview_cost(0.2)  # a slow laptop: back off to 0.8 s
+    assert w.preview_interval == pytest.approx(
+        0.2 / worker_mod.RetrievalWorker.PREVIEW_DUTY
+    )
+    w.report_preview_cost(0.0)
+    assert w.preview_interval == pytest.approx(
+        worker_mod.RetrievalWorker.PREVIEW_MIN_INTERVAL
+    )

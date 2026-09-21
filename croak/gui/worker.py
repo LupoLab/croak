@@ -74,10 +74,12 @@ class RetrievalWorker(QThread):
     For solvers that can cheaply build one, the per-iteration callback also
     carries a *snapshot* — a zero-argument builder of the current in-progress
     :class:`~croak.result.RetrievalResult`. This worker throttles those to at most
-    one every :attr:`PREVIEW_MIN_INTERVAL` seconds, building them off the GUI
-    thread and emitting them via :attr:`preview` so the stage can show the full
-    full plot page live (not just the convergence curve). A user Stop captures one
-    final snapshot at the exact stopping point so the full plot stays on screen.
+    one every :attr:`preview_interval` seconds — :attr:`PREVIEW_MIN_INTERVAL` at
+    first, stretched by :meth:`report_preview_cost` so that presenting them never
+    takes more than :attr:`PREVIEW_DUTY` of the wall-clock time — building them
+    off the GUI thread and emitting them via :attr:`preview` so the stage can show
+    the full plot page live (not just the convergence curve). A user Stop captures
+    one final snapshot at the exact stopping point so the full plot stays on screen.
 
     Signals
     -------
@@ -96,10 +98,17 @@ class RetrievalWorker(QThread):
         An error message on failure (or a bare Stop with no snapshot available).
     """
 
-    #: Minimum wall-clock seconds between live full-plot previews. The full-page
-    #: render (process + Gabor spectrogram + draw) is far costlier than one solver
-    #: iteration, so previews are throttled rather than drawn every iteration.
-    PREVIEW_MIN_INTERVAL = 1.0
+    #: Shortest wall-clock interval (s) between live previews. Presenting one costs
+    #: a process_result and an in-place page update on the GUI thread — tens of
+    #: milliseconds — so four a second is smooth without being wasteful.
+    PREVIEW_MIN_INTERVAL = 0.25
+    #: Largest fraction of wall-clock time the GUI may spend presenting previews.
+    #: The stage reports what each one cost and the interval stretches to
+    #: ``cost / PREVIEW_DUTY``, so a slow laptop or a heavy page backs off by
+    #: itself while a fast machine keeps the minimum interval. Presenting runs on
+    #: the GUI thread but holds the GIL, so this also bounds how much it slows a
+    #: Python-heavy solver.
+    PREVIEW_DUTY = 0.25
 
     progress = pyqtSignal(int, float, float)
     preview = pyqtSignal(object)
@@ -134,10 +143,27 @@ class RetrievalWorker(QThread):
         self._stop = False
         self._t0 = 0.0
         self._last_preview = 0.0
+        self._preview_interval = float(self.PREVIEW_MIN_INTERVAL)
         self._stop_result = None
 
     def request_stop(self) -> None:
         self._stop = True
+
+    @property
+    def preview_interval(self) -> float:
+        """Current shortest interval (s) between live previews."""
+        return self._preview_interval
+
+    def report_preview_cost(self, seconds: float) -> None:
+        """Stretch the preview interval so presenting stays within the duty cycle.
+
+        Called on the GUI thread after each preview is on screen with the time it
+        took to process and present. A plain float assignment read by the solver
+        thread, so it needs no lock.
+        """
+        self._preview_interval = max(
+            float(self.PREVIEW_MIN_INTERVAL), float(seconds) / self.PREVIEW_DUTY
+        )
 
     @staticmethod
     def _build(snapshot):
@@ -159,7 +185,7 @@ class RetrievalWorker(QThread):
             now = time.perf_counter()
             if (
                 self._last_preview == 0.0
-                or now - self._last_preview >= self.PREVIEW_MIN_INTERVAL
+                or now - self._last_preview >= self._preview_interval
             ):
                 result = self._build(snapshot)
                 if result is not None:

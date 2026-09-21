@@ -34,6 +34,7 @@ from ..retrieve import ALGORITHMS, algorithm_params
 from ..session.params import reg_defaults, reg_family
 from ..session.pipeline import extra_param_centres, smearing_kernel
 from ..truth_metrics import truth_errors
+from . import settings
 from .base import Stage
 from .canvas import check, collapsible, combo, dspin, group, spin
 from .panel_pages import RetrievalPages
@@ -318,6 +319,20 @@ class StageRetrieve(Stage):
                     "Temporal (τ window)",
                     "Mask the retrieved result outside the delay window — applied "
                     "to the stored result, no re-run.",
+                ),
+            ],
+        ),
+        (
+            "Display",
+            [
+                (
+                    "Spectrum axis",
+                    "Draw the spectrum panel against frequency (PHz — the space "
+                    "the retrieval works in, where |E(ω)|² of a symmetric pulse is "
+                    "symmetric) or wavelength (nm — the spectrometer's axis, with "
+                    "the λ² Jacobian applied). Both are unit-peak densities in "
+                    "their own variable. Remembered between launches; the "
+                    "exported twelve-panel PDF follows it.",
                 ),
             ],
         ),
@@ -822,6 +837,15 @@ class StageRetrieve(Stage):
         self.pf_tau.setEnabled(False)
         form.addRow(self.pf_lam)
         form.addRow(self.pf_tau)
+        self.controls.addWidget(box)
+
+        box, form = group("Display")
+        self.spectrum_axis_combo = combo(
+            plotting.SPECTRAL_AXES,
+            settings.text("retrieve/spectrum_axis", "frequency"),
+            self._on_spectrum_axis,
+        )
+        form.addRow("Spectrum axis", self.spectrum_axis_combo)
         self.controls.addWidget(box)
 
         btns = QWidget()
@@ -1498,12 +1522,17 @@ class StageRetrieve(Stage):
         self._conv_timer.stop()
         self._live_full = True
         energy = self.state.load.energy_j or None
+        started = time.perf_counter()
         with np.errstate(divide="ignore", invalid="ignore"):
             pr = process_result(
                 result, measured=td.trace, Iomega_meas=td.Iomega, energy=energy
             )
         # Snapshots carry the extras the solver has reached, so they move live too.
         self._show(result, pr)
+        if self._worker is not None:
+            # Processing and presenting ran on the GUI thread (holding the GIL):
+            # tell the worker what it cost so the cadence keeps within its duty.
+            self._worker.report_preview_cost(time.perf_counter() - started)
         self.set_status(
             f"iter {len(result.errors)}: R = {result.error:.4%}  (live preview)"
         )
@@ -1546,6 +1575,11 @@ class StageRetrieve(Stage):
         self.state.retrieve.post_filter_tau = self.pf_tau.isChecked()
         self._update_view()
 
+    def _on_spectrum_axis(self, axis: str) -> None:
+        """Remember the spectrum panel's abscissa and re-present the stored result."""
+        settings.set_text("retrieve/spectrum_axis", axis)
+        self._update_view()
+
     def _plot_data(self, result, pr) -> plotting.RetrievalPlotData:
         """Bundle ``result`` and its processed form for the panels.
 
@@ -1564,6 +1598,7 @@ class StageRetrieve(Stage):
             truth=self.state.truth,
             energy=self.state.load.energy_j or None,
             processed=pr,
+            spectral_axis=self.spectrum_axis_combo.currentText(),
         )
 
     def _show(self, result, pr) -> None:

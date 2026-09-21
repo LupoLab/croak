@@ -22,7 +22,7 @@ import contextlib
 import functools
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from matplotlib.colors import ListedColormap
@@ -71,6 +71,7 @@ __all__ = [
     "plot_residual",
     "plot_temporal",
     "plot_spectral",
+    "SPECTRAL_AXES",
     "EDGE_ENERGY_WARN",
     "plot_convergence",
     "plot_marginal",
@@ -130,6 +131,10 @@ __all__ = [
 ]
 
 _TWOPI_PHZ = 2 * np.pi * 1e15
+
+#: Abscissae the spectrum panel can be drawn against (see :func:`plot_spectral`).
+SPECTRAL_AXES: tuple[str, ...] = ("frequency", "wavelength")
+type SpectralAxis = Literal["frequency", "wavelength"]
 
 
 def sig3(value: float) -> str:
@@ -858,6 +863,56 @@ def _edge_text(pr: ProcessedResult) -> tuple[str, str]:
     return f"Edge: {100 * pr.edge_energy:.2f} %", color
 
 
+def _unit_peak(values: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Scale ``values`` to a peak of one (NaNs ignored; all-zero left alone)."""
+    peak = float(np.nanmax(values)) if values.size else 0.0
+    return values / peak if peak > 0 else values
+
+
+def _spectral_curves(pr: ProcessedResult, axis: str):
+    """Return ``(x, retrieved, measured, xlabel)`` of the spectrum panel on ``axis``.
+
+    Both spectra are unit-peak densities *in the chosen variable*. On the
+    wavelength axis they are ``pr.Ilam`` and ``pr.Iw_meas`` — both wavelength
+    densities (the measured one carries the ω² Jacobian despite its name); on the
+    frequency axis the retrieved spectrum is ``|E(ω)|²`` itself and the measured
+    one has that Jacobian divided out again, so a spectrum symmetric in ω plots
+    symmetric. ``x`` is per grid index on both axes, so the phase curves index it
+    with ``pr.mask_w`` unchanged.
+    """
+    if axis == "wavelength":
+        return pr.wavelength / 1e-9, pr.Ilam, pr.Iw_meas, "Wavelength (nm)"
+    if axis != "frequency":
+        raise ValueError(f"axis must be one of {SPECTRAL_AXES}, got {axis!r}")
+    omega_abs = pr.omega + pr.omega0
+    measured = None
+    if pr.Iw_meas is not None:
+        # A centred grid can cross ω = 0; that sample is undefined as a density.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            jacobian = np.where(omega_abs != 0, 1.0 / omega_abs**2, np.nan)
+        measured = _unit_peak(pr.Iw_meas * jacobian)
+    return omega_abs / _TWOPI_PHZ, _unit_peak(pr.Iw), measured, "Frequency (PHz)"
+
+
+def _spectral_xlim(lam_min, lam_max, axis: str) -> tuple[float, float] | None:
+    """Return the spectrum panel's x-limits for a wavelength window on ``axis``."""
+    if not (lam_min and lam_max):
+        return None
+    if axis == "wavelength":
+        return lam_min / 1e-9, lam_max / 1e-9
+    return float(wlfreq(lam_max)) / _TWOPI_PHZ, float(wlfreq(lam_min)) / _TWOPI_PHZ
+
+
+def _truth_spectrum(truth: TruthPulse, axis: str):
+    """Return the truth's spectrum ``(x, unit-peak density)`` on ``axis``, or None."""
+    if truth.lam is None or truth.Iw is None:
+        return None
+    if axis == "wavelength":
+        return truth.lam / 1e-9, truth.Iw
+    omega = wlfreq(truth.lam)
+    return omega / _TWOPI_PHZ, _unit_peak(np.asarray(truth.Iw) / omega**2)
+
+
 def _spectral_panel(
     ax,
     pr: ProcessedResult,
@@ -865,36 +920,37 @@ def _spectral_panel(
     lam_min=None,
     lam_max=None,
     truth: TruthPulse | None = None,
+    axis: str = "frequency",
 ) -> SpectralArtists:
     """Draw the spectrum panel into ``ax``; return its artists (see plot_spectral)."""
-    lam_nm = pr.wavelength / 1e-9
-    (line_retr,) = ax.plot(lam_nm, pr.Ilam, c="C0", label="R")
+    x, retrieved, measured, xlabel = _spectral_curves(pr, axis)
+    (line_retr,) = ax.plot(x, retrieved, c="C0", label="R")
     line_meas = None
-    if pr.Iw_meas is not None:
-        (line_meas,) = ax.plot(lam_nm, pr.Iw_meas, c="C1", label="M")
+    if measured is not None:
+        (line_meas,) = ax.plot(x, measured, c="C1", label="M")
     line_truth = None
-    if truth is not None and truth.lam is not None and truth.Iw is not None:
-        (line_truth,) = ax.plot(
-            truth.lam / 1e-9, truth.Iw, c="k", lw=0.8, zorder=1, label="truth"
-        )
-    ax.set_xlabel("Wavelength (nm)")
+    truth_curve = None if truth is None else _truth_spectrum(truth, axis)
+    if truth_curve is not None:
+        (line_truth,) = ax.plot(*truth_curve, c="k", lw=0.8, zorder=1, label="truth")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("Power (a.u.)")
     ax.set_ylim(0, 1.05)
     ax.set_title("Spectrum")
-    if lam_min and lam_max:
-        ax.set_xlim(lam_min / 1e-9, lam_max / 1e-9)
+    xlim = _spectral_xlim(lam_min, lam_max, axis)
+    if xlim is not None:
+        ax.set_xlim(*xlim)
     axp = ax.twinx()
-    (line_phase,) = axp.plot(lam_nm[pr.mask_w], pr.phi_w[pr.mask_w], c="C2")
+    (line_phase,) = axp.plot(x[pr.mask_w], pr.phi_w[pr.mask_w], c="C2")
     # dashed polynomial fit of the spectral phase (GDD/TOD visualisation)
     (line_phase_fit,) = axp.plot(
-        lam_nm[pr.mask_w], pr.phi_w_fit[pr.mask_w], "--", c="C4", alpha=0.7
+        x[pr.mask_w], pr.phi_w_fit[pr.mask_w], "--", c="C4", alpha=0.7
     )
     axp.set_ylabel("Phase (rad)")
     tphi = _truth_spectral_phase(pr.wavelength, truth)
     line_truth_phase = None
     if tphi is not None:
         (line_truth_phase,) = axp.plot(
-            lam_nm[pr.mask_w],
+            x[pr.mask_w],
             tphi[pr.mask_w],
             ":",
             c="0.35",
@@ -934,8 +990,15 @@ def plot_spectral(
     lam_min=None,
     lam_max=None,
     truth: TruthPulse | None = None,
+    axis: SpectralAxis = "frequency",
 ):
-    """Spectral intensity vs wavelength (left) and phase (right twin axis).
+    """Spectral intensity (left) and phase (right twin axis) against ``axis``.
+
+    ``axis`` is ``"frequency"`` (PHz, the default: the space the retrieval works
+    in, where ``|E(ω)|²`` of a symmetric pulse is symmetric) or ``"wavelength"``
+    (nm, the spectrometer's axis, carrying the λ² Jacobian). Both spectra are
+    drawn as unit-peak densities in the chosen variable; ``lam_min``/``lam_max``
+    (m) bound the axis on either. The phase curves are the same on both.
 
     ``truth``, when it carries a spectrum, is overlaid as a thin black line under
     the retrieved curve; when it carries a known spectral phase, that phase is
@@ -949,7 +1012,7 @@ def plot_spectral(
     registry, returning every artist (:class:`SpectralArtists`).
     """
     return _spectral_panel(
-        ax, pr, lam_min=lam_min, lam_max=lam_max, truth=truth
+        ax, pr, lam_min=lam_min, lam_max=lam_max, truth=truth, axis=axis
     ).ax_phase
 
 
@@ -1091,6 +1154,8 @@ class RetrievalPlotData:
         Known pulse to overlay (synthetic and simulated data).
     power_scale : tuple of (float, str) or None
         SI ``(scale, unit)`` for absolute power when a pulse energy was given.
+    spectral_axis : str
+        ``"frequency"`` or ``"wavelength"``: the spectrum panel's abscissa.
     """
 
     result: RetrievalResult
@@ -1107,6 +1172,7 @@ class RetrievalPlotData:
     lin_vmax: float
     truth: TruthPulse | None
     power_scale: tuple[float, str] | None
+    spectral_axis: str
 
     @functools.cached_property
     def spectrogram(
@@ -1134,6 +1200,7 @@ def retrieval_plot_data(
     truth: TruthPulse | None = None,
     energy: float | None = None,
     processed: ProcessedResult | None = None,
+    spectral_axis: str = "frequency",
 ) -> RetrievalPlotData:
     """Bundle a retrieval's plot inputs for the panels (see :func:`plot_retrieval`).
 
@@ -1146,10 +1213,15 @@ def retrieval_plot_data(
     Raises
     ------
     ValueError
-        If ``result`` carries no trace, or ``processed`` belongs to another result.
+        If ``result`` carries no trace, ``processed`` belongs to another result,
+        or ``spectral_axis`` is not one of :data:`SPECTRAL_AXES`.
     """
     omega = result.omega
     omega0 = result.omega0
+    if spectral_axis not in SPECTRAL_AXES:
+        raise ValueError(
+            f"spectral_axis must be one of {SPECTRAL_AXES}, got {spectral_axis!r}"
+        )
     if result.trace is None:
         raise ValueError("plot_retrieval requires a result carrying a simulated trace")
     retrieved = np.asarray(result.trace, dtype=float)
@@ -1195,6 +1267,7 @@ def retrieval_plot_data(
         ),
         truth=truth,
         power_scale=power_scale,
+        spectral_axis=spectral_axis,
     )
 
 
@@ -1291,6 +1364,7 @@ def draw_spectral(ax, data: RetrievalPlotData) -> SpectralArtists:
         lam_min=data.lam_min,
         lam_max=data.lam_max,
         truth=data.truth,
+        axis=data.spectral_axis,
     )
 
 
@@ -1470,16 +1544,16 @@ def update_temporal(artists: TemporalArtists, data: RetrievalPlotData) -> None:
 def update_spectral(artists: SpectralArtists, data: RetrievalPlotData) -> None:
     """Update :func:`draw_spectral`'s artists in place."""
     pr = data.processed
-    lam_nm = pr.wavelength / 1e-9
-    artists.line_retr.set_data(lam_nm, pr.Ilam)
-    if artists.line_meas is not None and pr.Iw_meas is not None:
-        artists.line_meas.set_data(lam_nm, pr.Iw_meas)
-    artists.line_phase.set_data(lam_nm[pr.mask_w], pr.phi_w[pr.mask_w])
-    artists.line_phase_fit.set_data(lam_nm[pr.mask_w], pr.phi_w_fit[pr.mask_w])
+    x, retrieved, measured, _xlabel = _spectral_curves(pr, data.spectral_axis)
+    artists.line_retr.set_data(x, retrieved)
+    if artists.line_meas is not None and measured is not None:
+        artists.line_meas.set_data(x, measured)
+    artists.line_phase.set_data(x[pr.mask_w], pr.phi_w[pr.mask_w])
+    artists.line_phase_fit.set_data(x[pr.mask_w], pr.phi_w_fit[pr.mask_w])
     # The truth phase is static but its mask (where the spectrum is bright) moves.
     tphi = _truth_spectral_phase(pr.wavelength, data.truth)
     if artists.line_truth_phase is not None and tphi is not None:
-        artists.line_truth_phase.set_data(lam_nm[pr.mask_w], tphi[pr.mask_w])
+        artists.line_truth_phase.set_data(x[pr.mask_w], tphi[pr.mask_w])
     limits = _phase_ylim(pr.phi_w[pr.mask_w], None if tphi is None else tphi[pr.mask_w])
     if limits is not None:
         artists.ax_phase.set_ylim(*limits)
@@ -1591,6 +1665,7 @@ def _update_signature(data: RetrievalPlotData) -> tuple:
         data.flim,
         data.halfwidth,
         data.tracedb,
+        data.spectral_axis,
     )
 
 
@@ -1772,7 +1847,7 @@ def _draw_panels(
 class RetrievalPageView:
     """An artist-reusing view of one page of retrieval panels (GUI support).
 
-    The live preview hands the Retrieve stage a new result about once a second.
+    The live preview hands the Retrieve stage a new result a few times a second.
     Clearing a figure and rebuilding a page's axes, colorbars and legends for each
     one costs a full constrained-layout solve and lets legends jump between frames;
     this view draws the page once and then pushes later results onto the existing
@@ -1903,6 +1978,7 @@ def plot_retrieval(
     figsize=(17.0, 9.45),
     fig: Figure | None = None,
     processed: ProcessedResult | None = None,
+    spectral_axis: SpectralAxis = "frequency",
 ) -> Figure:
     """12-panel retrieval summary: the standard at-a-glance quality check.
 
@@ -1931,6 +2007,9 @@ def plot_retrieval(
     the same ``measured``/``Iomega_meas``/``energy``, which are then used only for
     the trace panels; a mismatched one raises :class:`ValueError`.
 
+    ``spectral_axis`` draws the spectrum panel against ``"frequency"`` (PHz, the
+    default) or ``"wavelength"`` (nm); see :func:`plot_spectral`.
+
     Raises
     ------
     ValueError
@@ -1948,6 +2027,7 @@ def plot_retrieval(
         truth=truth,
         energy=energy,
         processed=processed,
+        spectral_axis=spectral_axis,
     )
     return plot_retrieval_page(data, RETRIEVAL_OVERVIEW, figsize=figsize, fig=fig)
 

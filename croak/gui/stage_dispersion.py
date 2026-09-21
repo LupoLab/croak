@@ -749,7 +749,8 @@ class StageDispersion(Stage):
     def _plot(self, fig, mod, pr) -> None:
         """Draw the four dispersion panels into ``fig``."""
         axd = fig.subplot_mosaic("ab\ncd")
-        plotting.plot_spectral(axd["a"], pr)  # total spectral phase + fit
+        # Wavelength, to match the applied-phase panel beneath it.
+        plotting.plot_spectral(axd["a"], pr, axis="wavelength")  # phase + fit
         plotting.plot_temporal(axd["b"], pr)
         # bottom-left: only the *applied* dispersion phase
         phi_applied = self._applied_phase()

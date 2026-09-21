@@ -220,7 +220,7 @@ class RetrievalPages(QWidget):
             and self._scales.get(canvas) == canvas.scale
         ):
             plotting.update_convergence_curve(artists, errors)
-            canvas.draw_idle()
+            canvas.draw()  # synchronous: cheap, and no second idle draw follows
             return
         view = self._views.get(canvas)
         if view is not None:
@@ -254,7 +254,10 @@ class RetrievalPages(QWidget):
             and view.can_update(data)
         ):
             view.update(data)
-            canvas.draw_idle()
+            # Synchronous, so the caller's timing of a preview includes the paint
+            # (the stage feeds it back to the worker's preview cadence) and no
+            # second idle draw follows.
+            canvas.draw()
             return
         self._conv.pop(canvas, None)
 

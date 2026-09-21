@@ -952,3 +952,91 @@ def test_page_view_freezes_the_layout_after_the_first_draw(update_results):
     assert isinstance(fig.get_layout_engine(), PlaceHolderLayoutEngine)
     view.draw(fig, _plot_data(r1, trace))  # a redraw solves it again
     assert isinstance(fig.get_layout_engine(), ConstrainedLayoutEngine)
+
+
+# -- spectrum axis --------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("axis", "xlabel"),
+    [("frequency", "Frequency (PHz)"), ("wavelength", "Wavelength (nm)")],
+)
+def test_plot_spectral_draws_against_the_chosen_axis(result_and_trace, axis, xlabel):
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    pr = processing.process_result(res, measured=trace)
+    ax = Figure().add_subplot()
+    plotting.plot_spectral(ax, pr, lam_min=700e-9, lam_max=950e-9, axis=axis)
+    assert ax.get_xlabel() == xlabel
+    lo, hi = ax.get_xlim()
+    assert lo < hi
+    if axis == "frequency":
+        two_pi_phz = 2 * np.pi * 1e15
+        assert lo == pytest.approx(float(wlfreq(950e-9)) / two_pi_phz)
+        assert hi == pytest.approx(float(wlfreq(700e-9)) / two_pi_phz)
+    else:
+        assert (lo, hi) == pytest.approx((700.0, 950.0))
+    assert float(np.nanmax(ax.lines[0].get_ydata())) == pytest.approx(1.0)
+
+
+def test_plot_spectral_defaults_to_frequency_and_rejects_unknown_axes(
+    result_and_trace,
+):
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    pr = processing.process_result(res, measured=trace)
+    ax = Figure().add_subplot()
+    plotting.plot_spectral(ax, pr)
+    assert ax.get_xlabel() == "Frequency (PHz)"
+    with pytest.raises(ValueError, match="axis must be one of"):
+        plotting.plot_spectral(Figure().add_subplot(), pr, axis="energy")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="spectral_axis must be one of"):
+        plotting.retrieval_plot_data(res, measured=trace, spectral_axis="energy")  # type: ignore[arg-type]
+
+
+def test_frequency_spectrum_is_the_omega_density(result_and_trace):
+    """On the frequency axis the retrieved curve is |E(ω)|² at unit peak, i.e. the
+    wavelength density with its ω² Jacobian divided out."""
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    pr = processing.process_result(res, measured=trace)
+    ax = Figure().add_subplot()
+    plotting.plot_spectral(ax, pr, axis="frequency")
+    np.testing.assert_allclose(ax.lines[0].get_ydata(), pr.Iw / pr.Iw.max(), atol=1e-12)
+    omega_abs = pr.omega + pr.omega0
+    np.testing.assert_allclose(ax.lines[0].get_xdata(), omega_abs / (2 * np.pi * 1e15))
+
+
+def test_retrieval_plot_data_carries_the_spectral_axis(result_and_trace):
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    default = _plot_data(res, trace)
+    assert default.spectral_axis == "frequency"
+    by_wavelength = _plot_data(res, trace, spectral_axis="wavelength")
+    ax = Figure().add_subplot()
+    plotting.draw_spectral(ax, by_wavelength)
+    assert ax.get_xlabel() == "Wavelength (nm)"
+    # a different abscissa is a different set of artists: no in-place update
+    assert plotting._update_signature(default) != plotting._update_signature(
+        by_wavelength
+    )
+    fig = plotting.plot_retrieval(res, measured=trace, spectral_axis="wavelength")
+    spectrum = next(a for a in fig.axes if a.get_title() == "Spectrum")
+    assert spectrum.get_xlabel() == "Wavelength (nm)"
+
+
+def test_update_spectral_matches_a_fresh_draw_on_the_wavelength_axis(update_results):
+    from matplotlib.figure import Figure
+
+    (r1, trace), (r2, _), _ = update_results
+    d1 = _plot_data(r1, trace, spectral_axis="wavelength")
+    d2 = _plot_data(r2, trace, spectral_axis="wavelength")
+    ax_u = Figure().add_subplot()
+    artists = plotting.draw_spectral(ax_u, d1)
+    plotting.update_spectral(artists, d2)
+    ax_f = Figure().add_subplot()
+    fresh = plotting.draw_spectral(ax_f, d2)
+    for k, v in _panel_state(fresh, ax_f).items():
+        _assert_equal(_panel_state(artists, ax_u)[k], v, f"spectral.{k}")
