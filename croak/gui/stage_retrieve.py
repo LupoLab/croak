@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -849,14 +848,9 @@ class StageRetrieve(Stage):
 
         # Figure on top (it takes every spare pixel), numeric read-out beneath it
         # at its natural height — see croak.gui.readout.
-        right = QWidget()
-        rv = QVBoxLayout(right)
-        rv.setContentsMargins(0, 0, 0, 0)
         self.canvas = MplCanvas(figsize=(12, 7))
-        rv.addWidget(with_toolbar(self.canvas), stretch=1)
         self.readout = RetrievalReadout()
-        rv.addWidget(self.readout, stretch=0)
-        self.set_plot_area(right)
+        self.set_plot_area(with_toolbar(self.canvas), self.readout)
         self._update_extras_readout(None)
 
         self.apply_help()

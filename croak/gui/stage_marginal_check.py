@@ -27,7 +27,8 @@ frequency centroid matches the measured one.
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QSplitter, QWidget
 
 from .. import io
 from ..marginal_checks import (
@@ -214,13 +215,17 @@ class StageMarginalCheck(Stage):
         self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
-        right = QWidget()
-        rv = QVBoxLayout(right)
+        # Trace above, marginal comparison below, on a draggable divider so a
+        # short display can give either plot the height (equal split by default).
         self.trace_canvas = MplCanvas()
         self.marg_canvas = MplCanvas()
-        rv.addWidget(with_toolbar(self.trace_canvas))
-        rv.addWidget(with_toolbar(self.marg_canvas))
-        self.set_plot_area(right)
+        self.plot_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.plot_splitter.addWidget(with_toolbar(self.trace_canvas))
+        self.plot_splitter.addWidget(with_toolbar(self.marg_canvas))
+        self.plot_splitter.setStretchFactor(0, 1)
+        self.plot_splitter.setStretchFactor(1, 1)
+        self.plot_splitter.setChildrenCollapsible(True)
+        self.set_plot_area(self.plot_splitter)
 
         self.apply_help()
 

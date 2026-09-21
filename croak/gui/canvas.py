@@ -21,12 +21,15 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import QCollapsible
 
 from ..plotting import FULL_SCALE, PlotScale, plot_scale, scaled_rc
+from . import settings
 
 __all__ = [
     "MplCanvas",
     "with_toolbar",
+    "collapsible",
     "group",
     "add_wide_row",
     "spin",
@@ -165,6 +168,51 @@ def with_toolbar(canvas: MplCanvas) -> QWidget:
     layout.addWidget(NavigationToolbar2QT(canvas, panel))
     layout.addWidget(canvas)
     return panel
+
+
+def collapsible(
+    title: str,
+    content: QWidget,
+    *,
+    expanded: bool = True,
+    settings_key: str | None = None,
+) -> QCollapsible:
+    """Wrap ``content`` in a click-to-fold strip headed ``title``.
+
+    For auxiliary widgets that sit under a plot (a numeric read-out, say) and
+    have a fixed natural height: folding one hands its pixels back to the plot.
+    Not for canvases, which should stretch — put those on a splitter instead.
+
+    Parameters
+    ----------
+    title : str
+        Header text; clicking it toggles the strip.
+    content : QWidget
+        The widget to fold.
+    expanded : bool
+        Initial state when nothing is remembered.
+    settings_key : str, optional
+        With a key, the state is restored from :mod:`croak.gui.settings` and
+        every toggle (by click or by :meth:`~superqt.QCollapsible.collapse` /
+        :meth:`~superqt.QCollapsible.expand`) is remembered under it.
+
+    Returns
+    -------
+    superqt.QCollapsible
+    """
+    strip = QCollapsible(title)
+    strip.setContent(content)
+    strip.setDuration(120)  # visible but brief
+    if settings_key is not None:
+        expanded = settings.value(settings_key, expanded)
+    if expanded:
+        strip.expand(animate=False)
+    else:
+        strip.collapse(animate=False)
+    if settings_key is not None:
+        key = settings_key
+        strip.toggled.connect(lambda state: settings.set_value(key, state))
+    return strip
 
 
 # -- tiny declarative widget builders ---------------------------------------

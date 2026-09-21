@@ -2,25 +2,40 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
+from . import settings
 from .help import HelpDialog, HelpSections, apply_tooltips, flatten
 from .state import WizardState
 
-__all__ = ["Stage"]
+__all__ = ["Stage", "CONTROLS_MIN_WIDTH"]
+
+#: Narrowest the control column can be dragged (logical px) before it snaps shut.
+#: Wide enough for a label, a spin box and its unit on one form row.
+CONTROLS_MIN_WIDTH = 240
+#: Debounce (ms) between a divider drag and remembering the new width.
+_SAVE_WIDTH_DELAY_MS = 250
 
 
 class Stage(QWidget):
     """A wizard page: a scrollable control column on the left, plots on the right.
 
+    The two sit on a :class:`~PyQt6.QtWidgets.QSplitter`, so on a small display the
+    control column can be narrowed or dragged fully closed to give the plots the
+    room; its width is shared by every stage and remembered between launches
+    (:mod:`croak.gui.settings`). The plot side never collapses.
+
     Subclasses build their controls into ``self.controls`` (a vertical layout)
-    and their plot area into ``self.plot_area`` (a widget), then implement
+    and hand their plot widget to :meth:`set_plot_area`, then implement
     :meth:`on_enter` to refresh when the page becomes visible.
 
     Subclasses may also set :attr:`HELP_TITLE`, :attr:`HELP_INTRO` and
@@ -42,28 +57,66 @@ class Stage(QWidget):
         self._help_dialog: HelpDialog | None = None
 
         outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
         # left: scrollable controls
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFixedWidth(315)
+        scroll.setMinimumWidth(CONTROLS_MIN_WIDTH)
         panel = QWidget()
         self.controls = QVBoxLayout(panel)
         scroll.setWidget(panel)
-        outer.addWidget(scroll)
-
-        # right: plot area (set by subclass via set_plot_area)
+        # right: plot area (filled by the subclass via set_plot_area)
         self._right = QWidget()
-        outer.addWidget(self._right, stretch=1)
+        self._right_layout = QVBoxLayout(self._right)
+        self._right_layout.setContentsMargins(0, 0, 0, 0)
+        self.splitter.addWidget(scroll)
+        self.splitter.addWidget(self._right)
+        # Dragging the divider fully left closes the controls; the plots never
+        # close. The stretch factors are load-bearing: without them QSplitter hands
+        # the spare width to the *left* pane ([1910, 6] at 1920 px) and squeezes
+        # the controls to their minimum whenever the window shrinks.
+        self.splitter.setCollapsible(0, True)
+        self.splitter.setCollapsible(1, False)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([settings.controls_width(), 1])
+        # A drag fires splitterMoved continuously; remember the width once it rests.
+        self._save_width_timer = QTimer(self)
+        self._save_width_timer.setSingleShot(True)
+        self._save_width_timer.setInterval(_SAVE_WIDTH_DELAY_MS)
+        self._save_width_timer.timeout.connect(self._save_controls_width)
+        self.splitter.splitterMoved.connect(self._on_splitter_moved)
+        outer.addWidget(self.splitter)
 
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
 
-    def set_plot_area(self, widget: QWidget) -> None:
-        layout = self._right.layout() or QVBoxLayout(self._right)
-        layout.addWidget(widget)
+    def set_plot_area(self, plot: QWidget, *strips: QWidget) -> None:
+        """Fill the right-hand side: ``plot`` on top, then ``strips`` beneath it.
+
+        ``plot`` takes every spare pixel; each strip (a read-out, a fold-away
+        panel) keeps its natural height.
+        """
+        self._right_layout.addWidget(plot, stretch=1)
+        for strip in strips:
+            self._right_layout.addWidget(strip, stretch=0)
 
     def set_status(self, text: str) -> None:
         self.status_label.setText(text)
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 — Qt override
+        """Apply the shared control-column width, so a drag on one stage reaches all."""
+        super().showEvent(event)
+        width = settings.controls_width()
+        if self.splitter.sizes()[0] != width:
+            self.splitter.setSizes([width, 1])
+
+    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
+        self._save_width_timer.start()
+
+    def _save_controls_width(self) -> None:
+        settings.set_controls_width(self.splitter.sizes()[0])
 
     def apply_help(self) -> set[tuple[str, str]]:
         """Attach :attr:`HELP` text as tooltips on the matching controls.

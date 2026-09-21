@@ -23,7 +23,8 @@ pytest.importorskip("PyQt6")
 from PyQt6.QtCore import QSettings, QSize, Qt
 
 from croak.gui import settings
-from croak.gui.canvas import MplCanvas
+from croak.gui.base import CONTROLS_MIN_WIDTH
+from croak.gui.canvas import MplCanvas, collapsible
 from croak.gui.stage_load import assemble_load_data, seed_preproc_defaults
 from croak.gui.stage_marginal_check import StageMarginalCheck
 from croak.gui.state import WizardState
@@ -1804,6 +1805,7 @@ def test_slider_controls_fill_the_control_column(qtbot):
     w.resize(1500, 950)
     w.show()
     qtbot.waitExposed(w)
+    assert stage.splitter.sizes()[0] == settings.DEFAULT_CONTROLS_WIDTH
 
     box = stage.lam_range.parentWidget()
     assert box is not None
@@ -2500,3 +2502,84 @@ def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot):
     qtbot.addWidget(clamped)
     assert clamped.width() <= 800
     assert clamped.height() <= 800
+
+
+# -- adaptive layout: splitter and strips ----------------------------------------
+def _marginal_stage_shown(qtbot, width, height):
+    """A wizard on the marginal-check stage, shown at ``width`` x ``height``."""
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.show_synthetic()
+    w.synthetic.advance()
+    w.resize(width, height)
+    w.show()
+    qtbot.waitExposed(w)
+    return w, w.stages[1]
+
+
+def test_stage_control_column_is_a_collapsible_splitter(qtbot):
+    """The controls sit on a splitter: 315 px by default, min 240, closable."""
+    _w, stage = _marginal_stage_shown(qtbot, 1366, 768)
+    sp = stage.splitter
+    assert sp.isCollapsible(0)
+    assert not sp.isCollapsible(1)
+    assert sp.sizes()[0] == settings.DEFAULT_CONTROLS_WIDTH
+    assert sp.widget(0).minimumWidth() == CONTROLS_MIN_WIDTH
+    before = stage.marg_canvas.width()
+    sp.setSizes([0, 1])
+    qtbot.waitUntil(lambda: sp.sizes()[0] == 0)
+    qtbot.waitUntil(lambda: stage.marg_canvas.width() >= before + 300)
+
+
+def test_control_column_width_is_shared_and_remembered(qtbot):
+    """A dragged divider is remembered, reaches the other stages and later runs."""
+    w, stage = _marginal_stage_shown(qtbot, 1366, 768)
+    sp = stage.splitter
+    sp.setSizes([260, 1])
+    sp.splitterMoved.emit(260, 1)  # setSizes() is silent; a real drag emits this
+    qtbot.waitUntil(lambda: settings.controls_width() == 260)
+    w.state.stage = 3  # preprocess: shown for the first time, adopts the width
+    qtbot.waitUntil(lambda: w.stages[2].splitter.sizes()[0] == 260)
+    again, again_stage = _marginal_stage_shown(qtbot, 1366, 768)
+    assert again_stage.splitter.sizes()[0] == 260
+
+
+def test_no_stage_needs_more_than_a_small_display(qtbot):
+    """No page (or widget on it) demands a window wider or taller than 1366x768."""
+    from PyQt6.QtWidgets import QWidget
+
+    w = Wizard()
+    qtbot.addWidget(w)
+    w.show_synthetic()
+    w.synthetic.advance()
+    for page in [*w.stages, w.synthetic, w.simulated, w.welcome]:
+        w.stack.setCurrentWidget(page)
+        hint = w.minimumSizeHint()
+        assert (hint.width(), hint.height()) <= (1366, 768), type(page).__name__
+        for child in page.findChildren(QWidget):
+            assert child.minimumSizeHint().width() <= 1366, type(child).__name__
+
+
+def test_marginal_check_canvases_share_a_vertical_splitter(qtbot):
+    _w, stage = _marginal_stage_shown(qtbot, 1366, 768)
+    sp = stage.plot_splitter
+    assert sp.orientation() == Qt.Orientation.Vertical
+    assert sp.count() == 2
+    assert all(size > 200 for size in sp.sizes())
+
+
+def test_collapsible_strip_folds_and_remembers_its_state(qtbot):
+    from PyQt6.QtWidgets import QLabel
+
+    strip = collapsible("Read-out", QLabel("x"), settings_key="test/strip")
+    qtbot.addWidget(strip)
+    assert strip.isExpanded()
+    strip.collapse(animate=False)
+    assert not strip.isExpanded()
+    assert strip.content().maximumHeight() == 0
+    again = collapsible("Read-out", QLabel("y"), settings_key="test/strip")
+    qtbot.addWidget(again)
+    assert not again.isExpanded()  # remembered
+    plain = collapsible("Read-out", QLabel("z"))
+    qtbot.addWidget(plain)
+    assert plain.isExpanded()  # no key: the default

@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -415,11 +414,8 @@ class StageLoad(Stage):
         self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
-        right = QWidget()
-        rv = QVBoxLayout(right)
         self.trace_canvas = MplCanvas()
-        rv.addWidget(with_toolbar(self.trace_canvas))
-        self.set_plot_area(right)
+        self.set_plot_area(with_toolbar(self.trace_canvas))
 
         self.apply_help()
 
