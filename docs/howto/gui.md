@@ -118,7 +118,22 @@ and hand the trace straight to the marginal-check stage.
    (disabled for older single-thickness files). See
    [Loading numerically simulated traces](loading_simulated.md).
 4. **Load** — pick an HDF5/NPZ file and the trace/wavelength/delay datasets, with
-   unit and axis auto-detection ({mod}`croak.io`). Optionally enter the measured
+   unit and axis auto-detection ({mod}`croak.io`). **Transpose** fixes a trace
+   that loaded as (delay × wavelength), and **Reverse delay axis** flips the
+   delay-sign convention — negating the scan axis, so the trace is mirrored about
+   τ = 0. Which end of a stage scan is "gate late" is a wiring convention the
+   file does not record. It matters for **PG and SD**, whose kernels fix the
+   direction of time: a wrong setting there time-reverses the retrieved pulse and
+   flips the sign of every phase order (invisible on a symmetric
+   transform-limited pulse, so check it against a known chirp). An **SHG** trace
+   is symmetric in delay even for a chirped pulse, so reversing it changes
+   nothing and cannot settle SHG's own
+   [direction-of-time ambiguity](../explanation/pnps_framework.md#ambiguities) —
+   that is resolved after retrieval instead
+   ([SHG: settle the direction of time first](postprocessing.md#shg-settle-the-direction-of-time-first)).
+   It is the measured counterpart of the simulated loader's switch of the same
+   name.
+   Optionally enter the measured
    **pulse energy** (J) here to rescale the temporal plots to absolute power (see
    the Dispersion stage). The trace preview uses the same colour scheme as the
    preprocessing stage (white→viridis for positive, white→red for negative), with

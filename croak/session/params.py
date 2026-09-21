@@ -44,9 +44,10 @@ class LoadParams:
     """Stage 1: which files/datasets/units make up the measured trace.
 
     Holds the FROG trace file and its wavelength/scan datasets and units, the
-    optional independent spectrum, the optional backgrounds and spectral-response
-    calibration curves, and the optional measured pulse energy used to rescale
-    the temporal plots to absolute power.
+    trace orientation (``transpose``) and delay-sign (``reverse_trace``)
+    conventions, the optional independent spectrum, the optional backgrounds and
+    spectral-response calibration curves, and the optional measured pulse energy
+    used to rescale the temporal plots to absolute power.
     """
 
     frog_path: str = ""
@@ -57,6 +58,18 @@ class LoadParams:
     lam_unit: str = "nm"
     scan_unit: str = "fs"
     scan_type: str = "delay"
+    #: Flip the delay-sign convention: negate the scan axis on loading, i.e.
+    #: mirror the trace about τ = 0. Which end of a stage scan is "gate late" is
+    #: a wiring convention of the measurement, and a measured file carries no
+    #: marker recording it (unlike ``SimulatedLoadParams.reverse_trace``, which
+    #: can auto-detect from ``/grid/delay_convention``), so this is a plain
+    #: off-by-default override. It bites on PG/SD, whose kernels fix the
+    #: direction of time: getting it wrong there time-reverses the retrieved
+    #: pulse and flips the sign of every phase order. An SHG trace is symmetric
+    #: in delay (``Interaction.time_reversal_ambiguous``), so reversing it
+    #: changes nothing and cannot settle SHG's direction-of-time ambiguity —
+    #: that is :func:`croak.processing.resolve_time_direction`'s job.
+    reverse_trace: bool = False
     interaction: str = "shg"
     third_order: bool = False
     third_order_exp: float = 4.0

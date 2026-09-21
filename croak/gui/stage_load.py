@@ -62,6 +62,11 @@ def trace_signature(p) -> tuple:
     (background, calibration, an independent spectrum) keeps the signature, so
     the user's windowing/filtering is preserved; loading a different file,
     dataset, orientation, unit, scan type or interaction changes it.
+
+    ``reverse_trace`` is deliberately excluded (as on the simulated loader): a
+    flip mirrors the same measurement rather than producing a different one, and
+    the τ slider *bounds* are refreshed on every load regardless, so toggling the
+    convention keeps the user's windowing instead of resetting it.
     """
     return (
         p.frog_path,
@@ -205,6 +210,20 @@ class StageLoad(Stage):
                     "(length, converted to delay as τ = 2z/c).",
                 ),
                 (
+                    "Reverse delay axis",
+                    "Flip the delay-sign convention: negate the scan axis, "
+                    "mirroring the trace about τ = 0. Tick it when the scan ran "
+                    "the other way round (which end is 'gate late' is a wiring "
+                    "convention the file does not record). It matters for PG "
+                    "and SD, which fix the direction of time: a wrong setting "
+                    "there time-reverses the retrieved pulse and flips the sign "
+                    "of every phase order, which is invisible on a symmetric "
+                    "transform-limited pulse. An SHG trace is symmetric in "
+                    "delay, so this is a no-op for it — SHG's direction-of-time "
+                    "ambiguity is settled after retrieval instead "
+                    "(resolve_time_direction).",
+                ),
+                (
                     "interaction",
                     "Nonlinear FROG geometry: SHG (second-harmonic), SD "
                     "(self-diffraction) or PG (polarization gating).",
@@ -317,6 +336,13 @@ class StageLoad(Stage):
         form.addRow("λ unit", self.lam_unit_combo)
         form.addRow("scan unit", self.scan_unit_combo)
         form.addRow("scan type", self.scan_type_combo)
+        form.addRow(
+            check(
+                "Reverse delay axis",
+                p.reverse_trace,
+                lambda v: setattr(p, "reverse_trace", v),
+            )
+        )
         self.energy_spin = SciSpinBox(
             0.0, 1e6, p.energy_j, lambda v: setattr(p, "energy_j", v), sigfigs=3
         )
