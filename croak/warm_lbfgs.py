@@ -1,46 +1,58 @@
-"""L-BFGS-AD seeded from COPRA's local projection sweep.
+"""Retrieve with L-BFGS-AD after a COPRA local-sweep warm start.
 
 COPRA has two stages that behave very differently. Its *local* sweep visits
-delays in random order and replaces each one's signal modulus with the measured
-value, which injects far more measured information per iteration than a
-gradient step; its *global* stage is a gradient descent, and on the cases
-measured here engaging it makes the result worse. Running the local sweep alone
-therefore produces a good, cheap estimate — but one that cannot represent
-geometrical smearing, because a smeared trace is an incoherent mixture with no
-single signal whose modulus to replace.
+delays in random order and replaces each one's signal modulus with the
+measured value, which injects far more measured information per iteration
+than a gradient step; its *global* stage is a gradient descent, and on the
+cases we measured engaging it made the result worse. The local sweep alone
+therefore produces a good, cheap estimate, but one that cannot represent
+geometrical smearing: a smeared trace is an incoherent mixture with no single
+signal whose modulus to replace.
 
-This solver uses that estimate as the starting point for the full extended
-model under L-BFGS. The forward model is unchanged; only the initial guess is.
+This solver uses that estimate as the starting point for the regularised
+extended model under L-BFGS. The final objective and options are those of
+:class:`croak.lbfgs_ad.LBFGSAD`; only the initial guess changes. The warm-up
+uses the core dispersive model (material, thickness, quadrature, and
+``phase_only`` when set) and, when supplied, the reduced smearing kernel to
+score its iterates. It does not include the chromatic focal or collection
+model, fitted extras, regularisation or marginal-peak centring of the final
+stage, and its local projection is the unsmeared single-field update.
 
-What it buys, measured across the Gaussian-beam control and the apertured mask
-at transform limit and +-2 fs^2 (and the mask +-0.625 pair).
+Measured effect
+---------------
+On simulated TG-FROG traces (the Gaussian-beam control and the apertured mask,
+each at transform limit and ±2 fs², plus a mask ±0.625 fs² pair; eight cases
+at a 9.5 µm substrate), compared with a cold ``lbfgs-ad`` start:
 
-Accuracy, all eight cases at the 9.5 um experimental substrate: mean complex
-error 0.333 -> 0.208 (38% lower), median 0.408 -> 0.150 (63% lower), mean
-``|dFWHM|`` 17.7% -> 8.5% (52% lower), worst ``|dFWHM|`` 69.3% -> 20.8%. The complex
-error improved by more than 20% in four of the eight cases and degraded by more
-than 20% in none; the duration improved in seven of eight. The pattern is that
-it does little where the answer was already good and a great deal where it was
-not: it rescues bad basins rather than refining good solutions, raising the
-floor without lowering the ceiling.
+* Accuracy: mean complex error 0.333 → 0.208 (38 % lower), median
+  0.408 → 0.150 (63 % lower); mean ``|dFWHM|`` 17.7 % → 8.5 %, worst
+  69.3 % → 20.8 %. The duration improved in seven of the eight cases and the
+  complex error degraded by more than 20 % in none. It rescues bad basins
+  rather than refining good solutions.
+* Variance over starting points is the largest effect: the spread in
+  retrieved duration collapsed five-fold to twelve-fold on every chirped arm
+  (e.g. ±36.9 → ±3.1 points), while the transform-limited arms, which were
+  never start-sensitive, were unchanged.
+* Known regression: on the Gaussian transform-limited arm at depths away from
+  9.5 µm the warm complex error reached 0.63 against a cold maximum of 0.18,
+  i.e. where the cold start was already reliable.
 
-Across depth, over a 1-40 um ladder, the complex-error ranges improve on most
-arms -- clearly on both chirped Gaussian arms and on mask -2 fs^2 (0.33-0.55 ->
-0.15-0.46), with the mask +2 arm unchanged. The retrieved-duration ranges over
-depth are mixed and slightly wider on the mask arms; that alone is not the whole
-picture and should not be read as one.
+Noise overfitting
+-----------------
+The COPRA warm-up has no spectral penalty. On a noisy trace whose grid spans
+far more bandwidth than the signal, any solver without a spectral target can fit
+noise into signal-free spectral bins near the grid edges; the warm-up does so
+before the penalised stage starts. On the noisy trace of
+``examples/example_thickness_uncertainty.py``, both ``warm-lbfgs`` and
+``lbfgs-ad`` without a target leave ~3 % of the spectral energy at the edges and
+return durations from about 1.9 to 3.2 fs for a 3.0 fs pulse. With the measured
+spectrum as target, ``lbfgs-ad`` recovers 2.97 fs while ``warm-lbfgs`` still ends
+at 3.16 fs. Check :func:`croak.edge_energy_fraction` on noisy data and supply
+the measured spectrum.
 
-Variance over starting points is the largest effect. The spread in retrieved
-duration collapses on every chirped arm -- five-fold on Gaussian +2 and mask -2,
-twelve-fold on Gaussian -2 (+-36.9 -> +-3.1 points) and mask +2 (+-6.0 -> +-0.5)
--- while the transform-limited arms, which were never start-sensitive, are
-unchanged. A retrieval whose answer moves by +-37% with the draw of the initial
-guess is not a measurement whatever its mean error, and on real data one never
-learns which draw one got.
-
-One regression is known: the Gaussian transform-limited arm at depths away from
-9.5 um, where the warm complex error reaches 0.63 against a cold maximum of
-0.18. That is the case where the cold start was already reliable.
+The result combines both convergence histories. COPRA sweeps and L-BFGS
+function evaluations are different units of work; ``stage_boundaries`` marks
+the handover.
 """
 
 from __future__ import annotations
@@ -100,28 +112,29 @@ def _relay_after_warmup(
 
 
 class WarmLBFGS(LBFGSAD):
-    """L-BFGS-AD with a COPRA local-sweep warm start.
+    """Retrieve with a COPRA local-sweep initialisation followed by L-BFGS-AD.
 
-    Takes every argument :class:`~croak.lbfgs_ad.LBFGSAD` does. The warm-up
-    inherits the dispersive model (material, thickness, quadrature) and the
-    smearing kernel, so it judges its iterates against the same physics; its
-    projection step cannot *use* the kernel (the global stage that could never
-    engages here), but the error it selects the returned iterate by is the
-    smeared one. Per-frequency factors are off during the warm-up: COPRA's
-    projection has no use for them, and they are free to move afterwards.
+    Accepts every :class:`~croak.lbfgs_ad.LBFGSAD` argument for the final
+    stage. The warm-up inherits the dispersive model and the smearing kernel,
+    so it judges its iterates against the same physics: its projection step
+    cannot *use* the kernel, but the error by which it selects the returned
+    iterate is the smeared one. Per-frequency factors are off during the
+    warm-up (COPRA's projection has no use for them) and free to move
+    afterwards. See :mod:`croak.warm_lbfgs` for the remaining differences.
 
     Parameters
     ----------
     warmup_iters : int, optional
-        Iteration budget for the COPRA sweep (default 300). The sweep normally
-        converges well inside this.
+        Maximum COPRA warm-up sweeps (default 300); the sweep normally
+        converges well inside this. Separate from the final L-BFGS
+        ``maxiters`` budget.
     """
 
-    #: Report the two-stage solver by its own name. Inheriting ``LBFGSAD``'s
-    #: label made a warm-started result claim to be a plain ``lbfgs-ad`` --- which
-    #: contradicts the ``stage_boundaries`` it carries, and sent an uncertainty
-    #: bootstrap (which reads ``result.algorithm`` when none is given) off to
-    #: re-run the replicates with the *cold* solver.
+    #: Name recorded in results and used by uncertainty replicates when no
+    #: alternative solver is requested. It must not inherit ``LBFGSAD``'s
+    #: label: a warm-started result would then claim to be a plain
+    #: ``lbfgs-ad`` (contradicting its ``stage_boundaries``), and a bootstrap
+    #: would re-run its replicates with the cold solver.
     name = "warm-lbfgs"
 
     def __init__(self, *args, warmup_iters: int = 300, **kwargs):

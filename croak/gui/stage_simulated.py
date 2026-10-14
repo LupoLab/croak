@@ -220,7 +220,7 @@ class StageSimulated(Stage):
         form.addRow("trace window", self.window_key)
         # Thickness selector for the multi-thickness format (one item per saved
         # /grid/zsave slice, carrying its thickness in µm as item data); disabled
-        # for the legacy single-thickness format.
+        # for the older single-thickness format.
         self.thickness = QComboBox()
         self.thickness.currentIndexChanged.connect(self._changed)
         form.addRow("thickness", self.thickness)
@@ -235,7 +235,7 @@ class StageSimulated(Stage):
         # reverse_trace=None means "auto from the file marker"; the checkbox
         # cannot express that, so it is seeded explicitly. Default OFF: the
         # delay-axis convention is now fixed at the simulation end, so the
-        # legacy flip is no longer wanted. A file that does need flipping still
+        # old default flip is no longer wanted. A file that does need flipping still
         # carries its own marker, and the box can be ticked by hand.
         self.reverse = check(
             "Reverse delay axis",
@@ -341,7 +341,7 @@ class StageSimulated(Stage):
         self.window_key.setCurrentText(current if current in items else items[0])
         self.window_key.blockSignals(False)
 
-        # thickness slices (largest/exit first; disabled for legacy files)
+        # thickness slices (largest/exit first; disabled for older files)
         self.thickness.blockSignals(True)
         self.thickness.clear()
         if zsave is None or zsave.size == 0:
@@ -440,7 +440,7 @@ class StageSimulated(Stage):
             widget.blockSignals(False)
         # The thickness items carry their µm value as item data; match the saved
         # slice exactly (it was written from the same list) and otherwise leave the
-        # default (full thickness), which is also the legacy no-zsave behaviour.
+        # default (full thickness), which is also the no-zsave behaviour of older files.
         if p.z_thickness_um is not None:
             index = self.thickness.findData(p.z_thickness_um)
             if index >= 0:
@@ -481,7 +481,7 @@ class StageSimulated(Stage):
     def _params(self) -> SimulatedLoadParams:
         """Build a :class:`SimulatedLoadParams` from the current controls."""
         # The thickness item data is the chosen slice in µm; None (the disabled
-        # placeholder of a legacy file) falls back to the exit slice.
+        # placeholder of an older file) falls back to the exit slice.
         data = self.thickness.currentData()
         z_thickness_um = float(data) if data is not None else None
         truth = self.truth_source.currentText()

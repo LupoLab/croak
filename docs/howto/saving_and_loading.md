@@ -95,8 +95,10 @@ save_options({"algorithm": "copra", "maxiters": 300, "lam_min": 730e-9}, "sessio
 opts = load_options("session.toml")
 ```
 
-This stores the *recipe*, not the data — handy for reproducing a retrieval or
-seeding the [GUI](gui.md) with known-good settings.
+This stores the *recipe*, not the data: handy for reproducing a retrieval or
+seeding the [GUI](gui.md) with known-good settings. A complete session that the
+GUI and `croak replay` can run is a {class}`~croak.session.options.SessionOptions`,
+written with its `to_toml` method.
 
 ### What the options file contains
 
@@ -121,7 +123,7 @@ entry = "simulated"
 live one; the other is written at its defaults. Without it a simulated session
 would be indistinguishable from an experimental one with an empty file path, and
 its provenance (which scansave file, which trace window, which thickness slice,
-which loaded band) would be lost. {func}`croak.run_session`, `croak replay` and
+which loaded band) would be lost. {func}`croak.session.engine.run_session`, `croak replay` and
 `croak script` all dispatch on it, so a simulated session replays headlessly like
 a measured one. Files written before `options_version = 2` have no `entry` and
 read back as experimental.
@@ -143,4 +145,19 @@ the `None` default.
   profiles and measured trace.
 - **The options `.toml`** records *how* you got there, so the run is reproducible.
 
-Together they make a retrieval fully portable.
+- **The input files** the options point to (trace, spectrum, backgrounds,
+  calibration curves) and any custom material or mirror data: the options file
+  references them by path and does not embed them.
+
+A saved experimental or simulated session reruns headlessly, or exports as an
+editable Python script:
+
+```console
+croak replay options.toml --seed 0             # writes result.h5
+croak script options.toml -o retrieval.py --seed 0
+```
+
+The session file does not record a random seed, so pass `--seed` when the run
+must repeat exactly. `croak replay --base-dir DIR` reruns the same settings
+against another dataset folder. See the [workflow example](../examples/workflow.md)
+and {mod}`croak.scripting` for the library interface.

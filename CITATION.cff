@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: >-
-  If you use croak in published work, please cite the companion paper
-  (preferred-citation below). Cite this record for the software itself.
+  If you use croak in published work, please cite the paper
+  (preferred-citation below), and this record for the software itself.
 type: software
 title: "croak: complete retrieval of ultrashort laser pulses from FROG traces"
 version: 0.1.0
@@ -29,7 +29,7 @@ keywords:
 doi: 10.5281/zenodo.22182305
 preferred-citation:
   type: article
-  title: "Extreme ultrashort pulse retrieval with differentiable physical forward models"
+  title: "Differentiable physical models for ultrashort-pulse retrieval"
   authors:
     - family-names: Travers
       given-names: John C.
@@ -41,4 +41,4 @@ preferred-citation:
       affiliation: "Heriot-Watt University"
   year: 2026
   # TODO on publication: add journal, volume, pages, doi
-  notes: "to be published"
+  notes: "in preparation"

@@ -5,7 +5,7 @@ The **frequency marginal** of a FROG-type trace is its integral over delay,
 .. math::
     M(\omega) = \int T(\omega, \tau)\,\mathrm{d}\tau ,
 
-a one-dimensional function of optical frequency. Every FROG signal factorises
+a one-dimensional function of optical frequency. A thin local FROG signal factorises
 into an undelayed part :math:`P(t)` and a delayed gate :math:`g(t-\tau)`, and
 integrating over delay collapses the delay phase to a delta function, leaving a
 **convolution of spectral intensities**
@@ -26,9 +26,10 @@ geometry:
 - **SD** — marginal :math:`|\widehat{E^2}|^2 * S(-\omega)` (transform-limited);
   centroid :math:`\approx\bar\omega_S` (TL/symmetric only); width :math:`>\sigma_S`.
 
-SHG is the gold standard: its marginal is fully phase-independent, so any
-mismatch is unambiguously a *trace* problem (calibration, spectral response,
-detector nonlinearity, scatter). PG/TG keep one rigorous anchor (the centroid)
+SHG is the strongest check: for a thin local medium with full delay support its
+marginal is fully phase-independent, so a mismatch points to the *trace*
+(calibration, spectral response, detector nonlinearity, scatter, delay support)
+rather than to the pulse. PG/TG keep one rigorous anchor (the centroid)
 and one rigorous lower bound (the width); SD has only soft, transform-limited
 (TL) anchors because its phase-dependent factor is the SHG spectrum.
 
@@ -37,6 +38,10 @@ This module computes those predictions (:func:`predicted_marginal`,
 (:func:`centroid`, :func:`rms_width`), and an exponent picker that tilts a trace
 marginal onto the predicted centroid (:func:`auto_third_order_exponent`). The
 full physics is in the manual's *FROG trace marginals* explanation page.
+
+The predictions assume a thin local interaction and matching field references;
+spatial collection and propagation in a thick medium modify them. See
+:doc:`/explanation/marginals`.
 """
 
 from __future__ import annotations
@@ -82,6 +87,11 @@ def centroid(omega: ArrayLike, marginal: ArrayLike) -> float:
     -------
     float
         The first moment of ``marginal`` over ``omega``.
+
+    Notes
+    -----
+    This is a discrete weighted sum. For non-uniform axes, include the integration
+    weights in ``marginal`` before calling.
     """
     return moment(omega, marginal, 1)
 
@@ -103,6 +113,11 @@ def rms_width(omega: ArrayLike, marginal: ArrayLike) -> float:
     float
         The standard deviation of ``marginal`` over ``omega`` (floored at zero
         before the square root to absorb discretisation noise in the tails).
+
+    Notes
+    -----
+    This is a discrete weighted sum. For non-uniform axes, include the integration
+    weights in ``marginal`` before calling.
     """
     c = moment(omega, marginal, 1)
     var = moment(omega, marginal, 2) - c * c
@@ -117,7 +132,8 @@ def spectral_autoconvolution(
 ) -> NDArray[np.float64]:
     r"""Autoconvolution :math:`S * S` of a spectral intensity.
 
-    This is the exact SHG-FROG marginal shape (phase-independent). Two boundary
+    This is the exact, phase-independent SHG-FROG marginal shape for a thin
+    local medium with full delay support. Two boundary
     conventions are offered:
 
     * ``circular=False`` (default): the **linear** convolution, which doubles the
@@ -156,14 +172,14 @@ def spectral_autoconvolution(
 def apply_marginal_correction(
     trace: ArrayLike, Iomega: ArrayLike
 ) -> NDArray[np.float64]:
-    r"""Rescale a SHG trace's frequency rows onto the spectrum-predicted marginal.
+    """Rescale a SHG trace's frequency rows onto the spectrum-predicted marginal.
 
-    The exact SHG frequency marginal is the spectral autoconvolution
-    :math:`S * S` of the independent fundamental spectrum ``Iomega`` (both on the
-    same centred frequency grid as the trace). Each frequency row of ``trace`` is
-    rescaled so its delay-integrated marginal matches that prediction (rows with
-    no marginal power are zeroed), which corrects a measured/efficiency tilt
-    along the spectral axis without touching the delay structure.
+    For a thin local medium the SHG frequency marginal is the spectral autoconvolution
+    :math:`S * S` of the independent fundamental spectrum ``Iomega`` (both on the same
+    centred frequency grid as the trace). Each frequency row of ``trace`` is rescaled so
+    its delay-integrated marginal matches that prediction (rows with no marginal power
+    are zeroed), which corrects a measured/efficiency tilt along the spectral axis
+    without touching the delay structure.
 
     Shared by :func:`croak.preprocess.load_and_clean` (the ``marginal_correct``
     option) and the marginal-check stage's live preview, so the correction is
@@ -422,8 +438,9 @@ def auto_third_order_exponent(
     marginal a few nm off the drawn prediction line.
 
     Increasing ``n`` shifts weight to long wavelengths (low frequency), so the
-    centroid decreases monotonically with ``n`` and the match has a unique root,
-    found by :func:`scipy.optimize.brentq` and clamped to ``bounds``. If the
+    centroid decreases monotonically with ``n`` for a positive marginal and the
+    match has at most one root, found by
+    :external+scipy:func:`scipy.optimize.brentq` and clamped to ``bounds``. If the
     target lies outside the achievable centroid range the nearer bound is
     returned.
 
@@ -456,6 +473,11 @@ def auto_third_order_exponent(
     ValueError
         If fewer than three wavelengths carry signal in the window, or the
         spectrum centroid cannot be formed.
+
+    Notes
+    -----
+    This fits an empirical tilt over the chosen window; it does not identify
+    which physical factor (source or detector response) causes it.
     """
     _normalise_interaction(interaction)  # validate early
     lam = np.asarray(lam, dtype=float)

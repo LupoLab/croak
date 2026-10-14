@@ -3,9 +3,9 @@
 ``croak script options.toml`` emits a small script that reproduces the retrieval
 by calling the public croak API stage by stage. Every parameter is rendered as an
 explicit dataclass literal so the script is transparent and hand-editable, while
-the pipeline steps call the same :mod:`croak.session` functions the GUI and the
-``replay`` command use — so a generated script never drifts from the real
-mapping.
+the pipeline steps call the same :mod:`croak.session.pipeline` functions the GUI
+and the ``replay`` command use, so a generated script never drifts from the real
+mapping. Keep the input files and software version with the script.
 """
 
 from __future__ import annotations
@@ -181,7 +181,8 @@ def generate_script(
     calls :func:`~croak.session.pipeline.assemble_load_data`, a simulated one
     :func:`~croak.session.pipeline.assemble_simulated_load_data` (or
     :func:`~croak.session.pipeline.assemble_simulated_tracedata` for its raw
-    "skip filtering & regrid" option), matching :func:`croak.run_session`.
+    "skip filtering & regrid" option), matching
+    :func:`croak.session.engine.run_session`.
 
     Parameters
     ----------

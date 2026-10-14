@@ -13,8 +13,7 @@ kernelspec:
 
 croak has ten [solvers](../explanation/algorithms.md) behind a single API, grouped
 into four algorithm families (COPRA, L-BFGS, Levenberg–Marquardt and the global
-CMA-ES). The local solvers reach the same least-squares minimum but differ in their
-path and final accuracy. This tutorial runs three of them on one trace and compares
+CMA-ES). This tutorial runs three of them on one trace and compares
 convergence.
 
 ```{code-cell} ipython3
@@ -22,7 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import croak
 
-g = croak.Grid(128, dt=0.3e-15)
+g = croak.Grid(256, dt=0.5e-15)
 ew = croak.gaussian_pulse(g, 3.0e-15, phases=[6e-30, 30e-45])   # GDD + TOD
 delays = np.linspace(-24e-15, 24e-15, 90)
 trace = croak.maketrace(g.omega, delays, ew, "pg")              # PG-FROG
@@ -34,11 +33,12 @@ We seed every solver from the *same* initial guess so the comparison is fair, an
 record the convergence history `res.errors`.
 
 ```{note}
-The gradient and LM solvers apply croak's settled
+The gradient and LM solvers apply croak's default
 [regularisation weights](../howto/regularisation.md) **by default**; COPRA
 takes no penalties. This comparison passes `reg_amp=0` so that all three
-minimise the same bare trace error — on a measurement you would keep the
-defaults.
+seek minima of the bare trace discrepancy, using either $R$ or $R^2$.
+Those objectives have the same minimisers without penalties but different
+local geometry.
 ```
 
 ```{code-cell} ipython3
@@ -49,17 +49,15 @@ for algo in ("copra", "lbfgs", "lm"):
     kw = {} if algo == "copra" else {"reg_amp": 0}   # COPRA takes no penalties
     results[algo] = croak.retrieve(trace, g.omega, delays, "pg",
                                   algorithm=algo, guess=guess, maxiters=200,
-                                  rng=np.random.default_rng(0), **kw)
+                                  rng=np.random.default_rng(0), progress=False,
+                                  **kw)
 
 for algo, res in results.items():
     print(f"{algo:6s}  R = {res.error:.2e}  ({len(res.errors)} evaluations)")
 ```
 
-That spread is startling — COPRA reaches machine precision, L-BFGS stalls around
-$10^{-5}$, and LM lands in between after only a handful of evaluations. It is
-worth understanding, because **almost all of it is an artefact of noise-free
-synthetic data** and disappears on a real measurement. The rest of this tutorial
-explains why.
+Compare the printed residuals and histories; the next sections explain the
+differences.
 
 ## Convergence trajectories
 
@@ -79,67 +77,65 @@ so compare shapes rather than absolute counts.)
 
 ## Why LM stops early
 
-LM did not run out of iterations — it stopped itself after ~19 evaluations, on a
-convergence test. {class}`~croak.lm.LM` passes `reltol` to SciPy as `ftol` (the
-relative *cost* reduction) and `abstol` as both `xtol` and `gtol` (the *step* and
-*gradient* floors). It is worth knowing which one is binding, so vary them one at
-a time:
+LM stopped after about 20 evaluations at $R \approx 10^{-6}$, well short of its
+200-evaluation budget, so the budget is not what ended it: a convergence
+tolerance did. `LM` uses SciPy's trust-region reflective method by default, with
+a JAX Jacobian, and stops as soon as *any* of its tests passes. croak's `reltol`
+maps to SciPy's `ftol` (relative change of the cost), while `abstol` maps to both
+`xtol` (relative step size) and `gtol` (gradient). Vary them separately to see
+which one fires:
 
 ```{code-cell} ipython3
 def lm_run(**tol):
-    r = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lm",
-                      guess=guess, maxiters=400, reg_amp=0, **tol)
+    return croak.retrieve(trace, g.omega, delays, "pg", algorithm="lm",
+                          guess=guess, maxiters=400, reg_amp=0, progress=False,
+                          **tol)
+
+def describe(r):
     return f"R = {r.error:.2e}  ({len(r.errors)} evaluations)"
 
 print("vary reltol (ftol), abstol at its 1e-8 default:")
 for reltol in (1e-4, 1e-8, 1e-12):
-    print(f"   reltol={reltol:.0e}  {lm_run(reltol=reltol, abstol=1e-8)}")
+    print(f"   reltol={reltol:.0e}  {describe(lm_run(reltol=reltol, abstol=1e-8))}")
 
 print("vary abstol (xtol and gtol), reltol at its 1e-4 default:")
-for abstol in (1e-8, 1e-12, 1e-15):
-    print(f"   abstol={abstol:.0e}  {lm_run(reltol=1e-4, abstol=abstol)}")
+by_abstol = {abstol: lm_run(reltol=1e-4, abstol=abstol)
+             for abstol in (1e-8, 1e-12, 1e-15)}
+for abstol, r in by_abstol.items():
+    print(f"   abstol={abstol:.0e}  {describe(r)}")
 ```
 
-`reltol` makes no difference at all — the cost is still falling fast when LM
-stops, so `ftol` never triggers. It is **`abstol`** that binds: the Gauss–Newton
-*step* has become smaller than $10^{-8}$, and SciPy calls that converged. Loosen
-that floor and LM delivers the superlinear convergence it is famous for, six
-orders of magnitude deeper for roughly twice the work.
-
-Plotting the three runs together makes the point better than the numbers do. They
-are not three different descents — they are the *same* descent, cut short at three
-different places:
+Tightening `reltol` changes nothing: the cost-change test never fires first. The
+step/gradient test set by `abstol` is the one that stops LM here. Tightening it
+from `1e-8` to `1e-12` lowers $R$ by about three orders of magnitude, from
+$1.1 \times 10^{-6}$ to $9.9 \times 10^{-10}$, for roughly 1.4× the evaluations.
+At `1e-15` the test never passes, so LM runs to the 400-evaluation cap for only
+a further factor of about three. **To get more out of LM on a clean trace, tighten
+`abstol`, not `reltol`; around `1e-12` is enough here.** The histories of the
+`abstol` runs above:
 
 ```{code-cell} ipython3
 fig, ax = plt.subplots(figsize=(6, 4))
-for abstol, lw, color in ((1e-15, 1.2, "C2"), (1e-12, 2.2, "C1"), (1e-8, 3.5, "C0")):
-    r = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lm", guess=guess,
-                      maxiters=400, reltol=1e-4, abstol=abstol)
+styles = {1e-15: (1.2, "C2"), 1e-12: (2.2, "C1"), 1e-8: (3.5, "C0")}
+for abstol, (lw, color) in styles.items():
+    r = by_abstol[abstol]
     n = np.arange(1, len(r.errors) + 1)
     ax.semilogy(n, r.errors, lw=lw, color=color, alpha=0.85,
                 label=f"abstol={abstol:.0e}  →  R={r.error:.1e}")
     ax.plot(n[-1], r.errors[-1], "*", ms=16, color=color, mec="k", mew=0.5, zorder=5)
 ax.set_xlabel("residual evaluation")
 ax.set_ylabel("trace error R")
-ax.set_title("LM follows one path — abstol only decides where it stops (★)")
+ax.set_title("Stopping tolerances on this trace (★ = final evaluation)")
 ax.legend(fontsize=8, loc="lower left")
 ax.grid(alpha=0.3)
 fig.tight_layout()
 ```
 
-The default (thick blue) gives up at the first star, on the steepest part of the
-curve, with more than six orders of magnitude still available.
+(why-l-bfgs-stalls-and-why-it-does-not-matter)=
+## Objective shape near an exact fit
 
-**If you use LM as a polishing stage, set `abstol` yourself** — the default is
-tuned for stopping sensibly on noisy data, not for chasing a synthetic trace to
-machine precision.
-
-## Why L-BFGS stalls, and why it does not matter
-
-Tightening the tolerance does *not* rescue L-BFGS — it burns the whole budget and
-stays near $10^{-5}$. The cause is the shape of the objective, and it is worth
-seeing directly. Perturb the exact solution by a small amount $\epsilon$ and watch
-the trace error:
+Perturb the generating field and compare $R$ with $R^2$. This isolates local
+objective shape from the behaviour of a particular optimiser:
 
 ```{code-cell} ipython3
 from croak.metrics import trace_error
@@ -169,8 +165,8 @@ R = np.array([trace_error(trace, croak.maketrace(g.omega, delays,
 fig, ax = plt.subplots(figsize=(5.5, 4))
 ax.loglog(eps, R, "o-", ms=3, label=r"$R$  — what L-BFGS minimises")
 ax.loglog(eps, R**2, "s-", ms=3, label=r"$R^2$  — what LM minimises")
-ax.loglog(eps, 0.012 * eps, "k--", lw=1, label="slope 1  (a cone)")
-ax.loglog(eps, 1.45e-4 * eps**2, "k:", lw=1, label="slope 2  (a paraboloid)")
+ax.loglog(eps, 0.01 * eps, "k--", lw=1, label="slope 1  (a cone)")
+ax.loglog(eps, 1.0e-4 * eps**2, "k:", lw=1, label="slope 2  (a paraboloid)")
 ax.set_xlabel(r"distance from the solution, $\epsilon$")
 ax.set_ylabel("objective")
 ax.set_title("the shape of the two objectives at the minimum")
@@ -182,45 +178,34 @@ print(f"fitted slopes:  R -> {np.polyfit(np.log(eps), np.log(R), 1)[0]:.3f}"
 ```
 
 $R$ is a norm, $\sqrt{\sum r^2}$, so at a perfect fit it has a $|x|$-shaped cusp —
-a **cone**, not a paraboloid — and its gradient does **not** vanish at the
-minimum. A quasi-Newton method like L-BFGS builds a *quadratic* model of the
-objective and line-searches along it; against a cone that model is wrong at every
-scale, the steps collapse, and it parks at a finite $R$.
-
-The other two never meet the cusp. LM works on the residual *vector* — effectively
-$R^2$, whose `R^2/eps^2` column is likewise constant, i.e. genuinely quadratic and
-smooth at the solution — so Gauss–Newton converges superlinearly. COPRA does not
-line-search $R$ at all; its projection step simply has the true pulse as a fixed
-point.
-
-This is not a defect in the gradient. `lbfgs` and `lbfgs-ad` take completely
-different routes to it and stall at the same place:
+a **cone**, not a paraboloid — and its gradient is undefined at an exact zero.
+A quasi-Newton line search assumes a smooth local objective, so the cusp limits
+refinement near an exact fit, whereas the squared residual is smooth. This is why
+L-BFGS plateaus on a noise-free trace. Compare the analytic and AD routes:
 
 ```{code-cell} ipython3
 fig, ax = plt.subplots(figsize=(5.5, 4))
 for algo, style in (("lbfgs", dict(lw=3.0, alpha=0.45)),
                     ("lbfgs-ad", dict(lw=1.2, ls="--"))):
     r = croak.retrieve(trace, g.omega, delays, "pg", algorithm=algo, guess=guess,
-                      maxiters=400, reltol=1e-12, abstol=1e-15)
+                      maxiters=400, reltol=1e-12, abstol=1e-15, reg_amp=0,
+                      progress=False)
     ax.semilogy(np.arange(1, len(r.errors) + 1), r.errors,
                 label=f"{algo}  (R = {r.error:.2e})", **style)
 ax.set_xlabel("objective evaluation")
 ax.set_ylabel("trace error R")
-ax.set_title("analytic vs autodiff gradient: same descent, same stall")
+ax.set_title("Analytic and automatic gradients on this trace")
 ax.legend()
 ax.grid(alpha=0.3)
 fig.tight_layout()
 ```
 
-The two curves lie on top of each other for all 400 evaluations. Whatever is
-stopping L-BFGS, it is not the gradient.
+(on-real-data-they-agree)=
+## Add measurement noise
 
-## On real data they agree
-
-A perfect fit is only reachable when the data is noise-free and generated by the
-same forward model. On any measurement the best achievable $R$ is set by the
-noise, the minimum sits at $R>0$, and the cusp is nowhere near. Add 1 % noise and
-the ranking evaporates:
+Noise moves the best achievable residual away from an exact zero. The next
+calculation adds seeded Gaussian noise and clips negative samples, then compares
+the same unregularised fits.
 
 ```{code-cell} ipython3
 noise = np.random.default_rng(1).standard_normal(trace.shape)
@@ -235,76 +220,58 @@ ax_pulse.plot(*centre(g.t, np.abs(g.ifft(ew)) ** 2),
               lw=4, alpha=0.35, color="k", label="true")
 
 for algo in ("copra", "lbfgs", "lm"):
-    kw = dict(reltol=1e-12, abstol=1e-15) if algo != "copra" else {}
+    kw = dict(reltol=1e-12, abstol=1e-15, reg_amp=0) if algo != "copra" else {}
     r = croak.retrieve(noisy, g.omega, delays, "pg", algorithm=algo, guess=guess,
-                      maxiters=400, rng=np.random.default_rng(0), **kw)
+                      maxiters=400, rng=np.random.default_rng(0), progress=False,
+                      **kw)
     ax_conv.semilogy(np.arange(1, len(r.errors) + 1), r.errors,
                      label=f"{algo}  (R = {r.error:.3e})")
     ax_pulse.plot(*centre(r.t, r.intensity_t), lw=1.4, label=algo)
 
 ax_conv.set_xlabel("iteration / evaluation")
 ax_conv.set_ylabel("trace error R")
-ax_conv.set_title("1 % noise: all three reach the same floor")
+ax_conv.set_title("1 % noise: compare residuals")
 ax_conv.legend(fontsize=8)
 ax_conv.grid(alpha=0.3)
 ax_pulse.set_xlim(-15, 15)
 ax_pulse.set_xlabel("time (fs)")
 ax_pulse.set_ylabel("intensity (norm.)")
-ax_pulse.set_title("…and all three find the pulse")
+ax_pulse.set_title("Compare retrieved pulse profiles")
 ax_pulse.legend(fontsize=8)
 fig.tight_layout()
 ```
 
-The left panel is the point of this tutorial: the twelve-order-of-magnitude spread
-from the clean trace has collapsed to about 1 %, and all three solvers sit on the
-same noise floor. **Choose a solver for its robustness, its features and its
-speed, not for the last digit of $R$ on synthetic data.**
+Compare the profiles even if the residuals are similar. Weakly constrained
+field changes can have little effect on the trace. COPRA's history can be
+nonmonotonic because local steps need not reduce the full residual. For a
+measurement, test starts, physical model and constraints, then assess
+[uncertainty](../howto/uncertainty.md) under a justified noise model.
 
-(COPRA's saw-tooth is normal — its local sweep accepts steps that raise the error
-before recovering, and `res.errors` records every one. The result it returns is
-the best iterate, not the last.)
-
-The right panel carries the caveat. All three recover the pulse, but each carries
-its own noise-induced wiggle, and a FWHM read off the half-maximum is sensitive to
-exactly that. On noisy data the minimum is broad and shallow, so several visibly
-different pulses fit about equally well — a property of the *data*, not of any
-solver. It is why real work needs [random
-restarts](../howto/solver_selection.md) and an [uncertainty
-estimate](../howto/uncertainty.md) rather than a single number.
-
-## The two gradient routes agree
+(the-two-gradient-routes-agree)=
+## Comparing the two gradient routes
 
 `lbfgs-ad` takes its gradient from [automatic
 differentiation](../explanation/gradients.md) of the forward model — the general
 route, and the one that reaches smearing, the fitted extras and the B-spline
 basis. `lbfgs` is the same optimiser on the hand-derived adjoint, which covers the
-core model. On a problem both can do they should track each other, which is how
-each is held against the other.
+core model. The [developer validation
+guide](../developer_guide/validation.md) describes direct derivative checks.
 
 ```{code-cell} ipython3
 hand = croak.retrieve(trace, g.omega, delays, "pg",
-                     algorithm="lbfgs", guess=guess, maxiters=120, reg_amp=0)
+                     algorithm="lbfgs", guess=guess, maxiters=120, reg_amp=0,
+                     progress=False)
 auto = croak.retrieve(trace, g.omega, delays, "pg",
-                     algorithm="lbfgs-ad", guess=guess, maxiters=120, reg_amp=0)
+                     algorithm="lbfgs-ad", guess=guess, maxiters=120, reg_amp=0,
+                     progress=False)
 print(f"lbfgs     R = {hand.error:.3e}")
 print(f"lbfgs-ad  R = {auto.error:.3e}")
 ```
 
 ## Takeaways
 
-- **COPRA** is fast and robust for amplitude-and-phase retrieval; the
-  production default `warm-lbfgs` uses it as the warm-up stage.
-- Use **L-BFGS** when you need [regularisation](../howto/regularisation.md) or
-  phase-only retrieval. Its stall on noise-free data is a property of minimising
-  a norm, not a weakness on real measurements.
-- Add a short **LM** polish for the lowest final error — and **tighten `abstol`**,
-  or its step-size floor will stop it while there is still a lot left to gain.
-- Judge a solver on a *noisy* trace. On clean synthetic data the final $R$ mostly
-  measures how each solver behaves in a limit that no measurement reaches.
-- Run from several [random restarts](../howto/solver_selection.md) on real data —
-  and when those still get stuck, reach for a **CMA-ES**
-  [global search](../explanation/algorithms.md#global-retrieval-cma-es) followed by
-  a local refine.
-- Each of `copra`/`lbfgs`/`lm` also has a numerically-equivalent on-device JAX twin
-  (`copra-jax`, `lbfgs-hand`/`lbfgs-optx`, `lm-optx`) if you want the loop to run on
-  an accelerator.
+Choose a solver for the required model, constraints and measured convergence.
+Compare like objectives and record stopping settings.
+Use warm starts or several starts on non-convex problems. Follow
+[solver selection](../howto/solver_selection.md) for model support and
+[interpreting results](../user_guide/results.md) before reporting a pulse.

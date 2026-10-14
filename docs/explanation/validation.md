@@ -1,269 +1,349 @@
 # Validation
 
-croak's forward models and solvers were validated in the companion paper —
+croak's forward models and solvers are validated against first-principles
+three-dimensional simulations of a complete TG-FROG instrument, in two
+companion papers (see [references](../reference/bibliography.md)):
 
-> J. C. Travers and C. Brahms, *Extreme ultrashort pulse retrieval with
-> differentiable physical forward models* (to be published)
+- J. C. Travers and C. Brahms, *Differentiable physical models for
+  ultrashort-pulse retrieval* (in preparation) — the inverse problem: what each
+  forward model retrieves.
+- J. C. Travers and C. Brahms, *A dispersive and spatial model of
+  transient-grating frequency-resolved optical gating* (in preparation) — the
+  forward model itself, tested with the input field held fixed.
 
-— against first-principles three-dimensional simulations of a complete
-TG-FROG instrument. Every retrieval in that paper was done with croak. This
-page summarises the study: what was simulated, what each forward model
-recovered, and what the results say about how retrievals should be run and
-reported. Two reduced datasets from the study ship with croak, so the central
-results can be reproduced directly (see [Reproducing](#reproducing)).
+Every retrieval in these papers was done with croak. This page summarises what
+was simulated, what each forward model recovered, and what the results mean for
+how retrievals should be run and reported. All results here are numerical
+simulations. For everyday diagnostics, start with
+[interpreting results](../user_guide/results.md).
 
 ## The virtual instrument
 
 Testing a retrieval model needs traces whose distortions are real but whose
-ground truth is known. The paper generates them with
+ground truth is known. The papers generate them with
 [ModelPNPS.jl](https://github.com/LupoLab/ModelPNPS.jl), which simulates the
-entire instrument from the propagation physics: a transform-limited 1 fs
-pulse at 260 nm illuminates a four-hole BOXCARS mask; the three transmitted
-beamlets are focused into a fused-silica substrate and propagated coherently
-in 3D with full angular-spectrum dispersion, diffraction and the Kerr
-nonlinearity; and the signal is collected through an apertured window in the
-far field, delay by delay, exactly as a spectrometer would record it.
+entire instrument from the propagation physics: a mask produces three beamlets
+in the folded BOXCARS geometry; they are focused into a fused-silica substrate
+and propagated coherently in 3D with full angular-spectrum dispersion,
+diffraction and the Kerr nonlinearity; and the signal in the fourth BOXCARS
+direction is collected through an aperture, delay by delay, as a spectrometer
+would record it.
 
-```{image} ../_static/paper/figure_boxcars3d.png
-:alt: The folded BOXCARS TG-FROG geometry — the four-aperture mask and the optical chain.
+```{figure} ../_static/paper/figure_boxcars3d.png
+:alt: (a) The BOXCARS mask with probe E1, gates E2 and E3*, the signal position, hole diameter D and spacing d. (b) The optical chain: input mask, focusing optic, dispersive substrate, collimating optic and signal aperture, with the probe-gate delay tau.
 :width: 95%
-:align: center
+
+The folded BOXCARS TG-FROG geometry. (a) Mask positions of the probe $E_1$,
+the gates $E_2$ and $E_3^*$ and the signal, with hole diameter $D$ and spacing
+$d$. (b) The optical chain from the input mask through the dispersive substrate
+to the signal collection aperture.
 ```
 
 Nothing about the measurement is imposed: the transient grating, the
-phase-matched signal, the geometrical smearing and the chromatic vignetting of
-the apertures all emerge from the propagation. The apertures act as
-frequency-dependent spatial filters, so the pulse that actually gates the
-interaction is the mask-vignetted beamlet — 1.03 fs against the 1.0 fs source
-— and all ground-truth comparisons use it. The simulated traces are
-preprocessed exactly as experimental data would be (fringe removal, baseline
-subtraction, regridding; see [Preprocessing](../howto/preprocessing.md)).
+phase-matched signal, the geometrical smearing and the chromatic selection by the
+apertures all emerge from the propagation, independently of the reduced models
+used for retrieval.
+
+The source pulse, the integrated beamlet spectrum and the on-axis field at the
+slab entrance are distinct at this bandwidth. All comparisons use the **on-axis
+entrance field** as the truth (1.053 fs for the Gaussian series, 1.046 fs for
+the RDW pulse). The standard and extended models retrieve an effective
+one-dimensional field, so their complex spectra are converted to the on-axis
+plane before durations are taken; see
+[field conventions](../reference/conventions.md#field-reference-planes).
+
+### The retrieval protocol
+
+All retrievals below use one protocol:
+
+- noise-free simulated scans, with no defringing or baseline subtraction, on a
+  uniform delay core;
+- the model re-centred on its own gain-weighted marginal peak at every
+  evaluation, with that centring differentiated — so there is no free delay
+  offset, and neither the smearing scale nor the thickness is fitted;
+- `lbfgs-ad` from a transform-limited start, 400 iterations, objective
+  $R + 0.03\,P_s + 0.03\,P_a$ (soft spectral constraint and amplitude
+  smoothness);
+- for the full model, the collection aperture of the recorded window.
+
+These are **not** croak's defaults. The default solver is `warm-lbfgs`, with
+`reg_spectrum=0.01` and `reg_amp=0.03`; LM uses a differently normalised
+objective (see [retrieval theory](retrieval_theory.md) and
+[regularisation](../howto/regularisation.md)). Noise-free simulations need no
+background treatment; experimental traces need their own preparation.
 
 ## The failure being fixed
 
-Conventional retrieval fails silently on these measurements. A
-standard thin-medium algorithm fits the simulated traces to trace
-errors below 1% — values normally read as good convergence — while
-returning pulses up to 2.6 times too long, because the optimiser absorbs the
-unmodelled substrate dispersion and geometry into the pulse.
+Conventional retrieval fails silently on these measurements. On the simulated
+RDW pulse at 9.5 µm and a 2 mm collection aperture, the standard thin-medium
+model fits the trace to $R = 0.266\,\%$ — a figure normally read as good
+convergence — and returns 2.433 fs (on-axis; 2.499 fs in its native
+effective-field convention) for a 1.046 fs pulse: 2.33 times too long. The
+optimiser absorbs the unmodelled substrate dispersion and geometry into the pulse.
 
-```{image} ../_static/paper/figure_dispersion_failure.png
-:alt: Thin-medium retrieval fits the traces well and returns pulses up to 2.6 times too long.
-:width: 85%
-:align: center
+```{figure} ../_static/paper/measurement_problem.png
+:alt: (a) Simulated RDW reference trace, (b) the standard-model fit with R = 0.266 percent, and (c) the recovered temporal profile against the reference at the slab entrance.
+:width: 95%
+
+(a) Propagation reference trace for the RDW pulse at 9.5 µm and a 2 mm
+aperture. (b) The standard-model fit. (c) Its recovered pulse against the
+reference, both on the on-axis entrance plane. The close fit coexists with a
+duration overestimate of a factor of 2.33.
 ```
 
 ## The three forward models
 
-The paper organises croak's forward-model options into a hierarchy of three
-usable models (see [The forward model](forward_model.md) for the equations):
-
-| model | physics | croak options | valid when |
+| Model | Physics | croak options | Use when |
 |---|---|---|---|
-| **standard** | single-plane PNPS | defaults | thin medium, multi-cycle pulses |
-| **extended** | + dispersive slab + BOXCARS smearing kernel | `dispersive=True`, `smearing=True` | any thickness; multi-cycle, or open collection |
-| **full** | + chromatic focal mixture + modelled collection aperture | `focal=True`, `collection=...` | octave bandwidth through any collection aperture |
+| **standard** | single-plane local interaction | defaults | thin medium, multi-cycle pulses |
+| **extended** | + dispersive slab + BOXCARS smearing kernel | `material=…`, `smearing=…` | multi-cycle pulses, or near-complete collection |
+| **full** | + chromatic focal mixture + modelled collection aperture | `focal=…`, `collection=…` | octave bandwidth through a restrictive collection aperture |
 
-Two dimensionless switches decide which member the data need: the fractional
-bandwidth (chromatic effects) and the collection-to-generation aperture ratio
-(coherent-collection effects). For multi-cycle pulses both are off and the
-extended model was exact for every purpose tested. The extended model costs
-about the same as the standard one; the full model costs minutes rather than
-seconds per retrieval on a CPU (see the [README](https://github.com/LupoLab/croak#performance)
-for GPU timings).
+See [the forward model](forward_model.md), [geometric smearing](../howto/geometric_smearing.md)
+and [collection aperture](../howto/collection_aperture.md) for the equations and
+configuration. The extended model costs about the same as the standard one; the
+full model costs minutes rather than seconds per retrieval on a CPU.
 
 ## Retrieval versus substrate thickness
 
-The central result. Each trace of the thickness series — the same 1.03 fs
-pulse after 1 to 40 µm of fused silica — is retrieved with all three models
-under identical solver settings (warm-started L-BFGS, per-frequency scale
-factors, spectrum-divergence regularisation at the settled weights).
+The central result. Each trace of the Gaussian series — fifteen thicknesses from
+1 to 40 µm through a 0.5 mm collection aperture — is retrieved with all three
+models under the protocol above.
 
-```{image} ../_static/paper/figure_thickness1fs.png
-:alt: Retrieved duration versus substrate thickness for the three models.
-:width: 80%
-:align: center
+```{figure} ../_static/paper/thickness_retrieval.png
+:alt: Reference and full-model traces at 9.5, 24 and 40 micrometres, temporal profiles of the three models against the reference, and retrieved FWHM versus thickness for all fifteen thicknesses.
+:width: 95%
+
+Gaussian thickness series at a 0.5 mm aperture. (a) Reference traces and
+(b) full-model fits at 9.5, 24 and 40 µm. (c) Temporal profiles of the three
+models against the reference (grey) on the on-axis entrance plane. (d) Retrieved
+FWHM at every thickness; the dashed line is the 1.053 fs reference.
 ```
 
-With the extended model the retrieved duration is essentially independent of
-the substrate: 1.04–1.15 fs across the whole series, at trace errors of
-0.07–0.37%. The full model returns 1.12–1.21 fs, flat in thickness. The
-standard model broadens monotonically from 1.4 fs at 1 µm to 2.6 fs at 40 µm,
-at trace errors that never exceed 0.7%. Once the measurement physics is in
-the forward model, the substrate thickness stops being a design constraint —
-a 40 µm substrate retrieves as accurately as a 1 µm one, relaxing the usual
-pressure toward fragile ultrathin media and their weak signals.
+The **full model** retrieves 1.047–1.079 fs against the 1.053 fs reference at
+every thickness from 1 to 40 µm, at trace residuals of 0.0045–0.0195 %. The
+**standard model** returns 1.35–2.41 fs, broadening with thickness (1.36–2.41 fs
+after conversion to the on-axis plane), while its residual stays below 0.54 %. The
+**extended model** removes most of the standard model's error — its profiles are
+close to the reference throughout — but at this restrictive aperture a
+frequency-independent timing kernel still omits the chromatic selection that the
+full model represents.
+
+Once the measurement physics is in the forward model, substrate thickness stops
+being the constraint it is in conventional practice: across the tested range a
+40 µm substrate retrieves as accurately as a 1 µm one.
 
 ## Structured pulses and dispersion metrology
 
-A symmetric transform-limited test pulse is blind to a whole error class (a
-time-reversed retrieval with wrong-sign phase reproduces its trace exactly),
-so the study also retrieves structured pulses: chirp of both signs
-(±2 fs² on the 1 fs pulse), third-order phase, and a double pulse, all
-simulated through the full 3D instrument.
+A symmetric transform-limited pulse is a limited test of phase retrieval, so the
+study also retrieves pulses with imposed GDD of ±2 fs² and TOD of +2 fs³.
 
-- The **full model** recovers the chirp of both signs to within 0.13 fs²
-  through 28 µm of substrate, and the third-order coefficient to better than
-  8% through 20 µm.
-- The **extended model** recovers only ~0.8 of the true GDD span when the
-  collection aperture is tight; opening the aperture restores it — see below.
-- The **standard model** does not determine the dispersion at this bandwidth
-  at all. On the negatively chirped arm it returns the pulse *recompressed by
-  the substrate's own dispersion* — 1.8 fs for a 5.5 fs truth — at a trace
-  error indistinguishable from the correct model's.
-- A double pulse with a 30% satellite retrieves with the satellite position
-  pinned to ±0.1 fs by every model; only the full model holds its amplitude
-  at depth (the standard model inflates it to ~50% by 20 µm).
+- The **full model** recovers both signs of GDD: +1.975 and −1.991 fs² at
+  9.5 µm, and −2.43 fs² at 40 µm. One case fails: the −2 fs² pulse at 2 µm, where
+  the selected result has −0.98 fs² and a large spurious TOD despite a small
+  residual.
+- The TOD case gives 2.04 fs³ for 2 fs³ at 9.5 µm and keeps the trailing
+  satellites. It uses spectral weight 0.01 rather than 0.03.
+- The **extended model** visibly misses the +2 fs² profile at 9.5 µm, and its
+  GDD is biased with thickness (about +1.4 and −3.5 fs² at 40 µm).
+- The **standard model** does not determine the dispersion at this bandwidth:
+  its fitted GDD wanders far from the truth (−7 fs² for −2 fs² at 28 µm).
 
-## Beam geometry: the smearing kernel is quantitative
+```{figure} ../_static/paper/structured_retrieval.png
+:alt: Temporal profiles and spectral phases of the three models for plus and minus 2 fs squared GDD and a plus 2 fs cubed TOD pulse at 9.5 micrometres, and fitted GDD versus thickness with the failed 2 micrometre case marked.
+:width: 95%
 
-In a focused non-collinear geometry the relative delay between the beams
-varies across the focal spot, blurring the trace along the delay axis. The
-paper derives a closed-form two-parameter kernel for the BOXCARS mask — the
-one implemented in {mod}`croak.smearing` — with widths set by the mask ratio
-$d/D$ and the wavelength alone (the focal length cancels).
-
-```{image} ../_static/paper/figure_smearing_dd.png
-:alt: Retrieval versus mask aperture separation, with and without the smearing kernel.
-:width: 80%
-:align: center
+Structured pulses at a 0.5 mm aperture, on the on-axis entrance plane.
+(a)–(c) Temporal profiles for +2 fs², −2 fs² and +2 fs³ at 9.5 µm against the
+reference (grey); the extended model visibly fails the +2 fs² profile in (a).
+(d), (e) Spectral phases of the GDD cases. (f) Fitted GDD versus thickness: the
+full model tracks ±2 fs² except for the marked −2 fs² failure at 2 µm; the
+extended model is biased (about +1.4 and −3.5 fs² at 40 µm) and the standard
+model is far off (−7 fs² at 28 µm). The TOD case uses spectral weight 0.01.
 ```
 
-Across a simulated series in which the mask separation doubles the smearing
-widths, a smearing-blind retrieval broadens from 1.12 to 1.46 fs at the
-9.5 µm substrate (and by up to 60% at the widest separation on thinner
-substrates), following the kernel's analytic prediction to within 10%; with the kernel at its
-parameter-free geometric prediction the duration stays within 0.05 fs of the
-truth at every separation. The kernel width was also verified at the trace
-level, with no retrieval in the loop, to $1.06 \pm 0.02$ of its predicted
-value.
+FWHM, polynomial phase coefficients, temporal profiles and complex-field errors
+answer different questions; report more than one when the truth is known. FWHM
+can change abruptly when a satellite or shoulder crosses half maximum.
 
-Two findings generalise. First, the trace error can actively favour the
-wrong model: at small separations the smearing-blind retrieval reaches a
-*lower* trace error than the correct model while reporting a pulse 34% too
-long, because an unconstrained pulse buys more misfit reduction than the
-correct blur does. Second, the damage from ignoring the geometry is largest
-for *thin* substrates — which is what is conventionally recommended for
-few-femtosecond work.
+## Beam geometry: two timing coordinates
+
+In a focused non-collinear geometry the relative arrival time of the beams varies
+across the focal spot. In the achromatic, fully collected limit this reduces
+exactly to two timing coordinates: the gate splitting $p$ and the
+probe-to-gate-centroid offset $\delta$. For an ideal circular-hole BOXCARS mask
+their widths scale with $(d/D)\,\lambda/c$ — the focal length cancels — and
+{mod}`croak.smearing` implements the resulting two-parameter kernel. The
+[smearing guide](../howto/geometric_smearing.md) derives and applies these
+coordinates, including their correlation.
+
+The two coordinates act differently. $\delta$ translates the trace along delay,
+so averaging over it is a convolution. Gate splitting is not: for a
+transform-limited Gaussian it only attenuates the gate, for other
+transform-limited fields it changes the gate's shape, and for a chirped Gaussian
+it shears the trace in frequency. The joint distribution of $(p,\delta)$ is
+needed to describe both effects.
+
+```{figure} ../_static/paper/smearing_examples.png
+:alt: Left, the ratio of split to unsplit gate versus dimensionless time for a Gaussian and a Gaussian mixture at p = 0.5. Right, contours of a chirped-Gaussian trace with and without the timing kernel.
+:width: 95%
+
+Left: ratio of the split gate $G(t+p/2)\,G(t-p/2)$ to the unsplit $G(t)^2$ at
+splitting $p=0.5$ (in the same dimensionless time units), for a
+transform-limited Gaussian $e^{-t^2}$ and a Gaussian mixture
+$e^{-t^2}+0.2\,e^{-t^2/4}$. Only the Gaussian ratio is constant in time.
+Right: a chirped Gaussian $E(t)\propto\exp[-(a-ib)t^2/2]$ with $a=1$, $b=0.8$
+(dimensionless): contours at 0.2, 0.5 and 0.8 of peak of the trace without the
+timing kernel (dashed grey) and after averaging over a correlated Gaussian
+$(p,\delta)$ kernel (solid). The kernel broadens the trace along both delay and
+frequency.
+```
+
+croak's reduced model shows what ignoring the kernel costs. The
+[geometric smearing example](../examples/geometric_smearing.md) synthesises a
+1 fs pulse at 260 nm with the kernel and retrieves it with and without it. With
+the kernel at its parameter-free geometric value the pulse is recovered exactly.
+Without it the trace cannot be fitted: the residual grows steadily with the mask
+ratio $d/D$, from $2.4\times10^{-3}$ at $d/D=0.5$ to $1.1\times10^{-2}$ at
+$d/D=1.25$, and the missing blur is pushed into low-level temporal wings. The
+FWHM alone is a poor indicator of the error.
 
 ## The collection aperture: two validated routes
 
-At octave bandwidth the collection aperture is an optical element of its own:
-it selects a coherent subset of the signal field, which reshapes the trace
-along the delay axis in a way no per-frequency calibration can absorb. The
-paper measures the consequence directly, recording the same scans through six
-collection holes.
+At octave bandwidth the collection aperture is an optical element in its own
+right: it selects a coherent part of the spatial signal before the squared
+modulus is integrated, which reshapes the trace along delay in a way a fitted
+spectral response cannot absorb. The RDW series was recorded through 0.5 and
+2 mm apertures at every thickness. Measured as the peak-aligned,
+peak-normalised rms error of the temporal profile over ±6 fs (not a fractional
+duration error):
 
-```{image} ../_static/paper/figure_aperture.png
-:alt: Recovered GDD span and retrieved duration versus collection hole diameter.
-:width: 80%
-:align: center
-```
+| Aperture | Full | Extended | Standard |
+|---|---|---|---|
+| 0.5 mm | 0.012–0.045 | up to 0.123 | up to 0.277 |
+| 2 mm | 0.012–0.046 | 0.011–0.037 | 0.239 at 9.5 µm |
 
-Through a tight hole the extended model recovers only ~0.8 of the true GDD
-span; opening the hole to 1.5–2× the generation apertures restores it —
-the hardware route. The full model holds the span at 0.98–1.01 at every
-hole — the software route, needing no change to the instrument. The usable
-optimum for the hardware route is bounded on the other side by pump leakage
-entering the window. See
-[Modelling the collection aperture](../howto/collection_aperture.md).
+Two routes therefore work. **Hardware**: open the collection aperture, and the
+extended model is adequate — at 2 mm it matches the full model. **Software**:
+keep a restrictive aperture and retrieve with the full model. Opening the
+aperture is bounded by pump leakage into the collection window; the
+[collection guide](../howto/collection_aperture.md) explains the geometry and the
+clearance limit.
 
-## A real single-cycle pulse
+(a-real-single-cycle-pulse)=
+## A simulated single-cycle pulse
 
-The final validation runs the entire measurement chain on a pulse with no
-analytic regularity: the simulated resonant-dispersive-wave emission of a
-hollow-capillary-fibre source — 1.06 fs, with a structured spectrum and
-trailing satellites — injected into the virtual instrument exactly as a
+The RDW input is the simulated resonant-dispersive-wave emission of a
+hollow-capillary-fibre source: about 1 fs, with a structured spectrum and
+trailing satellites. It is injected into the virtual instrument exactly as a
 measurement would receive it.
 
-```{image} ../_static/paper/figure_rdw.png
-:alt: The single-cycle RDW pulse retrieved by the extended model, against the standard model and the truth.
-:width: 80%
-:align: center
+```{figure} ../_static/paper/rdw_retrieval.png
+:alt: RDW reference trace and full-model fit, spectra and temporal profiles of the three models at 9.5 micrometres and 2 mm, and profile rms error versus thickness at 0.5 and 2 mm apertures.
+:width: 95%
+
+The simulated RDW pulse. (a) Reference trace and (b) full-model fit
+($R=0.082\,\%$) at 9.5 µm and a 2 mm aperture. (c) Spectra and (d) temporal
+profiles of the three models against the reference (grey), on the on-axis
+entrance plane. (e), (f) Profile rms error over ±6 fs versus thickness at 0.5 and
+2 mm apertures.
 ```
 
-The standard model fits this trace to R = 0.21% — a figure that would pass
-review — and returns 2.58 fs for the 1.06 fs pulse. The extended model with
-its kernel scale and delay offset fitted reaches R = 0.03% and returns the
-pulse itself: structure, spectrum and duration to +4.5% at the experimental
-substrate. This dataset ships with croak (`examples/data/tgfrog_sim_rdw_duv.h5`).
+At 9.5 µm and 2 mm, the full model gives 1.054 fs against the 1.046 fs
+reference, and both the full and extended models reproduce the central peak and
+its satellites (profile errors 0.0149 and 0.0124); the standard model returns
+2.433 fs with a profile error of 0.2387. The extended model is slightly better
+than the full model here, consistent with its adequacy at an open aperture.
+
+## Fixed-field validation and numerical convergence
+
+The forward-model paper holds the input field and geometry fixed — no pulse
+optimisation — and compares model predictions with sixteen propagation traces:
+Gaussian and RDW fields, four thicknesses from 4 to 40 µm, and 0.5 and 2 mm
+apertures. It reports two standards: one global gain, which keeps the spectral
+yield information, and a fitted gain per frequency row, which allows an unknown
+detector response. Neither fits the pulse or the delay origin.
+
+```{figure} ../_static/paper/trace_validation.png
+:alt: Reference and full-model traces with global and row-gain residual maps for a Gaussian and an RDW case, their delay and frequency marginals, and rms per peak error versus thickness for all three models at both apertures.
+:width: 95%
+
+Known-field predictions. (a)–(h) Reference, full-model prediction, and signed
+residuals with a global gain and with row gains, for the Gaussian at 0.5 mm and
+the RDW pulse at 2 mm (shared colour scale within each case). Middle row: delay
+and frequency marginals. Lower panels: rms error per peak versus thickness for
+the full (blue), extended (orange) and standard (green) model predictions, with
+a global gain (solid) and row gains (dashed).
+```
+
+The full model reproduces the traces to 0.032–0.200 % rms of peak with a global
+gain and 0.015–0.178 % with row gains; complete-trace relative-$L^2$ errors are
+0.42–2.48 % (the trace occupies only part of the sampled rectangle, so the two
+norms differ). The extended and standard predictions, plotted in the lower panels, are clearly
+worse. The papers' reference
+comparison includes the paraxial $\omega/n$ source-field factor and a declared
+detector convention; these are properties of that comparison, not of croak's
+forward paths. Row gains can absorb a missing spectral factor, so they cannot
+validate it.
+
+Refining the focal, depth and collection quadrature together changes the full
+model by at most $2.8\times10^{-4}$ rms/peak after a global scale; extending the
+focal radius changes it by about $1.1\times10^{-6}$.
 
 ## Solvers and reproducibility
 
-The solver study behind croak's defaults:
-
-- **Warm-starting matters more than the solver.** Over twelve random starting
-  phases, warm-started L-BFGS (croak's `warm-lbfgs` default) collapses onto a
-  single endpoint; plain L-BFGS reaches a similar mean with a 13× larger
-  spread. A solver whose endpoints scatter is returning the initial guess as
-  much as the data.
-- **Multi-start with lowest-R selection is part of the protocol**, not a
-  precaution: over 219 random starts, a single start lands in the true basin
-  only 45–80% of the time, but the lowest-trace-error member of each ensemble
-  landed in the true basin in every configuration tested.
-- **Levenberg–Marquardt is a polish, not a cold solver**: it reaches the same
-  solution as L-BFGS in a twelfth of the iterations but at ~23× the wall
-  clock per step, and from random starts it is the least reliable arm.
-- **Dispersive COPRA is a good choice within its domain** — no
-  tuning parameters, monotone, reproducible — but its projection step cannot
-  represent the smeared or collection models (see
-  [Algorithms](algorithms.md)), and per-frequency scaling must not be handed
-  to it (see [Regularisation](../howto/regularisation.md)).
+Compare starts, iteration budgets and solvers to separate optimisation error
+from model error. The −2 fs² failure at 2 µm shows that an accurate forward
+model does not remove every difficult inverse case, and lowest-residual selection
+over starts is a protocol choice, not proof of field accuracy. croak's own solver
+benchmarks are summarised in [algorithms](algorithms.md); the
+[algorithm tutorial](../tutorials/02_choosing_an_algorithm.md) illustrates solver
+behaviour and the [developer guide](../developer_guide/validation.md) describes
+derivative and implementation checks.
 
 ## What certifies a retrieval
 
-The study's methodological findings concern the error metrics themselves:
-
-- **The trace error cannot certify the model.** Pushing the *true* field
-  through the forward model gives R = 0.18–0.38% against the simulated
-  traces; retrievals of the same traces reach 0.10–0.13%. The retrieval fits
-  the measurement better than the pulse that generated it — it can only do so
-  by distorting the field to absorb residual model mismatch.
-- **The retrieved duration cannot certify it either**: a deliberately
-  over-broad smearing kernel produced a nearly exact duration through a pair
-  of compensating errors, while a better kernel read 5% long.
-- Report a retrieval the way it is diagnosed: a trace error to show the fit
-  converged, the retrieved spectrum overlaid on an independently measured
-  one, a pulse shape rather than a single width, and — where no truth exists
-  — the spread over random starts. {mod}`croak.truth_metrics` implements the
-  paper's error metrics for synthetic and simulated data.
+- **The trace error cannot certify the model.** The standard model fits every
+  Gaussian trace to below 0.54 % while returning 1.35–2.41 fs for a 1.05 fs
+  pulse. The full-model retrievals reach residuals of 0.0045–0.0195 %, below the
+  0.032–0.200 % that the same model gives when the *true* field is pushed through
+  it (the two use different preprocessing, but the point stands): a retrieval can
+  fit the measurement better than the pulse that generated it, by distorting the
+  field to absorb residual model mismatch.
+- **Validate the forward model with the field held fixed**, separately from any
+  retrieval. A smaller retrieval residual is not a substitute.
+- **Report a retrieval the way it is diagnosed**: the measurement model, data
+  support, weights, gains, constraints, reference plane, initialisation and
+  stopping rule alongside the residual; pulse and spectral profiles rather than
+  a single width. If an auxiliary spectrum entered the objective, its agreement
+  is a consistency check, not independent validation. Spread over solver starts
+  measures optimisation sensitivity, not measurement uncertainty — see
+  [uncertainty](../user_guide/uncertainty.md). {mod}`croak.truth_metrics`
+  implements the papers' error metrics for synthetic and simulated data.
 
 ## Limits on medium thickness
 
-How thick is too thick? In units of the dispersion length
-($L_D = T_0^2/\beta_2$, 1.7 µm for a 1 fs pulse in fused silica at 260 nm)
-the 40 µm validation already operates at 23 $L_D$ — for scale, like
-retrieving a 10 fs, 800 nm pulse through 23 mm of glass. A one-dimensional
-scaling study extends this: traces synthesised at up to 1 mm (575 $L_D$, an
-820 fs exit pulse) still re-retrieve the 1 fs pulse, and a fitted thickness
-recovers the 1 mm to 0.3%. What degrades first is optimisation — beyond a few
-hundred micrometres many random starts stall, and the retrieval cost grows as
-$L^2$.
-
-The eventual physical ceilings are not dispersion. The delayed (Raman) part
-of the nonlinear response becomes the leading unmodelled physics beyond
-~40 µm in fused silica, but a direct 3D test bounds its effect on the
-retrieved duration at 0.02 fs there — so croak deliberately carries no Raman
-term. The method also transfers across media: a full validation ladder on
-MgF₂ (the material a production DUV instrument would likely use) reproduces
-the fused-silica results, confirming that thickness matters through
-accumulated dispersion, not through the medium carrying it.
+No upper thickness limit was found: retrieval succeeds over the whole tested
+range of 1–40 µm; beyond it, numerical resolution, inverse conditioning and focal
+evolution need assessing again. croak's models are scalar with an instantaneous
+nonlinear response.
 
 (reproducing)=
 ## Reproducing
 
-Two reduced datasets from the study ship in `examples/data/` (trace, axes and
-exact ground truth; see the [data README](https://github.com/LupoLab/croak/blob/main/examples/data/README.md)):
+Two reduced datasets from the simulations ship in `examples/data/` (trace, axes
+and ground truth; see the
+[data README](https://github.com/LupoLab/croak/blob/main/examples/data/README.md)):
 
 ```bash
-uv run python examples/example_paper_thickness.py   # the 1 fs thickness series
-uv run python examples/example_paper_rdw.py         # the single-cycle RDW pulse
+uv run python examples/example_paper_thickness.py   # Gaussian series at 4, 9.5 and 40 µm
+uv run python examples/example_paper_rdw.py         # the RDW pulse at 9.5 µm
 ```
 
-Each retrieves with the extended and standard models and reports the trace
-errors, durations and truth errors — reproducing the pattern above, including
-the case where the standard model reaches a lower trace error on a wrong
-pulse. The [simulated-trace guide](../howto/loading_simulated.md) documents
-the loader; the [geometric smearing](../howto/geometric_smearing.md) and
-[collection aperture](../howto/collection_aperture.md) guides cover the
-instrument models.
+Each retrieves with the extended and standard models and reports trace errors,
+durations and truth errors, reproducing the qualitative pattern above, including
+a standard-model fit with a low trace error on a wrong pulse. They use croak's
+package defaults with defringing and a fitted delay zero (and, for RDW, a fitted
+smearing scale), and score the native retrieved fields, so their numbers differ
+from the papers'. See the [gallery](../examples/index.md#instrument-effects-and-validation)
+and the [simulated-trace guide](../howto/loading_simulated.md).

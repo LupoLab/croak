@@ -69,18 +69,19 @@ order; the true :math:`|A|^6` weight has heavier tails, which
 Validity limits
 ---------------
 * **Full-beam collection.** The incoherent sum over :math:`\mathbf r` follows from
-  Parseval and holds only if the detector collects the whole signal beam. Under strong
-  spatial filtering the average is partly *coherent* and the effective blur is narrower,
-  so the widths computed here are an upper bound for a tightly apertured instrument.
-  :mod:`croak.collection` lifts this: it transforms the focal field to transverse
-  wavevector before squaring it, so a finite hole is modelled rather than bounded. The
-  reduction to :math:`(p,\vartheta)` survives that intact --- the phase the incoherent
-  sum discards is exactly :math:`\omega p` --- but the *kernel* in this module remains
-  the full-collection form, deliberately: it is what all current results use.
+  Parseval and holds only if the detector collects the whole signal beam. Under
+  strong spatial filtering the average is partly *coherent*, which changes the
+  trace in ways a narrower blur width does not capture. :mod:`croak.collection`
+  lifts this: it transforms the focal field to transverse wavevector before
+  squaring it, so a finite hole is modelled. The reduction to
+  :math:`(p,\vartheta)` survives that intact (the phase the incoherent sum
+  discards is exactly :math:`\omega p`, with :math:`\omega` the centred
+  frequency), but the *kernel* in this module remains
+  the full-collection form.
 * **Achromatic kernel.** :math:`\sigma\propto\lambda` because the focal spot scales
   with wavelength while the tilt does not; the kernel is evaluated at the carrier only.
-  Across a 1 fs deep-UV pulse this is a ±15 % variation of width — a second-order
-  refinement.
+  Across a 1 fs deep-UV pulse this is a −16 %/+24 % variation of width; such
+  broadband pulses need the chromatic filters of :mod:`croak.focal`.
 * **Uniform hole illumination**, beams collimated at the focusing lens, and a medium
   thin compared with the Rayleigh range (so the delay-vs-position map is linear).
 * **No spatial chirp** in the input beam.
@@ -134,11 +135,12 @@ _C_LIGHT = 299792458.0
 
 @dataclass(frozen=True)
 class SmearingKernel:
-    r"""Bivariate-Gaussian geometric-smearing kernel in ``(p, delta)``.
+    """Bivariate-Gaussian geometric-smearing kernel in ``(p, delta)``.
 
-    ``p`` splits the two unconjugated replicas (PG: the two gate replicas) and changes
-    the *shape* of the nonlinear signal; ``delta`` offsets the conjugated replica and is
-    a **pure translation of the delay axis**. Both are zero-mean.
+    ``p`` separates the gate pair for PG (one conjugated) or the two
+    unconjugated replicas for SD. ``delta`` shifts their relative delay with
+    respect to the remaining replica, a **pure translation of the delay axis**.
+    ``p`` changes the *shape* of the nonlinear signal. Both are zero-mean.
 
     Parameters
     ----------
@@ -182,7 +184,7 @@ class SmearingKernel:
             raise ValueError(f"npoints must be >= 1, got {self.npoints!r}")
 
     def nodes_weights(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        r"""Gauss–Hermite nodes and normalised weights for the ``p`` integral.
+        """Gauss–Hermite nodes and normalised weights for the ``p`` integral.
 
         Uses the *probabilists'* Hermite rule, whose weight function is
         :math:`e^{-x^2/2}`, so the nodes are simply ``sigma_p * x``. The nodes are
@@ -193,7 +195,7 @@ class SmearingKernel:
         Returns
         -------
         tuple of numpy.ndarray
-            ``(p, w)``, each of length :attr:`npoints`, with ``w.sum() == 1``.
+            ``(p, w)``, each of length ``npoints``, with ``w.sum() == 1``.
         """
         if self.sigma_p == 0.0:
             # Degenerate kernel: p is deterministic, so one node carries all the weight.
@@ -259,14 +261,13 @@ def delay_frequency_grid(delays: ArrayLike, sigma_delta: float) -> NDArray[np.fl
     The ``delta`` integral is a convolution along ``tau``, and it is applied by
     multiplying the delay-axis DFT of the trace by the analytic Gaussian transform
     :math:`e^{-i\Omega\mu-\sigma^2\Omega^2/2}`. Doing it in the transform domain rather
-    than sampling the kernel on the delay grid makes the operation exact for any trace
-    that is Nyquist-sampled in ``tau`` — which a measurable trace necessarily is — so
-    there is no requirement that the kernel span several delay steps.
+    than sampling the kernel on the delay grid makes the operation exact for the
+    periodic band-limited representation on the delay grid (which a Nyquist-sampled
+    trace has), so there is no requirement that the kernel span several delay steps.
 
-    The convolution is circular. That is harmless because the wrap-around weight is
-    :math:`\exp[-(\text{delay span}/\sigma_\delta)^2/2]`; this function raises if the
-    kernel is not comfortably narrower than the scan, which is the only regime where it
-    would matter.
+    The convolution is circular. This function raises if the kernel is not
+    comfortably narrower than the scan; the trace must also decay before the delay
+    boundaries, or its ends wrap into each other.
 
     Parameters
     ----------
@@ -319,7 +320,7 @@ def _pd_vectors(
     The tilt coefficients are :math:`\alpha_j=-\mathbf r_j/(fc)`, so every combination
     below carries the same overall factor :math:`-1/(fc)`; dropping it changes neither
     the magnitudes (which are rescaled by ``sigma_r``) nor the correlation (which only
-    sees the *relative* orientation). (:func:`croak.focal._arm_offsets` uses the
+    sees the *relative* orientation). (``croak.focal._arm_offsets`` uses the
     opposite overall sign, ``+r_j/(fc)``; see its docstring for why the global
     sign is unobservable — and the one place, an off-centre collection
     aperture, where it would not be.)
@@ -352,7 +353,7 @@ def collinear_sd_kernel(
 ) -> SmearingKernel:
     r"""Smearing kernel for a **two-beam** self-diffraction geometry.
 
-    This is the SD an experiment actually builds: two collinear apertures, the
+    For two apertures whose centres lie on one line in the mask plane, the
     probe entering the nonlinearity twice and the gate once with conjugation,
     signal at :math:`2k_E - k_G`. It is NOT what
     :func:`square_boxcars_kernel` with ``"sd"`` returns — that closed form
@@ -371,7 +372,7 @@ def collinear_sd_kernel(
     verified against :func:`kernel_from_arms` to six figures over
     ``d/D = 0.75``–``1.25``. Two consequences matter for retrieval. The
     smearing reduces to a pure one-dimensional convolution along the delay
-    axis, so it is exactly deconvolvable — unlike the TG kernel, whose
+    axis, so it can be deconvolved directly — unlike the TG kernel, whose
     ``rho = 1/sqrt(5)`` makes it a correlated two-dimensional shear. And the p
     channel is the one that shifts the frequency axis in proportion to the gate
     chirp, so its absence removes the mechanism behind the chirped-arm
@@ -636,8 +637,7 @@ def deconvolve_delay(
         unchanged.
     reg : float, optional
         Wiener regularisation as a fraction of the filter's peak power. Larger
-        leaves more blur but suppresses noise amplification; the default 1e-3
-        recovers a noiseless blur to about a part in 1e3.
+        leaves more blur but suppresses noise amplification. Default 1e-3.
 
     Returns
     -------

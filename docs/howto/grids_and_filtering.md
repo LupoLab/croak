@@ -13,14 +13,14 @@ Keep three things distinct:
    FFT, so an unevenly sampled delay axis is handled correctly without first
    resampling it.
 2. **The retrieval grid** — a uniform, centred angular-frequency / time grid
-   ({class}`croak.Grid`) that the solvers run on. {func}`~croak.preprocess.load_and_clean`
+   ({class}`croak.grid.Grid`) that the solvers run on. {func}`~croak.preprocess.load_and_clean`
    builds it from `lam_min`/`lam_max`.
 3. **Post-retrieval filtering** — optional windows applied to the *result*
    ({func}`croak.processing.post_filter`), which never change the retrieval itself.
 
 ## Building a grid directly
 
-A {class}`croak.Grid` is fixed by its size `n` and one step (`dt` or `domega`); the
+A {class}`croak.grid.Grid` is fixed by its size `n` and one step (`dt` or `domega`); the
 matched axes follow from $\Delta\omega = 2\pi/(\Delta t\,N)$:
 
 ```python
@@ -42,9 +42,10 @@ g = croak.Grid(n, dt=dt)
 ## The baseband convention
 
 croak works with the **baseband** spectrum on a grid centred at zero — the carrier
-$\omega_0$ is *not* baked into the pulse shape. It enters only:
+$\omega_0$ is *not* baked into the pulse shape. It enters the conversion to absolute optical frequencies, including:
 
-- the **dispersive model**, through `omega0` (which builds $\beta(\omega)$);
+- material dispersion, wavelength-dependent focal fields and collection
+  optics, through `omega0`;
 - the **wavelength axis** of a result, via
   {attr}`RetrievalResult.wavelength <croak.result.RetrievalResult.wavelength>`
   $= 2\pi c/(\omega+\omega_0)$.
@@ -91,10 +92,9 @@ itself — and they are easy to underestimate: on a linear plot the signal looks
 finished long before it is.
 
 Pick the edges from the wavelength marginal at roughly **1e-4 of its peak**
-(−40 dB), or read them off a dB image of the trace. On the synthetic measurement
-in the [experimental workflow tutorial](../tutorials/04_experimental_workflow.md),
-cutting at a few percent of the marginal instead costs a factor of four in the
-achievable trace error (0.5 % → 2.1 %) for the sake of ~20 fewer grid points:
+(−40 dB), or read them off a dB image of the trace, and stop at the noise floor
+if it comes first. For SHG, convert the signal band to the fundamental band
+before setting the retrieval grid.
 
 ```python
 marg = trace.sum(axis=1)
@@ -110,19 +110,18 @@ points it adds.
 ## The edge taper, and why the band must be generous
 
 `regrid` does not simply crop at `lam_min`/`lam_max`. It applies a Planck taper
-that rolls the trace to **exactly zero** over the outermost
+that rolls the trace to zero across the outermost
 {data}`croak.preprocess.TAPER_COLLAR_BINS` (10) frequency bins at each end. This
 is not optional: the forward model FFTs the trace on a periodic grid, so a trace
 that does not reach zero at the boundary rings back into the fit.
 
-The consequence is that the outermost bins carry **no measurement**, whatever you
-choose for the band. That matters more than losing the data itself, because the
-nonlinear mixing still couples the field at those frequencies to the live rows —
-just weakly. A probe spike at the grid edge moves the trace error roughly 100×
-less than the same spike mid-band, so the optimiser can park a great deal of
-energy there for almost no penalty, and since intensity is bounded below by zero
-it can only drift upward. See
-{func}`croak.processing.edge_energy_fraction` for how to detect the result.
+The consequence is that the outermost bins carry almost **no measurement**,
+whatever band you choose. The nonlinear mixing still couples the field at those
+frequencies to the live rows, but only weakly: a probe spike at the grid edge
+moves the trace error roughly 100× less than the same spike mid-band. The
+optimiser can therefore park energy there for almost no penalty, and since
+intensity is bounded below by zero it can only drift upward.
+{func}`croak.processing.edge_energy_fraction` detects the result.
 
 So the band must be wide enough that the taper lands on trace that has genuinely
 died away. {func}`~croak.preprocess.load_and_clean` measures this for you and
@@ -155,7 +154,8 @@ carries signal, stored on the `TraceData` as `td.lamm_lims` / `td.tau_lims`. (Th
 full retrieval-grid extent, `td.lam_min`/`td.lam_max`, would taper only the
 outermost few bins and do nothing useful.)
 
-This is distinct from the [spectral-match penalty](regularisation.md), which
+The stored trace and error still describe the original unfiltered fit. This is
+distinct from the [spectral-match penalty](regularisation.md), which
 constrains the retrieval itself rather than filtering its output.
 
 ## Checklist
@@ -164,5 +164,7 @@ constrains the retrieval itself rather than filtering its output.
 - Make the band a little wider than the visible signal so the taper has room.
 - Set `omega0` on dispersive solvers (or let `retrieve_from_tracedata` take it
   from `td.omega0_pulse`).
-- Use `post_filter` for cosmetic cleanup; use [regularisation](regularisation.md)
-  to constrain the fit.
+- Make the periodic time window wide enough for the pulse, its delayed replicas
+  and its propagation through the whole medium.
+- Use `post_filter` for cosmetic clean-up, and record it, since it changes the
+  reported field; use [regularisation](regularisation.md) to constrain the fit.

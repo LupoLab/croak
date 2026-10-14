@@ -7,14 +7,16 @@ Two groups of functionality live here:
   (centred order) for tests, examples and retrieval initial guesses. Chirp and
   higher-order phase are added as a Taylor expansion of the spectral phase.
 
-* **Parameterisations** — :class:`ComplexPulse` and :class:`ArrayPulse` expose a
-  real parameter vector ``u`` to the gradient-based (L-BFGS) solver, together
-  with the hand-derived vector–Jacobian product :meth:`Pulse.ew_vjp` that maps a
-  spectral cotangent back to ``u``, and optional spectral-smoothness penalties.
+* **Parameterisations** — :class:`ComplexPulse` and
+  :class:`~croak.pulses.ArrayPulse` expose a real parameter vector ``u`` to the
+  gradient-based (L-BFGS) solver, together with the hand-derived vector–Jacobian product
+  :meth:`Pulse.ew_vjp` that maps a spectral cotangent back to ``u``, and optional
+  spectral-smoothness penalties.
 
 The carrier (centre wavelength) is *not* encoded in the baseband pulse shape: a
 pulse lives on the grid's centred ``omega`` axis, and the carrier enters
-retrieval only through the dispersive model's ``omega0``. "Different
+absolute-frequency calculations through ``omega0``, including material
+dispersion, chromatic focusing, collection and wavelength conversion. "Different
 wavelengths" therefore means the same baseband pulse with a different ``omega0``
 in :class:`~croak.forward.ForwardModel`.
 """
@@ -282,7 +284,7 @@ class ArrayPulse(Pulse):
         support: tuple[int, int] | None = None,
         phase_only: bool = False,
     ) -> ArrayPulse:
-        """Build an :class:`ArrayPulse` from a complex spectrum."""
+        """Build an :class:`~croak.pulses.ArrayPulse` from a complex spectrum."""
         ew = np.asarray(ew, dtype=complex)
         return cls(
             grid, np.abs(ew), np.angle(ew), support=support, phase_only=phase_only
@@ -420,7 +422,7 @@ def _second_diff_penalty(
 def _second_diff_penalty_grad(
     a: NDArray[np.float64], *, normalize_by_max: bool = True
 ) -> NDArray[np.float64]:
-    """Gradient of :func:`_second_diff_penalty` (max(a) treated as constant)."""
+    """Gradient of ``_second_diff_penalty`` (max(a) treated as constant)."""
     n = a.size
     g = np.zeros(n)
     if n < 3:

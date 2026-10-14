@@ -265,11 +265,11 @@ def make_spline_phase_basis(
 
     The spectral phase on the support window is a fixed **linear** map
     :math:`\phi = B\,c` of ``n_nodes`` control points ``c`` (the optimised
-    parameters), with the amplitude held at the seed ``amplitude``. Because
-    ``B`` (the :func:`scipy.interpolate.BSpline.design_matrix`) is a constant, the
+    parameters), with the amplitude held at the seed ``amplitude``. Because ``B`` (the
+    :external+scipy:meth:`scipy.interpolate.BSpline.design_matrix`) is a constant, the
     map is exactly :math:`C^2` (cubic) and trivially AD-differentiable. Knots are
-    clamped over the non-zero-spectrum window only, so nodes don't waste degrees
-    of freedom where there is no signal.
+    clamped over the non-zero-spectrum window only, so nodes don't waste degrees of
+    freedom where there is no signal.
 
     Returns ``(spectrum_fn, c0, phase_penalty, support)`` where ``c0`` fits the
     seed phase and ``phase_penalty(c)`` is the P-spline roughness penalty
@@ -463,13 +463,14 @@ class ExtraParamSpec:
 
         L = L_0 + \delta_L\,s_L, \qquad \tau_0 = \tau_{0,0} + \delta_\tau\,s_\tau
 
-    with the optimised variables :math:`\delta_L, \delta_\tau` initialised at
-    zero. :math:`\delta_L` is bounded below at :math:`-L_0/s_L` so ``L`` stays
-    non-negative. The centres :math:`L_0`, :math:`\tau_{0,0}` are the priors: the
-    nominal values for a cold-started retrieval, the *previous* fit's values when
-    warm-starting (see :func:`croak.pipeline.retrieve_from_tracedata`), and the
-    fitted values when re-linearising for covariance. An extra whose ``fit_*``
-    flag is off is **held** at its centre.
+    with the optimised variables :math:`\delta_L, \delta_\tau` initialised at zero. The
+    returned lower bound :math:`-L_0/s_L` keeps ``L`` non-negative for the bounded
+    solvers (the Optimistix solvers ignore it). The centres :math:`L_0`,
+    :math:`\tau_{0,0}` are the priors: the nominal values for a cold-started retrieval,
+    the *previous* fit's values when warm-starting (see
+    :func:`croak.pipeline.retrieve_from_tracedata`), and the fitted values when
+    re-linearising for covariance. An extra whose ``fit_*`` flag is off is **held** at
+    its centre.
 
     Parameters
     ----------
@@ -489,8 +490,9 @@ class ExtraParamSpec:
         delay step. Required when ``fit_tau0`` is set.
     fit_smearing : bool, optional
         Fit the geometric-smearing **strength** as a dimensionless multiplier on
-        both kernel widths — equivalently, the mask ratio ``d/D``, which is the
-        only physical lever on the effect. Requires a smearing kernel.
+        both kernel widths — equivalently, the mask ratio ``d/D``, the only
+        geometric lever on the effect in the reduced model. A fitted value can
+        also absorb omitted physics. Requires a smearing kernel.
     smear_scale0 : float, optional
         Centre multiplier (``1.0`` = the kernel as supplied). For a split fit
         this is the ``p``-channel centre.

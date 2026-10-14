@@ -1,14 +1,16 @@
 # Installing the GUI
 
-This page is for people who want the graphical FROG retrieval program and
-nothing else — no Python scripting, no library API. It gets you from zero to a
-running wizard in four commands.
+Install the graphical interface to inspect and retrieve a FROG trace without
+writing Python. [uv](https://docs.astral.sh/uv/) supplies Python and creates an
+isolated environment for croak. You will use a terminal for installation and
+launching; subsequent analysis takes place in the wizard.
 
-```{note}
-Standalone installers (a downloadable app, no Python involved) are planned.
-Until then the GUI installs through [uv](https://docs.astral.sh/uv/), which
-handles Python and every dependency for you.
-```
+## Before you start
+
+You need an internet connection for installation. On macOS, open Terminal; on
+Windows, open PowerShell; on Linux, open your usual terminal. Copy the commands
+for your platform below. The [installation reference](installation.md) covers
+platform requirements and optional features.
 
 ## 1. Install uv
 
@@ -38,14 +40,8 @@ uv downloads the right Python (3.14) if you do not have it, creates an
 isolated environment, installs croak with the Qt interface from PyPI, and puts
 the `croak-gui` command on your PATH. No system Python is touched.
 
-On **Linux**, Qt also needs a set of system libraries that no Python installer
-provides:
-
-```bash
-sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
-  libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
-  libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-cursor0
-```
+On Linux, install the [Qt system libraries](installation.md#linux-qt-system-libraries)
+if they are missing.
 
 ## 3. Run it
 
@@ -53,14 +49,14 @@ sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
 croak-gui
 ```
 
-That is the whole install; the command works from anywhere. If the window
-fails to appear on Windows, run
-`uvx --python 3.14 --from "croak[gui]" python -m croak.gui` instead — the
-`croak-gui` entry point opens no console, so that variant is the one that
-shows a traceback.
+If the shell cannot find `croak-gui`, run `uv tool update-shell` and open a new
+terminal. See [uv's tool guide](https://docs.astral.sh/uv/guides/tools/) for PATH
+configuration. If the window fails to appear on Windows, run
+`uvx --python 3.14 --from "croak[gui]" python -m croak.gui` to display diagnostic
+output in the terminal.
 
-The window opens maximised and is laid out for displays from 1366×768 up;
-un-maximised, it remembers the size you leave it at.
+The window opens maximised and is laid out for displays of 1366×768 and up;
+un-maximised, it returns to the size you last left it.
 
 ```{image} ../_static/gui_retrieve.png
 :alt: The wizard after a retrieval — the Traces page (measured and retrieved traces, log and linear) with the Pulse and Diagnostics tabs beside it, and the numeric read-out beneath.
@@ -70,12 +66,13 @@ un-maximised, it remembers the size you leave it at.
 
 ## 4. Use it
 
-The wizard walks through the retrieval in stages: **Load** (your measured
-trace, in HDF5, `.npz` or delimited text — or a simulated scan), **Marginal
-check**, **Preprocess** (filtering, background removal, regridding),
+The wizard walks through the retrieval in stages: **Load** (your measured trace
+from an HDF5 or `.npz` file, with an optional independent spectrum from HDF5,
+`.npz` or CSV and calibration curves from CSV; or a simulated scan),
+**Marginal check**, **Preprocess** (filtering, background removal, regridding),
 **Retrieve**, **Dispersion** (tuning with materials and chirped mirrors) and
-**Uncertainty** (error bars on the retrieved duration). Every control has a
-tooltip and every stage a help button.
+**Uncertainty** (error bars on the retrieved duration). Hover over a control for
+help with that setting, and use each stage's **? Help** button for guidance.
 
 The [GUI guide](../howto/gui.md) documents each stage in detail. Sessions save
 to a TOML file that records every setting, so a retrieval can be re-run later

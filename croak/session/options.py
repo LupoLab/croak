@@ -1,4 +1,4 @@
-"""The :class:`SessionOptions` bundle: the canonical serialisable session.
+"""The :class:`~croak.session.options.SessionOptions` bundle: the serialisable session.
 
 ``SessionOptions`` groups the per-stage parameter dataclasses, and the name of
 the stage-1 loader that produced the trace, into one object that round-trips to
@@ -53,7 +53,7 @@ def _mirror_from_mapping(data: Any) -> BeamPathMirror:
 
 
 def _dispersion_from_mapping(data: Any) -> DispersionParams:
-    """Build :class:`DispersionParams`, rebuilding the nested mirror list/table."""
+    """Build :class:`~croak.session.params.DispersionParams` and its nested mirrors."""
     obj = DispersionParams()
     if not isinstance(data, dict):
         return obj
@@ -101,6 +101,13 @@ class SessionOptions:
     ``[simulated]`` at its defaults, and vice versa. Both are always written, so
     the file records which trace the retrieval actually came from — without
     ``entry`` a simulated session would look like an empty experimental one.
+
+    Notes
+    -----
+    The recipe refers to the external input and calibration files rather than
+    embedding them, and records no retrieval RNG seed; synthetic-generator
+    settings are not serialised for headless replay. See
+    :doc:`/howto/saving_and_loading`.
     """
 
     entry: str = "experimental"

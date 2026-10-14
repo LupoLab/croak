@@ -19,9 +19,18 @@ These checks are implemented in {mod}`croak.marginal_checks` and surfaced in the
 GUI's **Marginal check** stage (see the [GUI guide](../howto/gui.md)); the
 how-to recipe is [Marginal consistency checks](../howto/marginal_checks.md).
 
+```{important}
+The identities below assume a thin, local interaction with coincident replicas,
+complete delay support, a matching fundamental-spectrum reference plane and a
+calibrated spectral response. Dispersion, split gates, chromatic spatial fields,
+finite collection and cropping can invalidate these ideal-model predictions.
+A mismatch is then evidence to investigate, not proof of a detector fault.
+The transform-limited PG width is a **soft reference**, not a universal upper bound.
+```
+
 ## The general result
 
-Every FROG-type signal factorises into an *undelayed* part $P$ and a *delayed
+For the ideal local kernels considered here, the signal factorises into an *undelayed* part $P$ and a *delayed
 gate* $g$,
 
 ```{math}
@@ -87,9 +96,10 @@ M_\mathrm{SHG}(\omega) = (S * S)(\omega).
 Both factors are the measured spectrum, so the marginal is the **autoconvolution
 of the fundamental spectrum** ({func}`croak.marginal_checks.spectral_autoconvolution`)
 — completely phase-independent and computable from $S$ alone. This is the
-gold-standard check: any discrepancy is unambiguously a *trace* problem
-(calibration, spectral response, detector nonlinearity, scatter), never a
-property of the pulse. All three of these are **hard** checks:
+phase-independent check under the thin-local-model and complete-support
+assumptions above. Disagreement can indicate calibration, spectral response,
+noise, incomplete support or a model that is inappropriate for the instrument.
+The three identities are:
 
 - **Full predicted marginal:** $S*S$, compared shape-for-shape.
 - **Centroid:** $\bar\omega[M] = 2\,\bar\omega_S$.
@@ -203,7 +213,7 @@ How the three PG checks carry over:
 - Compare on a **common, calibrated frequency axis**: the SH axis for SHG, the
   fundamental axis for PG/TG/SD. A centroid mismatch on that axis *is* the
   calibration check.
-- The width and centroid checks are robust to additive noise; the full-shape
+- Width and centroid estimates can be sensitive to noise and cropping; the full-shape
   overlay is the most sensitive to scatter and detector nonlinearity but also the
   most affected by the TL assumption for PG/SD. Restrict the moments and the
   normalisation to a **spectral trust region** (in the GUI, 190–1000 nm for a
@@ -220,7 +230,7 @@ marginal by a power law $(\lambda/\mu\mathrm{m})^n$
 **hard** anchor for PG/TG (and the fundamental anchor for SD/SHG),
 {func}`croak.marginal_checks.auto_third_order_exponent` picks the exponent $n$
 whose corrected-marginal centroid lands on the predicted centroid. The tilt
-shifts the centroid monotonically in $n$, so the match is a unique root; it is
+shifts the centroid monotonically in $n$, so the match is at most one root over a non-degenerate positive trace; it is
 restricted to the trust region so amplified out-of-band noise cannot bias it.
 This is the physically grounded replacement for fitting the marginal *shape* to
 the spectrum.

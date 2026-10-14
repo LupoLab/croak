@@ -1,10 +1,11 @@
 r"""The unified nonlinear-process forward model and its reverse-mode adjoint.
 
-:class:`ForwardModel` is the single computational core shared by every retrieval
-algorithm in croak. It maps a complex spectrum :math:`\tilde E(\omega)` to a
-delay-scanned nonlinear-process spectrum (a "PNPS" trace — e.g. FROG, TDP),
-optionally through a dispersive slab, and provides the exact reverse-mode
-(Wirtinger) adjoint of that map.
+:class:`ForwardModel` is the NumPy computational core and its analytic adjoint.
+The JAX solvers use :mod:`croak.forward_jax`, which follows the same maths and
+adds the explicit focal and collection models. It maps a complex spectrum
+:math:`\tilde E(\omega)` to a delay-scanned nonlinear-process spectrum (a "PNPS"
+trace, e.g. FROG or TDP), optionally through a dispersive PG/SD slab, and provides the
+exact reverse-mode (Wirtinger) adjoint of that map.
 
 **Thin medium** is simply the special case of the dispersive model with
 :math:`\beta = 0`, zero thickness and a single quadrature node — so one code path
@@ -107,19 +108,20 @@ class ForwardModel:
     omega0 : float, optional
         Carrier angular frequency (rad/s), used to build ``beta``.
     quadrature : str, optional
-        Quadrature method (see :func:`quadrature_nodes_weights`).
+        Quadrature method (see :func:`~croak.forward.quadrature_nodes_weights`).
     smearing : SmearingKernel or None, optional
         Geometric time-smearing kernel of a non-collinear geometry (see
         :mod:`croak.smearing`). ``None`` (default) switches the correction off
-        and leaves every code path exactly as it is without it.
+        and selects the local unsmeared model.
 
     Notes
     -----
     All public array arguments/returns (spectra, cotangents) are in **centred**
     frequency order; the DFT-bin ordering is an internal detail.
 
-    The hand-derived :meth:`adjoint_single` is **not** available with smearing; use the
-    autodiff solvers (see :mod:`croak.forward_jax`) for that case.
+    The hand-derived :meth:`~croak.forward.ForwardModel.adjoint_single` is **not**
+    available with smearing; use the autodiff solvers (see :mod:`croak.forward_jax`) for
+    that case.
     """
 
     def __init__(
@@ -205,7 +207,8 @@ class ForwardModel:
             Delay (s).
         record : bool, optional
             If ``True``, store the forward time-domain fields so a following
-            :meth:`adjoint_single` call (same ``ew``, ``tau``) can reuse them.
+            :meth:`~croak.forward.ForwardModel.adjoint_single` call (same ``ew``,
+            ``tau``) can reuse them.
         """
         ew_bin = scipy.fft.ifftshift(ew)
         phase = np.exp(1j * self.omega_bin * tau)
@@ -308,7 +311,10 @@ class ForwardModel:
 
     # -- adjoint -----------------------------------------------------------
     def adjoint_single(self, psi_bar: Complex, tau: float) -> Complex:
-        r"""Adjoint of :meth:`signal_single`: map ``psi_bar`` → ``ew_bar`` (centred).
+        r"""Apply the signal adjoint to a centred field cotangent.
+
+        Adjoint of :meth:`~croak.forward.ForwardModel.signal_single`: map
+        ``psi_bar`` → ``ew_bar`` (centred).
 
         Requires the forward tape for the same ``tau`` (call
         ``signal_single(ew, tau, record=True)`` first). ``psi_bar`` is the

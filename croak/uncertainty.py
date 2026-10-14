@@ -1,8 +1,9 @@
-r"""Statistical uncertainty of a retrieved pulse from a single trace.
+"""Statistical uncertainty of a retrieved pulse from a single trace.
 
 This module estimates a *statistical* (precision) error bar on the retrieved FWHM
 intensity duration by resampling, following the analysis in
-``docs/explanation/uncertainty_estimation.md``. Two estimators are provided:
+``docs/explanation/uncertainty_estimation.md``. Two statistical estimators are
+provided, alongside propagation of an external thickness uncertainty:
 
 * **Method A — parametric Monte-Carlo bootstrap** (:func:`parametric_bootstrap`):
   simulate synthetic traces from the best-fit clean trace plus a :class:`NoiseModel`,
@@ -69,7 +70,9 @@ class NoiseModel:
     The per-pixel variance is :math:`\sigma_0^2 + g\,T`, where :math:`\sigma_0` is the
     additive (read) noise standard deviation, :math:`g` the shot-noise coefficient and
     :math:`T` the (clipped, non-negative) clean trace intensity. Samples are clipped at
-    zero, matching a detector that cannot record negative counts.
+    zero, matching a detector that cannot record negative counts (a censored
+    Gaussian, not an exact Poisson model, and not a model of background-subtracted
+    negative values).
 
     Parameters
     ----------
@@ -83,6 +86,11 @@ class NoiseModel:
         Shot-noise coefficient :math:`g` in trace-intensity units (``0`` ⇒
         purely additive noise). Adds a signal-dependent variance term
         ``gain * intensity``.
+
+    Notes
+    -----
+    Pixels are drawn independently, so correlations introduced by filtering or
+    interpolation are not modelled.
     """
 
     sigma: float | NDArray[np.float64]
@@ -111,11 +119,13 @@ class NoiseModel:
 def noise_from_residual(
     measured: ArrayLike, result: RetrievalResult, *, robust: bool = True
 ) -> NoiseModel:
-    r"""Estimate a :class:`NoiseModel` from the post-fit residual.
+    """Estimate a :class:`NoiseModel` from the post-fit residual.
 
     Uses the residual ``measured - result.trace`` after a converged retrieval. The
-    residual is noise plus any model misfit, so this tends to *over*-estimate the noise
-    when the forward model is imperfect (a conservative bias). Needs no extra data.
+    residual is noise plus any model misfit, so an imperfect forward model inflates
+    the estimate, while the fit absorbing some noise deflates it slightly. Compare
+    with an independently measured background where one is available. Needs no
+    extra data.
 
     Parameters
     ----------
@@ -603,7 +613,7 @@ def parametric_bootstrap(
         Spectral transfer function :math:`H(\omega)` (same length as
         ``result.spectrum``) propagating the pulse to a different beamline point;
         each replicate's spectrum is multiplied by it before the FWHM/band is taken
-        (see :func:`_apply_propagation`). ``None`` (default) reports at the
+        (see ``_apply_propagation``). ``None`` (default) reports at the
         measurement plane.
     propagation_label : str, optional
         Description of the propagation point recorded on the result (e.g.
@@ -730,6 +740,14 @@ def resampling_bootstrap(
     Returns
     -------
     UncertaintyResult
+
+    Notes
+    -----
+    Resampled delay columns contain repeats and non-uniform spacings, so
+    ``"delay"`` resampling is incompatible with models that need a uniform delay
+    axis (the smearing convolution, marginal-peak centring); use
+    ``"frequency"`` or the parametric bootstrap there. Neither method accounts
+    for calibration errors.
     """
     if n_resamples < 1:
         raise ValueError("n_resamples must be >= 1")
@@ -837,11 +855,12 @@ def thickness_bootstrap(
     ``clip_min``), rebuilds the dispersive forward model at each, **re-retrieves the
     same measured trace** (warm-started from the central-thickness solution), and
     returns the spread of the per-draw FWHM. It is the systematic complement to the
-    statistical bootstrap; the two are independent and combine in quadrature.
+    statistical bootstrap, and the two combine in quadrature when independent (see
+    :func:`combine_uncertainties`).
 
     Because thickness is a *solver-constructor* parameter (the dispersion model is
     built in :class:`~croak.forward.ForwardModel`), the solver is rebuilt for each draw
-    via :func:`_build_runner` — cheap next to the retrieval iterations.
+    via ``_build_runner`` — cheap next to the retrieval iterations.
 
     Parameters
     ----------
@@ -874,8 +893,8 @@ def thickness_bootstrap(
         Drop draws whose error exceeds this multiple of the median draw error.
         Defaults to a large value (effectively *disabled*): unlike the statistical
         bootstrap, an off-nominal thickness fits the trace *genuinely* worse, so a
-        raised :math:`R` in the tails is physical misfit — not stagnation — and must
-        not be filtered out. Only non-finite (failed) draws are dropped.
+        raised :math:`R` in the tails is mostly physical misfit, not stagnation,
+        and must not be filtered out. Only non-finite (failed) draws are dropped.
     interval : {"bias-corrected", "percentile"}, optional
         Interval estimator.
     collect_profiles : bool, optional
@@ -989,15 +1008,16 @@ def estimate_fwhm_uncertainty(
     noise: NoiseModel | float | None = None,
     **kwargs,
 ) -> UncertaintyResult:
-    """Estimate FWHM uncertainty, dispatching to Method A or Method B.
+    """Estimate FWHM uncertainty by statistical resampling or thickness variation.
 
     Parameters
     ----------
     result : RetrievalResult
         A completed retrieval.
     measured : array_like, optional
-        The measured trace. Required for ``method`` in ``{"delay", "frequency"}``;
-        ignored by ``"parametric"`` (which uses ``result.trace``).
+        The measured trace. Required for ``delay``, ``frequency`` and ``thickness``.
+        For ``parametric``, it is used to estimate noise if ``noise`` is omitted;
+        simulated replicates are generated from ``result.trace``.
     method : {"parametric", "delay", "frequency", "thickness"}, optional
         ``"parametric"`` → :func:`parametric_bootstrap`; ``"delay"``/``"frequency"`` →
         :func:`resampling_bootstrap`; ``"thickness"`` → :func:`thickness_bootstrap`
@@ -1011,7 +1031,7 @@ def estimate_fwhm_uncertainty(
         ``central_thickness``, ``thickness_sigma`` and ``material``. Pass
         ``propagation`` (a spectral transfer function ``H(ω)``) and
         ``propagation_label`` to report the FWHM/band at a different beamline point
-        (see :func:`_apply_propagation`).
+        (see ``_apply_propagation``).
 
     Returns
     -------
@@ -1020,7 +1040,7 @@ def estimate_fwhm_uncertainty(
     Examples
     --------
     >>> import numpy as np, croak
-    >>> g = croak.Grid(64, dt=0.5e-15)
+    >>> g = croak.Grid(256, dt=0.5e-15)
     >>> ew = croak.gaussian_pulse(g, 6e-15)
     >>> delays = np.linspace(-40e-15, 40e-15, 40)
     >>> trace = croak.maketrace(g.omega, delays, ew, "pg")
@@ -1103,6 +1123,12 @@ def combine_uncertainties(
     ------
     ValueError
         If fewer than two results are given, or none carries any samples.
+
+    Notes
+    -----
+    The function assumes the contributions are independent; it does not test
+    this. Correlated contributions (e.g. a shared calibration) need joint
+    propagation. Profile intervals are pointwise, not simultaneous bands.
     """
     results = list(results)
     if len(results) < 2:
@@ -1270,14 +1296,14 @@ def coverage_calibration(
     callback=None,
     **retrieve_kwargs,
 ) -> CoverageResult:
-    r"""Validate interval coverage on synthetic experiments with known FWHM.
+    """Validate interval coverage on synthetic experiments with known FWHM.
 
     For each trial, draws a random true pulse (FWHM, GDD, shape), synthesises
     and noises its
     trace, retrieves it, runs the bootstrap, and records whether the nominal-``level``
-    interval contains the true FWHM. Converts a "spread" into a calibrated
-    interval: if the
-    nominal 68 % interval covers ≈68 % of trials, it is calibrated.
+    interval contains the true FWHM. This converts a "spread" into a calibrated
+    interval: if the nominal 68 % interval covers ≈68 % of trials, it is
+    calibrated for the tested pulse population and noise model.
 
     Parameters
     ----------

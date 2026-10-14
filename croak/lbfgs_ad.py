@@ -1,9 +1,9 @@
 """L-BFGS retrieval with **automatic-differentiation** gradients (``lbfgs-ad``).
 
 The most feature-complete solver in the package. It shares the NLopt ``LD_LBFGS``
-optimiser and the amplitude/phase parameterisation with :class:`croak.lbfgs.LBFGS`,
-but takes its gradient from :func:`jax.value_and_grad` of the JAX forward model and
-error metric (:mod:`croak.forward_jax`, :mod:`croak.metrics_jax`) rather than from
+optimiser and the amplitude/phase parameterisation with :class:`croak.lbfgs.LBFGS`, but
+takes its gradient from :external+jax:func:`jax.value_and_grad` of the JAX forward model
+and error metric (:mod:`croak.forward_jax`, :mod:`croak.metrics_jax`) rather than from
 the hand-derived adjoint (:meth:`croak.forward.ForwardModel.adjoint_single` +
 :meth:`croak.pulses.Pulse.ew_vjp`).
 
@@ -18,8 +18,8 @@ they are only available here and on the other autodiff solvers:
 
 Everything the plain ``lbfgs`` supports (phase-only, ``R_omega`` adaptive scaling,
 amplitude/phase/spectral regularisation, thin or dispersive propagation) works
-here too, so the two can also be run head-to-head on the same trace as a
-cross-check of the hand-derived gradient.
+here too, so the two can also be run head-to-head on the same trace. The
+gradients themselves are compared directly in ``tests/test_ad_vs_analytic.py``.
 """
 
 from __future__ import annotations
@@ -62,15 +62,15 @@ class LBFGSAD(Retriever):
     r"""NLopt L-BFGS solver with JAX automatic-differentiation gradients.
 
     The forward model and FROG error are evaluated with the JAX twins
-    (:mod:`croak.forward_jax`, :mod:`croak.metrics_jax`) and the gradient comes
-    from :func:`jax.value_and_grad`. That makes this the most capable solver in
-    the package: geometric smearing, the fitted extras (``fit_thickness``,
-    ``fit_tau0``, ``fit_smearing``), the B-spline phase basis and the temporal
-    penalty are all reachable here and not from the analytic-gradient solvers.
+    (:mod:`croak.forward_jax`, :mod:`croak.metrics_jax`) and the gradient comes from
+    :external+jax:func:`jax.value_and_grad`. That makes this the most capable solver in
+    the package: geometric smearing, the fitted extras (``fit_thickness``, ``fit_tau0``,
+    ``fit_smearing``), the B-spline phase basis and the temporal penalty are all
+    reachable here and not from the analytic-gradient solvers.
 
     The optimiser, parameterisation and objective otherwise match
-    :class:`croak.lbfgs.LBFGS`, so running ``lbfgs`` and ``lbfgs-ad`` on the same
-    trace also serves as a cross-check of the hand-derived gradient.
+    :class:`croak.lbfgs.LBFGS`, so the two solvers can be compared directly on
+    the same trace.
 
     Parameters
     ----------
@@ -92,16 +92,19 @@ class LBFGSAD(Retriever):
         exclusive with ``smearing``, and incompatible with ``fit_smearing``
         (an explicit mixture has no kernel width to scale).
 
-        Only worth its cost for a broadband pulse. The reduced kernel's widths
-        scale as :math:`\sigma\propto\lambda`, so freezing them at the carrier
-        is a -16%/+24% spread of width across a 1 fs deep-UV band and costs a
-        mean 12% of retrieved duration there, against 3.5% at 2 fs. The mixture
-        needs one field build per focal node rather than per Gauss-Hermite
-        node, so it is one to two orders of magnitude slower.
-        crossing beams -- focal-spot evolution, beamlet walk-through, Gouy
-        phase -- as a smooth per-depth factor on the generated signal; needed
-        only when the slab is not much thinner than the beams' Rayleigh range.
-        See :func:`croak.forward_jax.make_param_trace_fn`.
+        Worth its cost for a broadband pulse. The reduced kernel's widths scale
+        as :math:`\sigma\propto\lambda`, so freezing them at the carrier is a
+        -16 %/+24 % spread of width across a 1 fs deep-UV band; in our earlier
+        instrument scans that cost a mean 12 % of retrieved duration there,
+        against 3.5 % at 2 fs. The mixture needs one field build per focal node
+        rather than per Gauss-Hermite node, so it is one to two orders of
+        magnitude slower; check quadrature convergence for the chosen pulse and
+        geometry.
+    depth_weight : array_like or None, optional
+        Optional longitudinal weighting for crossing beams -- focal-spot evolution,
+        beamlet walk-through and Gouy phase -- as a smooth per-depth factor on the
+        generated signal; needed only when the slab is not much thinner than the beams'
+        Rayleigh range. See :func:`croak.forward_jax.make_param_trace_fn`.
     depth_transverse : bool, optional
         Model the transverse decoherence of the depth integral (default
         ``False``): each depth node's signal carries its own transverse phase
@@ -126,7 +129,7 @@ class LBFGSAD(Retriever):
         Use per-frequency adaptive scaling factors instead of a single scalar.
     reg_amp : float or None, optional
         Amplitude second-difference smoothness weight. ``None`` (default)
-        resolves to the settled production weight ``0.03``
+        resolves to the package default weight ``0.03``
         (:data:`croak.solver.REG_DEFAULTS`); pass ``0`` to disable.
     reg_phase : float, optional
         Phase second-difference smoothness weight (default ``0``).
@@ -134,7 +137,7 @@ class LBFGSAD(Retriever):
     reg_spectrum : float or None, optional
         Weight of the spectral-match penalty pulling the retrieved spectral
         amplitude towards ``spectrum_target`` (full mode only). ``None``
-        (default) resolves to the settled ``0.01`` and is inert without a
+        (default) resolves to the default ``0.01`` and is inert without a
         ``spectrum_target``; pass ``0`` to disable.
     spectrum_target : array_like or None, optional
         Measured spectral **intensity** on the retrieval grid (centred order,
@@ -176,7 +179,7 @@ class LBFGSAD(Retriever):
         (default ``False``): a dimensionless multiplier on both kernel widths,
         equivalently the mask ratio ``d/D``. Requires ``smearing``. Do not enable
         it together with ``fit_thickness`` — the smearing width is a nuisance
-        parameter that will happily absorb dispersion-model error. See
+        parameter that can absorb dispersion-model error. See
         :doc:`/howto/geometric_smearing`.
     fit_smearing_split : bool, optional
         Fit the gate-shape (``p``) and delay (``delta``) kernel widths as two
@@ -197,17 +200,20 @@ class LBFGSAD(Retriever):
         every model trace is re-centred on its own delay-marginal peak by the same
         sub-sample rule the preprocessing applies to the data, so the two sides
         share one convention with no free parameter (:mod:`croak.delay_origin`).
-        Use it for coherently collected single-cycle traces, where the marginal
-        peak sits tens of attoseconds from coincidence and a fixed origin costs
-        ~10 % of duration; unlike ``fit_tau0`` it stays put on chirped pulses.
+        Use it when the data were centred by their marginal peak, as for
+        coherently collected single-cycle traces, where the marginal peak sits
+        tens of attoseconds from coincidence and a fixed origin cost ~10 % of
+        duration in our earlier instrument scans; unlike ``fit_tau0`` it stays
+        put on chirped pulses. Requires uniform delays; the row-gain weighting
+        of the centring is differentiated through.
     tau0_bound : float, optional
         Box bound on the fitted delay offset, ``|tau0| <= tau0_bound`` (s); ``0``
         (default) leaves it unbounded. Only meaningful with ``fit_tau0``.
     targeterr : float, optional
         Stop early when the FROG error drops below this value. Two
-        robustness guards apply during optimization: a non-finite objective or
+        robustness guards apply during optimisation: a non-finite objective or
         gradient is replaced by a large finite penalty so the line search
-        backtracks (:func:`croak.solver.guard_nonfinite`), and an internal
+        backtracks (``guard_nonfinite``), and an internal
         NLopt failure (line-search breakdown, roundoff limit) returns the best
         iterate found instead of raising; both warn once.
     verbose : bool, optional
@@ -357,7 +363,7 @@ class LBFGSAD(Retriever):
         aug = augment(u0_pulse, spec)
         # Optional box bound on the fitted delay offset, |tau0| <= tau0_bound: a
         # free tau0 on a chirped trace wanders by hundreds of attoseconds and trades
-        # against the chirp (FROG N102); the physical offset is tens.
+        # against the chirp; the physical offset is tens.
         upper_bounds = np.full(aug.u0.size, np.inf)
         lower_bounds_aug = np.array(aug.lower_bounds, dtype=float, copy=True)
         if self.tau0_bound > 0.0 and aug.idx_tau0 is not None:

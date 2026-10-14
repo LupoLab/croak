@@ -3,17 +3,28 @@
 The [chromatic focal mixture](../explanation/forward_model.md#geometric-smearing) sums
 **incoherently** over focal-plane position. By Parseval that is exact only if the
 detector collects the whole signal beam — and most non-collinear instruments do not:
-the signal is picked out of the BOXCARS pattern by a hole, which is precisely a filter
-in transverse wavevector.
+the signal is picked out of the BOXCARS pattern by a hole, which is a filter in
+transverse wavevector. The field must then be transformed into the collection plane
+before taking its intensity.
 
 When the hole is narrow the average over the focal spot is partly **coherent**, and a
-coherent sum sharpens where an incoherent one blurs. Left out of the model, that shows
-up as a trace error that prefers a *narrower* smearing kernel than the geometry says —
-which is exactly what a scale scan on a tightly apertured instrument finds.
+coherent sum sharpens where an incoherent one blurs. A finite aperture changes both
+the spectrum and the delay structure of the trace; it does not act as a narrower
+version of the same smearing kernel.
+
+**Practical rule.** For near-single-cycle pulses through a restrictive aperture,
+retrieve with the full model: `focal=` with `collection=` set to the instrument's
+aperture. In the companion papers' simulated TG-FROG instrument this recovers a
+1.05 fs pulse to within 3 % at every substrate thickness from 1 to 40 µm through a
+0.5 mm collection hole, and its fixed-field trace predictions agree to 0.03–0.2 %
+rms of peak ([validation](../explanation/validation.md)). The alternative is to open
+the aperture until the extended model's full-collection premise holds, as far as
+pump leakage allows.
 
 ## When it matters
 
-Compare two numbers at the carrier:
+Compare two numbers at the carrier. On this page $\omega$ is the absolute optical
+angular frequency; $\Omega=\omega-\omega_0$ is the centred frequency of croak's grids.
 
 | quantity | expression | reference instrument at 260 nm |
 |---|---|---|
@@ -21,14 +32,14 @@ Compare two numbers at the carrier:
 | aperture k half-width | $(\omega/c)(D_\text{hole}/2)/z_\text{mask}$ | 6.04e4 rad/m |
 
 If the aperture is comparable to or wider than the footprint, the incoherent sum is
-fine. Here it is **six times narrower** — about 3 % of the solid angle — so the
+adequate. Here it is **six times narrower** — about 3 % of the solid angle — so the
 instrument sits far closer to the coherent limit than to the incoherent one, and the
 collection model is not a refinement.
 
 The other way to see it: a disc of k half-width $\kappa_a$ correlates the focal plane
 over an Airy kernel whose first null is at $3.83/\kappa_a \approx 63\,\mu\text{m}$,
 while the region that actually emits (where
-the arrival offsets $p, \vartheta$ stay inside the pulse duration) is only 15–30 µm
+the arrival offsets $p, \delta$ stay inside the pulse duration) is only 15–30 µm
 across. The detector cannot resolve the smearing it is supposed to average over.
 
 ## The quick version
@@ -61,10 +72,9 @@ res = croak.retrieve(
 )
 ```
 
-`focal=` is already accepted by `lbfgs-ad`, `warm-lbfgs`, `lm`, `lm-optx`,
-`lbfgs-optx` and `cma-es`, and the aperture rides on the mixture — so nothing else in a
-retrieval script changes. Leaving `collection` unset keeps the full-beam incoherent sum
-the model has always used.
+`focal=` is accepted by `lbfgs-ad`, `warm-lbfgs`, `lm`, `lm-optx`,
+`lbfgs-optx` and `cma-es`, and the collection aperture is part of the mixture configuration. Leaving `collection` unset keeps the full-beam incoherent sum
+of local intensities.
 
 The same object passes through the high-level entry points: both
 `croak.pipeline.retrieve_from_tracedata(td, ..., focal=mixture)` and
@@ -106,9 +116,11 @@ reimaged = aperture_from_scan("scan.h5", mode="reimaged")     # Iω_win_reimaged
 ```
 
 This resolves the simulator's `"default"` apodisation width from the file's own
-transverse k-grid, which matters: for the reference instrument it is **96.9 µm on a
+transverse k-grid, which matters: for a soft-edged window it can be **96.9 µm on a
 500 µm hole** — an edge 19 % of the diameter, passing 0.994 at the centre and still
-0.006 at $r = D$. Treating that window as a top hat is a large error, not a rounding one.
+0.006 at $r = D$. Treating that window as a hard hole is a large error, not a rounding
+one. Other scans record a hard-hole integration weight instead, so read the window
+from each file.
 {class}`~croak.io.MaskWindowSpec` is the raw record, and
 {attr}`SimulatedScan.mask_window <croak.io.SimulatedScan>` carries it.
 
@@ -126,9 +138,15 @@ everything the hole passes. The reference simulator's `Iω_win`, and the usual c
 at the focal origin, i.e. a spectrometer fed by an on-axis re-imaged pixel. The fully
 coherent limit (`Iω_win_reimaged`).
 
+For a physical amplitude transmission $W$, the integrated observable uses
+$|W|^2$ and the reimaged observable uses $W$ inside the coherent sum. A numerical
+hard-hole **quadrature weight** is different: it approximates an area integral
+and enters once. `weighting="quadrature"` records that distinction. Squaring a
+quadrature taper as though it were a physical transmission changes the aperture.
+
 ## Where the aperture has to be centred
 
-Phase matching sends the signal out along $\mathbf k_1+\mathbf k_2-\mathbf k_3$, which
+At the degenerate carrier, the paraxial geometry places the selected signal along $\mathbf k_1+\mathbf k_2-\mathbf k_3$, which
 maps back to the mask position $\mathbf r_s=\mathbf r_1+\mathbf r_2-\mathbf r_3$ — the
 fourth BOXCARS corner. In the carrier-removed frame the aperture therefore sits at
 
@@ -149,9 +167,27 @@ from croak.collection import aperture_offset
 assert np.abs(aperture_offset(mixture)).max() < 1e-9   # collecting on phase matching
 ```
 
-This is why {func}`~croak.focal.focal_mixture` now records its `arms`: the incoherent sum
-needed only the arm *differences* that make $(p,\vartheta)$, but the aperture needs to
+{func}`~croak.focal.focal_mixture` records its `arms` because the incoherent sum
+needed only the arm *differences* that make $(p,\delta)$, but the aperture needs to
 know where the signal actually goes.
+
+For broadband mixing, the carrier's fourth-corner construction does not make
+every participating frequency triplet exactly phase matched. Absolute optical
+frequency determines aperture mapping and its area Jacobian. The spatial phase
+restored from the local timing reduction uses baseband frequency $\Omega$.
+
+### Geometric clearance
+
+For holes of input diameter $D$ at $(\pm d,\pm d)$, adjacent centres are separated
+by $2d$. A circular collection hole centred at the signal corner avoids overlap
+with an adjacent input hole only if
+
+```{math}
+D_{\rm coll}/D\leq 4d/D-1.
+```
+
+This is geometric clearance, not a guarantee against diffracted pump leakage or
+aberrations. Increasing collection must be tested against the actual background.
 
 ## Cost and quadrature
 
@@ -169,36 +205,20 @@ sampling, raise it before adding an aperture.
 
 ## Where it stops being right: the depth integral
 
-croak's depth quadrature is **one-dimensional**. Signal generated at every depth in the
-slab is added with the *same* transverse phase — that is, fully coherently in
-transverse wavevector. In a real 3-D instrument it is not: diffraction, Gouy phase and
-the crossing beams' walk-through decorrelate one depth from the next. A coherent
-collection model built on a fully coherent depth sum is therefore **too coherent**, and
-increasingly so the thicker the slab.
+The entrance-profile model assigns each depth the same transverse profile.
+This neglects input diffraction, beam walk and changes in local overlap. The
+exit signal also acquires a transverse propagation phase. These are separate
+approximations; the options below address different parts of them.
 
-That is measurable. At the known truth on the reference 3-D traces, with the residual
-quoted against the reduced kernel at scale 1 (no fitted parameter on either side, and
-`depth_transverse` — below — **off**):
-
-| slab thickness | 1 µm | 2 µm | 4 µm | 9.5 µm | 20 µm | 40 µm |
-|---|---|---|---|---|---|---|
-| `focal` (no aperture) | +3.0 % | +14.0 % | +20.1 % | +29.7 % | +38.1 % | +39.0 % |
-| `focal` + `collection` | +2.3 % | −10.0 % | **−23.6 %** | −4.4 % | +20.5 % | +29.8 % |
-
-The incoherent model is uniformly worse and gets steadily worse with depth. The
-apertured one is a large improvement up to about 10 µm — on the 1 fs coherent window it
-beats even the *scale-fitted* reduced kernel — then decays and crosses over. Scanning a width
-scale on the mixture's own $(p,\vartheta)$ confirms the direction: before the aperture
-the data prefer 0.75–0.90 (a narrower blur), after it 1.10–1.20 (a wider one).
-
-**Practical rule.** Use `collection=` for slabs up to roughly 10 µm — which includes the
-9.5 µm experimental substrate — and expect it to over-correct beyond that. The
-crossover is not a property of the aperture; it is the depth integral's missing
-transverse decoherence, and it will move with the beam geometry.
+With the entrance-profile model and the instrument's collection aperture, the full
+model already retrieves the simulated 1–40 µm series accurately (see
+[validation](../explanation/validation.md)). The options below are opt-in
+refinements for thicker slabs or tighter focusing; refine the depth and transverse
+quadratures for the field and geometry being modelled.
 
 ### `depth_transverse`: modelling the missing decoherence
 
-The leading part of that missing physics now has an optional, **parameter-free** model.
+The exit propagation phase can be included without adding a fitted parameter.
 Signal generated at depth $z$ accumulates, over the remaining slab, the transverse
 phase the on-axis propagator $e^{i\beta(L-z)}$ leaves out,
 
@@ -233,7 +253,7 @@ model it refuse loudly. Notes:
   `"integrated"` window much wider than the signal footprint (a large chromatic hole,
   or a `chromatic=False` window covering the whole k grid — with the flag off that
   route reproduces `collection=None` exactly, by Parseval).
-* **v1 caveats.** The full $k_z$ square root is used (no paraxial expansion) with the
+* **Assumptions.** The full $k_z$ square root is used (no paraxial expansion) with the
   full Sellmeier $n(\omega)$; the input beams still propagate on-axis — only the
   generated signal's exit propagation is corrected. The *input*-side repair (evolved,
   walked, per-arm filters) is the depth-resolved mixture below, and the two compose.
@@ -251,17 +271,13 @@ model it refuse loudly. Notes:
   `"reimaged"` shifts — asserted in `tests/test_depth_transverse.py`, pinning where
   the phase sits relative to the modulus.
 
-Whether this closes the measured over-correction above is a question for the 3-D
-reference traces, not for internal validation; the table above is the flag-off
-baseline it will be judged against.
+These tests check the calculation; check agreement with your instrument by
+comparing the predicted trace at a fixed known field.
 
 ### fc-z: the depth-resolved mixture (`evolve_profiles`)
 
-`depth_transverse` corrects the generated signal's *exit*; measurement on the 3-D
-references localised the dominant missing physics to the *entrance* side — the
-chromatic beamlet profiles evolve linearly through the slab, each arm about its own
-walked axis, where every entrance-face model freezes them. The depth-resolved
-mixture repairs exactly that, with no free parameters:
+`depth_transverse` changes exit propagation. The depth-resolved mixture also
+evolves each input beamlet profile through the slab about its walked axis:
 
 ```python
 mixture = focal_mixture(
@@ -288,53 +304,37 @@ conventions. Notes:
 * The slab parameters on the mixture must **match** the trace map's
   (`material`/`thickness`/`npoints`/`quadrature`) — the per-depth filters must sit on
   the same depth nodes as the propagation phases; a mismatch raises.
-* PG only; `fit_thickness` is not supported in v1; `depth_transverse` composes
+* PG only; `fit_thickness` is not supported; `depth_transverse` composes
   orthogonally (default off).
 * **Cost ≈ fc.** The focal path already batch-FFTs over the depth axis, so the
   per-depth filters slot into the existing $(N, Q)$ multiply; new cost is a
   seconds-level numpy build of the $(3, K, Q, N)$ filter table at model
   construction (~10–50 MB at production shapes).
-* **Measured verdict.** On the 3-D reference traces the evolved-filter
-  construction produces essentially no gate-vs-probe advance (+0.001 fs where
-  −0.19 fs is required, matching the analytic walk-channel estimate): the
-  measured advance is NOT separable into per-node evolved filters, so fc-z is
-  a validated upper bound on that channel rather than a repair of the
-  at-truth residual. The internal validation below is unaffected.
-* **Validation** (`tests/test_fcz.py`, in order): a zero-evolution table is
-  bit-identical to the entrance filter and reduces the trace at machine precision;
-  the evolved profile matches an independent plane-wave-superposition propagator to
-  1e-6 of peak at 40 µm across the band (plus a 2-D FFT orientation check); the
-  evolved $|A_1A_2A_3|^2$-weighted moments reproduce the measured three-beam
-  overlap/centroid/$\langle\vartheta\rangle$/$\langle p\rangle$ table of the beamlet
-  companion analysis (walk sign, arm order and conjugation are pinned by
-  measurement, not argument); the Gaussian-control geometry is a null; and the
-  trace stays differentiable.
+* **Validation.** The evolved profile matches an independent plane-wave propagator
+  to 10⁻⁶ of peak, a zero-evolution table reproduces the entrance filter exactly,
+  and the Gaussian control is a null (`tests/test_fcz.py`; see the
+  [developer validation guide](../developer_guide/validation.md)).
 
-## Only PG (TG), for now
+(only-pg-tg-for-now)=
+## Supported interactions
 
-The phase the incoherent sum discards is $\omega p$ for PG and $-\omega\vartheta$ for SD
-— in both cases $\omega$ times one of the two reduced smearing parameters, so the
-$(p,\vartheta)$ reduction is sufficient for an apertured instrument and not just a fully
+The phase the incoherent sum discards is $\Omega p$ for PG and $-\Omega\delta$ for SD
+— in both cases the centred frequency $\Omega$ times one of the two reduced smearing
+parameters, so the $(p,\delta)$ reduction is sufficient for an apertured instrument and not just a fully
 collected one. Only the PG case is derived and validated, so an SD interaction with a
 collection aperture raises rather than quietly using the wrong sign.
 
-That $\omega$ is the **centred** (envelope) frequency while the aperture's own position
-scales with the absolute one, which is the single easiest thing to get wrong here and the
-one mistake every internal consistency check misses — see the warning in
+$\Omega$ is the **centred** (envelope) frequency while the aperture's own position
+scales with the absolute one $\omega_\text{abs}=\omega_0+\Omega$, so the two must be
+kept distinct — see the warning in
 {mod}`croak.collection`.
 
 ## Checking it
 
 Two properties are worth asserting on your own geometry, and both are in
-`tests/test_collection.py`:
-
-* **Parseval.** On a Cartesian focal grid with an unbounded aperture the model must
-  return the incoherent sum exactly. Getting the $1/(2\pi)^2$ or the area weights wrong
-  shows up here and nowhere else.
-* **A dense 2-D FFT.** Building the focal field from the arm tilts directly, taking a
-  plain transverse FFT and windowing it in k reproduces the quadrature model with no
-  fitted scale (asserted at 2e-3 of peak at the default test resolution; the 3e-7
-  figure quoted elsewhere is the mixture-quadrature convergence at `n_azimuth=16`,
-  a different check). The per-depth variant of the same reference — exact
-  $k_z(\omega,k_\perp)$ propagation of every depth node's signal to the slab exit —
-  validates `depth_transverse` to 1.4–5.7e-5 of peak and pins its sign.
+`tests/test_collection.py`: with an unbounded aperture on a Cartesian focal grid the
+model must return the incoherent sum exactly (Parseval), and a dense 2-D FFT of the
+focal field windowed in k must reproduce the quadrature model with no fitted scale.
+Then increase the focal, aperture and depth quadratures until the trace stops
+changing. The reference tests are described in
+[numerical validation](../developer_guide/validation.md#collection-reference-tests).

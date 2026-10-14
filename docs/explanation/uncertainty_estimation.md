@@ -1,14 +1,15 @@
 # Uncertainty of the retrieved pulse duration
 
-From a single TG-FROG measurement croak retrieves a complex field $\tilde E(\omega)$, and
-from it the FWHM of the temporal intensity $|E(t)|^2$. A natural question follows: *what
-is the error bar on that number?* Can we honestly write **"1.4 ± 0.2 fs"** for the FWHM,
-and is there a rigorous statistical procedure — a bootstrap — that earns the "± 0.2 fs"?
+An uncertainty analysis asks how a retrieved quantity changes when the uncertain
+inputs change. For FWHM, those inputs may include detector noise, sampled data,
+substrate thickness and other calibrations. This chapter explains the statistical
+assumptions and limitations; the [practical guide](../howto/uncertainty.md) and
+[worked thickness example](../examples/thickness_uncertainty.md) show the calls.
 
-This page analyses what is and is not possible from a **single** trace. The short answer
-is *yes, a statistically meaningful random-error bar is obtainable* — and the FWHM is an
-unusually well-behaved quantity to bootstrap — *but* the number it produces is a
-**lower bound** on the true uncertainty, and quoting it responsibly takes some care.
+Single-trace resampling gives a **conditional estimate**. It does not automatically
+include calibration or model error, guarantee coverage, or provide a mathematical
+lower bound on total uncertainty. An incorrect noise model or failed replicate
+optimisation can make the spread too large or too small.
 
 ```{note}
 This is the *why*; for the *how* see the how-to,
@@ -24,7 +25,8 @@ intervening dispersion (see [Propagating the uncertainty to a different beamline
 point](#propagation) below).
 ```
 
-## The short answer, and its four conditions
+(the-short-answer-and-its-four-conditions)=
+## Conditions for interpretation
 
 A single-trace bootstrap gives a defensible error bar **only** when:
 
@@ -39,24 +41,25 @@ A single-trace bootstrap gives a defensible error bar **only** when:
    pulses it is not, and the bootstrap distribution reveals that.
 
 Granted these, one may write **"1.4 ± 0.2 fs (1σ statistical; systematic uncertainty not
-included)"**. The gold standard for *total* uncertainty is still repeated independent
-measurements; single-trace resampling yields the statistical component alone.
+included)"**. Repeated acquisitions test measurement variability, but shared calibration
+biases can persist across all of them. A total uncertainty budget also needs the
+calibration and model systematics.
 
 ## Why this is even possible — the statistical structure of FROG
 
-**The problem is heavily overdetermined.** A trace carries $N_\omega \times N_\tau$ points (typically
-$10^3$–$10^5$) constraining $\sim 2N$ unknowns for a pointwise field, or only $\sim 10$–$30$
-for a dispersive/B-spline phase. The data vastly outnumber the unknowns, noise on
-individual pixels averages down, and *that redundancy is what makes resampling
-informative* — dropping or perturbing a fraction of the data still leaves the solution
-well-determined, and how far it then moves measures the information content.
+**The trace contains redundant measurements.** Its number of pixels can exceed
+the number of field parameters, but pixel count alone does not establish
+identifiability. Correlated noise, spectral support, fitted row gains and nearly
+null parameter directions can reduce the information. Resampling probes
+sensitivity within the chosen data and model assumptions.
 
 **FWHM is gauge-invariant.** FROG has trivial ambiguities the
 trace cannot fix. For SHG-FROG these are the absolute time origin, the carrier–envelope
-phase (CEP), *and* the direction of time $E(t)\leftrightarrow E(-t)$. **TG-FROG — the PG
+phase (CEP), *and* the direction of time $E(t)\leftrightarrow E^*(-t)$. **TG-FROG — the PG
 kernel $E(t)\,|E(t-\tau)|^2$, `interaction="pg"` in croak — breaks the time-reversal
-ambiguity**, a genuine advantage over SHG. The remaining freedoms (translation, CEP) do
-not change $|E(t)|^2$, and even a time flip preserves the FWHM. So the FWHM of the
+ambiguity** for general fields, although special cases and incomplete data
+can remain ambiguous. CEP does not change $|E(t)|^2$; translation moves the profile without
+changing its width. A time flip also preserves the FWHM. So the FWHM of the
 intensity envelope is a **well-defined scalar statistic with no gauge alignment
 required** — unlike per-time or per-frequency *field* error bands, which would need each
 replicate aligned (remove linear spectral phase → time shift; remove constant phase →
@@ -65,9 +68,8 @@ makes the FWHM a clean target for resampling.
 
 **No closed-form propagation in general.** Retrieval is a nonlinear inverse map; there is
 no exact analytic propagation from trace noise to FWHM. Resampling / Monte-Carlo is the
-practical route. Only for a *low-dimensional* parameterisation does a local linearisation
-(the [Laplace / Cramér–Rao route](#method-c))
-become available.
+practical route. A local linearisation is also possible (the [covariance route](#method-c)),
+but is often more stable in a justified low-dimensional parameterisation.
 
 ## What an error bar can and cannot mean
 
@@ -88,8 +90,8 @@ Decompose the total uncertainty of the quoted FWHM into four parts:
   Taylor model) cannot represent structure it does not include; resampling *within* the
   model is blind to the missing degrees of freedom and **underestimates**.
 
-**Consequence:** the resampling interval is a *lower bound* on the total uncertainty and
-must be labelled "statistical." A credible duration quote pairs it with a separate,
+**Consequence:** label the resampling interval by what was varied. It omits
+unvaried error sources, but is not guaranteed to be a lower bound on total uncertainty. A credible duration quote pairs it with a separate,
 explicit **systematic budget** — or states plainly that systematics are excluded.
 
 Three resampling estimators are available. They answer slightly different questions and
@@ -126,7 +128,7 @@ sampling of the MLE's sampling distribution.
   - **Conditions on the best fit being truth**: the interval is *centred* on a possibly
     biased point. It is a *width*, not a *bias*, estimate.
 * - Handles arbitrary, **signal-dependent** noise (per-pixel Poisson + read) naturally.
-  - **Only as good as the noise model** — garbage in, garbage out.
+  - **Depends on the noise model** and its calibration.
 * - Works identically for **COPRA and LBFGS** (any solver), thin or dispersive.
   - Cost: $B$ full retrievals (mitigated by warm-starting and JAX batching).
 * - Reuses `RetrievalResult.trace`, an `_add_noise`-style step and warm-start `guess=`.
@@ -143,49 +145,43 @@ replicate through the *same* preprocessing pipeline — at higher cost per repli
 
 ## Method B — weighted / leave-out data bootstrap
 
-This is the classic FROG bootstrap introduced by Wang, Zeek, Trebino & Kvam (2003):
-resample the *measured* data and re-retrieve, with **no explicit noise model**. Both forms
-below ride on the per-pixel `weights` argument every croak solver already accepts (built by
-{func}`croak.solver.build_weights` and honoured by the COPRA / LBFGS / LM residuals):
+Data resampling estimates sensitivity to the observed measurement units without
+specifying a parametric detector-noise distribution. It still assumes that the
+chosen units and resampling scheme represent the variability of interest.
 
-- **Leave-out (jackknife-like).** Zero the weight of a random fraction $f$ of pixels each
-  replicate; the retrieval simply ignores them. The spread over draws is the error
-  estimate.
-- **Multinomial / Poisson weights (true nonparametric bootstrap).** Draw integer pixel
-  multiplicities $w_i \sim \text{Multinomial}(N, 1/N)$ (or $\text{Poisson}(1)$) and run
-  the *weighted* retrieval — exactly Efron's resample-with-replacement, expressed through
-  the weight vector.
+croak implements **delay-column** and **frequency-row** resampling, with
+replacement or leave-out variants. Delay resampling rebuilds the selected delay
+columns; frequency resampling uses multiplicities through residual weights
+$\sqrt{k_n}$, so a row sampled $k_n$ times contributes $k_n r_n^2$ to the loss.
+The standard retrieval interface accepts per-frequency weights, not an arbitrary
+per-pixel weight matrix. These details matter when translating general bootstrap
+formulae into a supported calculation.
 
-**Interpretation.** A nonparametric bootstrap over measurement units: it estimates how
-sensitive the solution is to *which* data you happen to have, assumes nothing about the
-noise distribution, and does **not** assume the best fit is truth.
+Whole-column resampling retains within-exposure correlations when a column is a
+measurement unit. Adjacent exposures may also be correlated, and scanning drift
+is not automatically represented. Filtering and interpolation introduce further
+correlation. A leave-out fraction changes the experiment being approximated and
+must be reported; a raw leave-out spread is not automatically a calibrated
+standard error. Resampled delays can be nonuniform or repeated, which is
+incompatible with models requiring a uniform delay convolution. Use a supported
+parametric route for such models and retain the original settings.
 
-```{list-table}
-:header-rows: 1
-:widths: 50 50
-
-* - Advantages
-  - Disadvantages
-* - **No noise model required** — assumption-light; a strong cross-check on Method A.
-  - **Pixels are not i.i.d.**: neighbours are correlated through the FFT structure and the
-    marginals, so the reported variance is only *approximately* the noise-induced one.
-* - Reuses the existing `weights` argument; no new forward/noise code.
-  - The **resampling unit is ambiguous** (see block-bootstrap note below).
-* - Robust; does not condition on the fitted model.
-  - Does not model **signal-dependent** noise (background and peak pixels resampled alike).
-* -
-  - The leave-out fraction $f$ is a free knob; results drift with it.
-```
-
-```{tip}
-For a **delay-scanned** TG-FROG, each delay column is one laser exposure, so shot-to-shot
-energy/pointing fluctuations are correlated *within a column*. A **block bootstrap over
-whole delay columns** (resample columns, not pixels) respects that correlation and is more
-appropriate for scanned data; per-pixel resampling underestimates it.
-```
+The method can be compared with parametric resampling, but agreement does not
+validate assumptions shared by both. See Wang *et al.* in
+[references](../reference/bibliography.md) for the FROG bootstrap background.
 
 (method-c)=
 ## Method C — Laplace / Jacobian covariance (for dispersive retrieval)
+
+The current covariance interface supports the core model and reduced smearing,
+but does not expose chromatic focal/collection models, depth weighting or
+`delay_origin="marginal_peak"`. Do not use a covariance built from a different
+model as the uncertainty of the original retrieval. The Jacobian omits
+regularisation curvature; penalised fits need additional care. With an explicit
+noise model, residual whitening currently replaces the residual weights,
+although those weights still enter the fitted gain. See the
+{func}`~croak.covariance.parameter_covariance` notes.
+
 
 When the phase is retrieved in a **low-dimensional basis** — croak's cubic **B-spline
 phase** (`phase_basis="bspline"`, ~20 control points) or an effective GDD/TOD/FOD Taylor
@@ -201,14 +197,14 @@ approximation gives the parameter covariance directly:
 ```
 
 where $J=\partial r/\partial\theta$ at the optimum, $n$ is the number of (weighted) data
-points and $p=\dim\theta$. For Gaussian noise this is the inverse **Fisher information** —
-the **Cramér–Rao bound**, the best precision any unbiased estimator of $\theta$ can
-achieve. croak *already computes $J$*: {class}`~croak.lm.LM` (and
+points and $p=\dim\theta$. For an identifiable Gaussian-noise model, the Fisher information supplies a
+local precision bound under regularity conditions. The estimated inverse Hessian
+is an approximation to sampling covariance, not a guarantee that an estimator
+attains that bound. croak *already computes $J$*: {class}`~croak.lm.LM` (and
 {class}`~croak.optimistix_lm.OptxLM`) build `jax.jacfwd` of
 {func}`croak.metrics_jax.residual_vector`. {func}`~croak.covariance.parameter_covariance`
 rebuilds that residual at the retrieved spectrum and forms the covariance; because it is
-reconstructed from the spectrum and the JAX forward model it works for *any* result, not
-only an LM one — the least-squares algorithm only decides whether $J$ is exposed *natively*.
+reconstructed from the spectrum and the JAX forward model it can analyse a non-LM result whose model and parameterisation are supported — the least-squares algorithm only decides whether $J$ is exposed *natively*.
 
 **Whitening and scale.** With the residual divided pixel-by-pixel by a
 {class}`~croak.uncertainty.NoiseModel` σ, the scale is absolute, $\hat\sigma^2=1$ and
@@ -219,15 +215,18 @@ reduced-χ² estimate {eq}`laplace`.
 **Gauge degeneracy.** FROG's continuous trivial ambiguities — the absolute phase (CEP) and
 the absolute timing (a linear spectral phase) — are *flat directions* of the objective, so
 $J^\top J$ is **rank-deficient**. croak uses the pseudo-inverse (eigenvalues below `rcond` ×
-the largest are dropped); the null space carries no variance for any **gauge-invariant**
-quantity (FWHM, $|\tilde E(\omega)|^2$, the temporal intensity), whose gradient is
-orthogonal to it. {attr}`CovarianceResult.null_dim <croak.covariance.CovarianceResult>`
+the largest are dropped); known gauge directions do not change gauge-invariant quantities such as FWHM
+and spectral intensity. A temporal profile must be aligned before comparison.
+Other discarded directions may represent weakly identifiable physical changes;
+setting their covariance to zero can understate uncertainty. Inspect rank and
+sensitivity to the pseudoinverse cutoff. {attr}`CovarianceResult.null_dim <croak.covariance.CovarianceResult>`
 reports its dimension.
 
-**Propagate to FWHM by posterior sampling.** croak draws $\theta^{(k)}\sim\mathcal
+**Propagate to FWHM by local Gaussian sampling.** croak draws $\theta^{(k)}\sim\mathcal
 N(\hat\theta,\operatorname{Cov})$ and evaluates $\text{FWHM}(\theta^{(k)})$ for each — *no
 re-retrieval*, just forward field evaluations through the same B-spline → field → FWHM path
-(the gauge null modes carry zero variance, so the draws never jitter the CEP or timing).
+Discarded parameter directions carry zero covariance in this local approximation;
+align profiles before comparing them.
 This sidesteps the FWHM's non-differentiability (interpolated half-max crossings, which
 make a first-order delta method fragile), captures the curvature of the field → FWHM map,
 and returns a full {class}`~croak.uncertainty.UncertaintyResult` (`method="covariance"`) —
@@ -240,21 +239,21 @@ plotting apply.
 
 * - Advantages
   - Disadvantages
-* - **Near-instant** — one Jacobian + cheap sampling, no re-retrieval; ideal for
-    interactive use and as the analytic cross-check on A and B.
+* - **No repeated retrieval** — one Jacobian and parameter sampling; cost
+    still depends on grid and parameter dimension.
   - **Local (Laplace) approximation** — under-represents skew/non-Gaussianity for
     multimodal/skewed posteriors (low SNR, near an ambiguity, near the transform limit).
-    There the bootstrap is the reference.
-* - Rigorous for the parameterised model under the local-Gaussian assumption — exactly the
-    NLLS/MLE regime of [Retrieval theory](retrieval_theory.md).
+    Resampling can probe departures, but also needs a suitable noise model and coverage checks.
+* - Gives a local approximation for an identifiable model under the stated
+    noise assumptions; see [retrieval theory](retrieval_theory.md).
   - **Inherits the parameterisation's model bias**: it answers "how well is *this model*
     determined," not "how well is the true pulse known."
 * - Gives the **full parameter covariance** at once — error bars on every derived quantity
     (spectral phase/intensity, GDD/TOD/FOD, the propagated pulse) fall out of one matrix.
-  - $J^\top J$ can be **ill-conditioned**; the P-spline penalty (`reg_phase`) regularises
-    it but then biases $\hat\theta$ — an explicit bias/variance trade-off.
-* - Best in a **low-dimensional basis** (`phase_basis="bspline"`), where it agrees with the
-    bootstrap to within a small factor.
+  - $J^\top J$ can be **ill-conditioned**. The current covariance omits penalty
+    curvature; regularisation in the original fit can also bias $\hat\theta$.
+* - A **low-dimensional basis** (`phase_basis="bspline"`) can improve conditioning;
+    compare with a suitable bootstrap rather than assuming agreement.
   - For a full **pointwise** retrieval ($p\sim 2N$) the many soft (poorly constrained)
     modes dominate and the estimate is unstable; degenerate draws are dropped, but prefer A,
     B, or the B-spline basis there.
@@ -270,16 +269,16 @@ input: the **substrate thickness** $L$, through which the model propagates the f
 is measured independently with an error bar, $L\sim\mathcal N(L_0,\sigma_L)$ — e.g.
 $9.952\pm0.539$ µm — the retrieved field, and hence its FWHM, inherits a systematic
 uncertainty. For short, deep-UV pulses (≈1 fs, ≈230 nm) the dispersion of even a few
-hundred nm of silica is significant, and this term routinely **dominates** the
-statistical one of Methods A/B.
+hundred nm of silica is significant, and this term can dominate the statistical
+one of Methods A/B: in the [thickness-uncertainty example](../examples/thickness_uncertainty.md)
+(a 3 fs pulse through 100 ± 5 µm of silica) it is about six times larger.
 
 **Procedure** ({func}`~croak.uncertainty.thickness_bootstrap`). A brute-force Monte-Carlo
 over the *measured prior*: for $b=1\dots B$ draw $L_b\sim\mathcal N(L_0,\sigma_L)$ (clipped
 at 0), rebuild the dispersive forward model at $L_b$, **re-retrieve the same measured
 trace** (warm-started from the $L_0$ solution), and take the spread of
 $\{\text{FWHM}_b\}$. It is the systematic complement to Method A: A perturbs the *data*
-and holds the model fixed; D perturbs the *model* and holds the data fixed. The two are
-independent and add in quadrature, $\sigma_\text{tot}^2=\sigma_\text{stat}^2+\sigma_L\text{-induced}^2$.
+and holds the model fixed; D perturbs the *model* and holds the data fixed. If their effects are independent and approximately Gaussian, their variances add, $\sigma_\text{tot}^2=\sigma_\text{stat}^2+\sigma_L\text{-induced}^2$.
 
 ```{list-table}
 :header-rows: 1
@@ -287,27 +286,26 @@ independent and add in quadrature, $\sigma_\text{tot}^2=\sigma_\text{stat}^2+\si
 
 * - Advantages
   - Disadvantages
-* - Promotes the usually-*dominant* systematic into a defensible, quotable number from an
+* - Promotes the specified calibration contribution into a defensible, quotable number from an
     existing measurement (the substrate metrology).
   - Covers **only** the thickness systematic — calibration, geometry and model mismatch
     remain outside the budget.
 * - Assumption-light: just the measured Gaussian prior pushed through the *exact* forward
     model and retrieval (no linearisation).
   - Cost: $B$ full retrievals, each rebuilding the dispersion model (thickness is a
-    *constructor* parameter), so dearer per replicate than Method A.
+    *constructor* parameter), so potentially more expensive per replicate than Method A.
 * - Bonus diagnostic: the **FROG error vs thickness** curve reveals whether the data
     itself constrains $L$ (a clear minimum) or not (flat ⇒ the full prior propagates).
-  - A raised error in the prior's tails is *physical misfit*, not stagnation — so the
-    usual convergence filter must be **disabled** (it would clip the distribution).
+  - A raised error in the prior's tails is mostly *physical misfit*, not stagnation, so
+    the usual convergence filter is disabled (`convergence_tol=1e9`); only failed
+    (non-finite) draws are dropped. Inspect convergence yourself.
 ```
 
 ```{note}
-Because an off-nominal thickness genuinely fits the trace worse, the per-draw FROG error
-$R(L)$ is informative in its own right. If $R(L)$ has a clear minimum inside the prior,
-the trace *partially constrains* the thickness and the propagated error is conservative;
-a combined data-plus-prior treatment (a thickness posterior from $R(L)$) could tighten it.
-croak propagates the external measured prior as-is — the honest, conservative choice when
-the thickness was measured independently.
+The per-draw trace error $R(L)$ is a diagnostic: if it has a clear minimum inside the
+prior, the trace itself *partially constrains* the thickness, and a combined
+data-plus-prior treatment (a thickness posterior from $R(L)$) could tighten the
+interval. croak propagates the external measured prior as specified.
 
 The **data-driven alternative** is to *fit* the thickness as a retrieval parameter
 (`fit_thickness=True` on `lbfgs-ad`/`lm`; see [Fitting the medium thickness and
@@ -345,7 +343,7 @@ domain; the errors are strongly correlated across frequency and between amplitud
 phase. The correct procedure propagates the **full joint distribution**. The bootstrap
 already produces an ensemble of complete spectra carrying those correlations, so applying
 the *same* $H(\omega)$ to each replicate (or, for Method C, to each posterior draw) and
-re-taking the FWHM/band is exact — pass `propagation=H` to any estimator
+re-taking the FWHM/band preserves correlations within that ensemble — pass `propagation=H` to any estimator
 ({func}`~croak.uncertainty.parametric_bootstrap`,
 {func}`~croak.uncertainty.resampling_bootstrap`,
 {func}`~croak.uncertainty.thickness_bootstrap`,
@@ -357,10 +355,10 @@ What this does and does not capture:
   unchanged; only the temporal shape and its uncertainty move. Nothing is lost in the
   operation itself.
 - Near a transform-limited target the pulse is short and the FWHM becomes very sensitive to
-  residual phase error, so the *relative* FWHM uncertainty **grows** — real physics the
-  ensemble captures correctly.
+  residual phase error, so the relative FWHM uncertainty can change substantially; evaluate it from the
+  propagated ensemble rather than rescaling a single error bar.
 - Removing a mirror divides by its reflectivity $a(\omega)$ (clamped near reflectivity
-  dips); back-propagating through deep notches genuinely amplifies noise there.
+  dips); back-propagating through deep notches amplifies noise there.
 - $H(\omega)$ cannot create energy where the FROG constrained none — frequencies outside
   the retrieved support stay unconstrained.
 - The intervening dispersion is taken as **exactly known**: the propagated bar excludes the
@@ -382,17 +380,16 @@ $r=T_\text{meas}-\mu\,T_\text{sim}$ after a good retrieval.
   *signal dependence* by binning the residual variance against the model level
   $\mu T_\text{sim}$ (read-noise intercept + shot-noise slope).
 - *Disadvantages.* The residual is **noise + model misfit**, so a wrong forward model
-  *overestimates* noise (conservative — not the worst failure mode). The fit also absorbs
-  a little noise, biasing $\hat\sigma^2$ down by $\sqrt{1-p/n}$ — negligible when $p\ll n$
-  (pointwise) but not for a tiny dispersive $p$, where the $n-p$ denominator in
-  {eq}`laplace` matters.
+  *can overestimate* noise without necessarily giving conservative coverage. The fit also absorbs
+  a little noise, biasing $\hat\sigma^2$ down by approximately $1-p/n$ for the variance in a simple linear fit. Effective rank,
+  fitted gains and regularisation complicate this correction in a retrieval.
 
 **(b) From a raw-trace background region** — read-noise $\sigma$ from a signal-free corner
 of the *unfiltered* trace.
 
 - *Advantages.* A clean, fit-independent estimate of **detector read noise**.
 - *Disadvantages.* Captures **only additive read noise**, not the shot noise on the signal
-  where the pulse information lives. Needs the raw trace and a genuinely signal-free
+  where the pulse information lives. Needs the raw trace and a signal-free
   region. And because filtering/regridding **alters the noise statistics**, a $\sigma$
   measured pre-filter does not describe the post-filter trace — estimate noise in the
   domain where it will be injected (the raw-domain caveat of Method A again).
@@ -415,10 +412,11 @@ push it through the same preprocessing** as the measurement.
 - **Point estimate** — the full-data best-fit FWHM (preferred) or the bootstrap median.
 - **Interval** — percentiles of $\{\text{FWHM}_b\}$: 16th–84th for a "±" 1σ-equivalent,
   2.5th/97.5th for 95 %. *State which.* The FWHM distribution is usually skewed (FWHM is
-  bounded below and the map is nonlinear), so prefer **BCa** (bias-corrected and
-  accelerated) intervals over naive percentiles.
+  bounded below and the map is nonlinear), so report the actual interval method. croak offers percentile and bias-corrected
+  percentile intervals; its bias correction does not estimate the acceleration
+  term of a full BCa interval.
 - **Replicate count $B$** — ~200–300 for a 1σ / standard error; ~1000–2000 for stable tail
-  quantiles. Method C needs no retrievals, so $B$ can be $10^4$ for free.
+  quantiles. Method C avoids re-retrieval but field sampling and profile storage still have a cost.
 - **Estimator hygiene** — oversample before measuring (as {func}`~croak.processing.process_result`
   does, 8×, via {func}`croak.maths.fwhm`) to suppress jitter in the half-max crossings.
 - **Report alongside the number** — the method (A/B/C), the resampling unit (pixel vs
@@ -432,17 +430,21 @@ push it through the same preprocessing** as the measurement.
 Each replicate retrieval can stagnate or fall into a different basin, and *that* variance
 is not measurement uncertainty. The warm-start policy decides which question you answer:
 
-- **Warm-start every replicate from the full-data solution** → isolates the data-induced
-  movement → a clean **precision** estimate. *Recommended for the FWHM ±.*
-- **Random-restart every replicate** → mixes in basin-hopping → *over*-estimates; this
+- **Warm-start every replicate from the full-data solution** → estimates local data-induced movement around the selected basin. *Recommended for the FWHM ±.*
+- **Random-restart every replicate** → mixes in basin-hopping → can mix optimisation and data variability; this
   answers a different question ("how reproducible is the whole pipeline, optimiser
   included").
 
-Either way, first confirm the full-data solution sits in the global basin (a
-{class}`~croak.cmaes.CMAES` or multi-start check, once), and **discard or flag** replicates
-that fail to reach $R\approx R_0$. By Geib et al. (2019) a correctly converged retrieval
-bottoms out at the **noise floor** $R_0 = $ {func}`frog_error <croak.metrics.frog_error>`
-of the noisy trace against the clean one; replicates above it are stagnation, not signal.
+First confirm the full-data solution sits in the global basin (a
+{class}`~croak.cmaes.CMAES` or multi-start check, once). Then filter replicates
+that stagnate. Methods A and B do this by default: a replicate whose trace error
+exceeds `convergence_tol` × the median replicate error (default
+`convergence_tol=3.0`) is dropped as a stagnation outlier, along with any non-finite
+result. The rule is relative to the median, so it works for both methods' error
+scales. The thickness bootstrap (Method D) disables it (`convergence_tol=1e9`),
+because there a raised error is physical. `n_converged` against `n_resamples` on the
+result shows how many replicates were kept; if more than a few were dropped,
+investigate rather than loosen the filter.
 
 ## Coverage calibration — turning a spread into a confidence interval
 
@@ -466,65 +468,36 @@ distribution) is the honest report rather than a single "±".
 
 ## Practical recommendation
 
-- **Default rigorous answer** — Method A (parametric MC bootstrap), noise from option (c),
-  or (b)+(a); warm-started; $B \sim 300$–$1000$; BCa percentiles; validated by the
-  coverage harness.
-- **Assumption-light cross-check** — Method B (weighted bootstrap, *block over delay
-  columns* for scanned data); needs no noise model.
-- **Instant cross-check & for dispersive fits** — Method C (Laplace via the
-  {class}`~croak.lm.LM` Jacobian), giving FWHM *and* GDD/TOD/FOD error bars in milliseconds.
-- **Triangulate.** Agreement of A, B and C is strong evidence. Disagreement is diagnostic:
-  A vs B → the noise model is wrong; C vs A/B → the posterior is non-Gaussian/multimodal or
-  the parameterisation is too stiff.
-- **COPRA vs LBFGS for replicates.** Both warm-start cleanly. LBFGS/LM are smoother and
-  cheaper for low-dimensional dispersive fits (and LM uniquely gives Method C for free);
-  COPRA is robust for full pointwise retrieval. The JAX twins
-  ({class}`~croak.copra_jax.COPRAJax`, {class}`~croak.lbfgs_ad.LBFGSAD`) batch replicates for
-  throughput.
+- **Default answer** — Method A (parametric bootstrap) with a measured noise model,
+  warm-started, $B \sim 300$–$1000$ replicates, bias-corrected percentiles, checked
+  with the coverage harness.
+- **Cross-check** — Method B (data bootstrap, blocked over delay columns for scanned
+  data). No noise model needed.
+- **Parameter correlations and fitted extras** — Method C (local covariance), which
+  needs no re-retrieval.
+- **Measured systematics** — Method D for the substrate thickness, combined in
+  quadrature with the statistical term.
+
+Keep the physical model and constraints of the original retrieval, increase the
+replicate count until the reported quantities are stable, and treat disagreement
+between estimators as a diagnostic.
 
 ## Verdict on "1.4 ± 0.2 fs"
 
-**Quotable — with discipline.** The "± 0.2 fs" is a legitimate *statistical* (precision)
-interval if it is coverage-calibrated (or honestly labelled as bootstrap percentiles),
-the warm-start policy is documented, the noise model is justified, and a *separate*
-systematic budget is given (or systematics are explicitly excluded). Because those
-systematics — delay/wavelength calibration, spectral response, geometry, model mismatch —
-frequently exceed the statistical part, the honest full statement is typically:
-
-> **FWHM = 1.4 ± 0.2 fs** (1σ statistical, parametric bootstrap, $B=500$, warm-started),
-> plus systematic uncertainty from calibration not captured by resampling.
-
-A single trace can never deliver the *total* uncertainty that repeated independent
-measurements would; resampling delivers the statistical lower bound on it — which is
-exactly, and only, what a careful "±" should claim.
+Report interval endpoints when the distribution is asymmetric. A useful report
+states the field plane, estimator, nominal level, replicate count, noise or prior
+source, warm-start policy and excluded uncertainties. A symmetric half-width
+should not conceal that the interval is displaced from the point estimate.
+Repeated measurements complement this analysis but do not remove shared systematic
+bias. See the [practical guide](../howto/uncertainty.md) for saving the samples and
+interval metadata.
 
 ## How it maps onto the code
 
-{mod}`croak.uncertainty` implements Methods A and B on top of existing pieces:
-
-- {attr}`RetrievalResult.trace <croak.result.RetrievalResult.trace>` and its `mu` — the
-  clean model trace simulated from, for Method A.
-- delay-column / frequency-row resampling of the measured trace (the latter via the solver
-  `weights` argument) — Method B; no per-pixel weights are needed.
-- {func}`croak.maths.fwhm` and the oversampling of
-  {func}`~croak.processing.process_result` — the gauge-invariant statistic.
-- warm-start `guess=` on every solver — to isolate measurement variance.
-- {func}`~croak.uncertainty.synthetic_experiment` +
-  {func}`~croak.uncertainty.coverage_calibration` — ground truth and coverage validation.
-- {func}`~croak.uncertainty.thickness_bootstrap` — Method D: the per-draw thickness is
-  injected into the dispersive {class}`~croak.forward.ForwardModel` constructor (rebuilt
-  each draw), the same trace re-retrieved, and the spread reported via the shared
-  assembly/interval machinery; {func}`~croak.plotting.plot_thickness_sensitivity` adds the
-  FWHM- and error-vs-thickness diagnostics.
-
-Method C (the Laplace covariance) reuses the same `jax.jacfwd` of
-{func}`croak.metrics_jax.residual_vector` as {class}`~croak.lm.LM`, rebuilt at the retrieved
-spectrum: {func}`~croak.covariance.parameter_covariance` forms
-$\hat\sigma^2(J^\top J)^{+}$ (gauge null space dropped by the pseudo-inverse), and
-{func}`~croak.covariance.covariance_uncertainty` propagates it to the FWHM/band by posterior
-sampling, returning the shared {class}`~croak.uncertainty.UncertaintyResult`. Any estimator
-takes a `propagation=H` transfer function to report at a different beamline point. See the
-how-to, [Estimating FWHM uncertainty](../howto/uncertainty.md), for usage.
+The [uncertainty API](../reference/api/workflow.md#uncertainty-analysis) documents
+the resampling functions, covariance calculation, coverage experiments and
+combination of independent contributions. Contributor workflow integration is
+covered in the [developer's guide](../developer_guide/gui_sessions.md).
 
 ## Next
 

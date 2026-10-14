@@ -2,7 +2,7 @@
 
 These plain dataclasses describe a complete retrieval — loading, preprocessing,
 retrieval, dispersion compensation and uncertainty — independently of any user
-interface. The GUI (:mod:`croak.gui`) binds its controls to them and the headless
+interface. The GUI (:doc:`/howto/gui`) binds its controls to them and the headless
 engine (:mod:`croak.session.engine`) replays them; both share this one schema, so
 a session saved from the GUI can be rerun from a script and vice versa.
 
@@ -63,12 +63,13 @@ class LoadParams:
     #: a wiring convention of the measurement, and a measured file carries no
     #: marker recording it (unlike ``SimulatedLoadParams.reverse_trace``, which
     #: can auto-detect from ``/grid/delay_convention``), so this is a plain
-    #: off-by-default override. It bites on PG/SD, whose kernels fix the
+    #: off-by-default override. It matters for PG/SD, whose kernels fix the
     #: direction of time: getting it wrong there time-reverses the retrieved
-    #: pulse and flips the sign of every phase order. An SHG trace is symmetric
-    #: in delay (``Interaction.time_reversal_ambiguous``), so reversing it
-    #: changes nothing and cannot settle SHG's direction-of-time ambiguity —
-    #: that is :func:`croak.processing.resolve_time_direction`'s job.
+    #: pulse and flips the sign of every phase order. A thin-medium SHG trace is
+    #: symmetric in delay (``Interaction.time_reversal_ambiguous``), so
+    #: reversing it changes nothing and cannot settle SHG's direction-of-time
+    #: ambiguity — that is :func:`croak.processing.resolve_time_direction`'s
+    #: job. See :doc:`/reference/conventions`.
     reverse_trace: bool = False
     interaction: str = "shg"
     third_order: bool = False
@@ -140,16 +141,20 @@ class SimulatedLoadParams:
     (see :func:`croak.preprocess.omega_to_lambda_density`).
 
     The chromatic vignetting imprinted by the physical input mask is a linear
-    filter on the *gating beam*, not a trace artefact — so it belongs in the
-    reference spectrum: choose ``spectrum_source="beamlet"`` (the post-mask
-    ``grid/Iω_beamlet``) so the retrieval is constrained by the spectrum that
-    actually gates. The leftover ``ω``-dependence is then close to the physical
-    radiated-field factor (``≈ ω²`` for the on-axis re-imaged trace), which the
-    third-order correction divides out.
+    filter on the *gating beam*, not a trace artefact, so it belongs in the
+    reference spectrum: ``spectrum_source="beamlet"`` (the post-mask,
+    transverse-integrated ``grid/Iω_beamlet``) constrains the retrieval with the
+    spectrum that actually gates. Choose the independent spectrum and the truth
+    in the same field reference as the model: an on-axis model (the focal
+    mixture) needs the on-axis beamlet, or a frame conversion via
+    ``RetrieveParams.spectrum_frame_p``. Detector response, the radiated source
+    factor and wavelength/frequency density conversion are separate operations.
+    See :doc:`/howto/loading_simulated` and :doc:`/reference/conventions`.
     """
 
     frog_path: str = ""
-    #: ``"Iω_win"`` (integrated over all k) or ``"Iω_win_reimaged"`` (on-axis).
+    #: ``"Iω_win"`` (integrated through the selected aperture) or
+    #: ``"Iω_win_reimaged"`` (on-axis).
     window_key: str = "Iω_win"
     #: Propagation slice index (``-1`` = the last saved slice, i.e. substrate exit); the
     #: low-level/back-compat knob, used only when ``z_thickness_um`` is ``None``.
@@ -157,7 +162,7 @@ class SimulatedLoadParams:
     #: Material thickness (µm) to load from a multi-thickness scan. When set, the
     #: nearest saved ``/grid/zsave`` slice is loaded (takes precedence over
     #: ``z_index``); ``None`` falls back to ``z_index`` (the exit slice), which
-    #: also covers the legacy single-thickness files that lack ``zsave``.
+    #: also covers older single-thickness files that lack ``zsave``.
     z_thickness_um: float | None = None
     # wavelength band to load (the unphysical ω ≤ 0 bins are always dropped); the
     # retrieval grid range is chosen later in the preprocess stage.
@@ -173,16 +178,18 @@ class SimulatedLoadParams:
     third_order_exp: float = 2.0
     # Delay-sign convention. ``None`` (default) auto-detects from the file's
     # ``/grid/delay_convention`` marker: files stored in the gate-delay (paper)
-    # frame load unreversed; legacy marker-less files are negated as before.
+    # frame load unreversed; older marker-less files (probe-delayed frame) are
+    # negated.
     # An explicit ``True``/``False`` overrides the marker.
     reverse_trace: bool | None = None
     #: Keep only the longest uniformly spaced contiguous stretch of the delay
-    #: axis (:func:`croak.preprocess.uniform_core_indices`). Campaign scans
+    #: axis (:func:`croak.preprocess.uniform_core_indices`). Simulated scans
     #: often extend a uniform core with coarser wing points (e.g. 1 fs-step
     #: wings to ±40 fs for the Raman wake); the smearing kernel's delay-axis
     #: convolution needs a uniform grid, so retrievals that model smearing
-    #: must drop the wings. Off by default: the wings are real data and every
-    #: model without a smearing kernel can use them.
+    #: must drop the wings, and so must ``delay_origin="marginal_peak"``, whose
+    #: Fourier re-centring also needs uniform delays. Off by default: the wings
+    #: are real data that the other models can use.
     uniform_delay_core: bool = False
     #: ``"pg"`` (transient-grating/PG) or ``"sd"``; both keep the carrier.
     interaction: str = "pg"
@@ -285,14 +292,19 @@ class RetrieveParams:
     """
 
     #: "warm-lbfgs" is the extended model seeded from COPRA's local projection
-    #: sweep: same forward model as "lbfgs-ad", better starting point. It is the
-    #: default because it is close to neutral where the landscape is benign and
-    #: substantially better where it is not, so it is the safer choice for a
-    #: user who does not want to reason about initial guesses.
+    #: sweep: the same forward model as "lbfgs-ad" with a better starting point.
+    #: It is the default because it is close to neutral where the landscape is
+    #: benign and substantially better where it is not (see
+    #: :mod:`croak.warm_lbfgs` for the measured comparison), so it is the safer
+    #: choice for a user who does not want to reason about initial guesses. The
+    #: papers' validation protocol instead runs "lbfgs-ad" from a
+    #: transform-limited start (``tl_init``) for 400 iterations.
     solver: str = "warm-lbfgs"
-    #: 300 iterations and a 1e-5 relative tolerance: the settings every result
-    #: in the smearing/solver study was measured with. 100/1e-4 stopped some
-    #: dispersive retrievals short of convergence.
+    #: Maximum solver work budget; its unit depends on the algorithm
+    #: (iterations, residual evaluations or objective evaluations). 300 and a
+    #: 1e-5 relative tolerance are the settings our smearing and solver
+    #: comparisons were measured with; 100 and 1e-4 stopped some dispersive
+    #: retrievals short of convergence.
     maxiters: int = 300
     reltol: float = 1e-5
     abstol: float = 1e-8
@@ -302,10 +314,10 @@ class RetrieveParams:
     perfect_init: bool = False
     #: Seed from the known complex field carried by a synthetic or ModelPNPS
     #: load. The selected truth must contain complex spectral datasets; intensity-
-    #: only legacy files cannot provide this initial condition.
+    #: only files cannot provide this initial condition.
     truth_init: bool = False
     #: Start from the measured spectrum with flat phase: its transform limit.
-    #: Preferred over ``perfect_init`` for near-transform-limited pulses --- the
+    #: Preferred over ``perfect_init`` for near-transform-limited pulses: the
     #: two perform equivalently, but this one uses the amplitude that was
     #: actually measured and assumes no duration. Ignored if ``random_init`` or
     #: ``perfect_init`` is set.
@@ -339,8 +351,9 @@ class RetrieveParams:
     smear_hole_diameter_mm: float = 1.0
     smear_hole_spacing_mm: float = 0.5
     smear_sigma_delay_fs: float = 0.357
-    #: COPRA step-size heuristic (Geib's alpha). Measured to be inert: a factor
-    #: of five in it moves the complex error by a few percent, non-monotonically.
+    #: COPRA global-step size factor (Geib's alpha, dimensionless). Inert in
+    #: practice: on our dispersive TG-FROG tests a factor of five in it moved
+    #: the complex error by a few percent, non-monotonically.
     copra_alpha: float = 0.25
     #: Iterations without improvement before COPRA's local projection sweep
     #: hands over to its global descent. Not a smooth knob but a switch between
@@ -350,69 +363,74 @@ class RetrieveParams:
     #: can. A very large value never leaves the local sweep.
     copra_stall_patience: int = 5
     smear_nodes: int = 5
-    #: Multiplier on the geometric kernel's widths, applied as a FIXED value
-    #: (unlike ``fit_smearing``, which optimises it). Exists because the mask
-    #: geometry can only express d/D = (gap + D)/2D >= 0.5, so a kernel
-    #: narrower than that — which Gaussian-beam data wants, see below — is not
-    #: reachable by adjusting the gap at all.
+    #: Fixed multiplier on both reduced-kernel widths (dimensionless), applied
+    #: as a FIXED value (unlike ``fit_smearing``, which optimises it). It exists
+    #: because the mask geometry can only express d/D = (gap + D)/2D >= 0.5, so
+    #: a kernel narrower than that is not reachable by adjusting the gap at all.
     #:
-    #: 1.0 is correct for the apertured instrument: scanning the width against
-    #: the 3D simulation at the known truth puts the optimum at 0.85-1.00 at
-    #: both 9.5 and 20 um and at both d/D = 1.0 and 1.5. Gaussian-beam traces
-    #: want about 0.5, on top of the 0.748 focal-weight rescale their effective
-    #: gap already carries.
+    #: Use 1.0 for the apertured instrument: in our earlier scans of the
+    #: kernel width against the 3D instrument simulation at the known truth,
+    #: the optimum sat at 0.85-1.00 at both 9.5 and 20 um and at both d/D = 1.0
+    #: and 1.5. Gaussian-beam traces wanted about 0.5, on top of the 0.748
+    #: focal-weight rescale their effective gap already carries. A fitted or
+    #: chosen value tests sensitivity; it need not identify a single physical
+    #: mechanism.
     smear_scale: float = 1.0
     #: Aperture layout the kernel is built from. ``"boxcars"`` is the four-hole
     #: BOXCARS mask used for TG/PG (and for a three-hole SD). ``"sd2"`` is a
     #: genuine TWO-beam self-diffraction: two collinear apertures, the probe
     #: entering twice and the gate once with conjugation.
     #:
-    #: The distinction is not cosmetic. In a two-beam SD the two unconjugated
-    #: arms are the SAME beam, so ``p``—which is proportional to the difference
-    #: of their tilts—is identically zero and the smearing collapses to a pure
-    #: delay-axis convolution. Building such a measurement's kernel from the
-    #: boxcars closed form instead attaches a spurious ``sigma_p`` of order
-    #: 0.4 fs that the experiment does not have.
+    #: The distinction matters. In a two-beam SD the two unconjugated arms are
+    #: the SAME beam, so their relative internal delay ``p`` (proportional to
+    #: the difference of their tilts) is identically zero and the smearing
+    #: collapses to a pure delay-axis convolution. Building such a
+    #: measurement's kernel from the boxcars closed form instead attaches a
+    #: spurious ``sigma_p`` of order 0.4 fs that the experiment does not have.
     smear_layout: str = "boxcars"
-    #: Chromatic focal mixture (``croak.focal``) instead of the reduced
-    #: smearing kernel — the full model. Each focal-plane node
-    #: carries the chromatic Airy filter ``A(r, omega)`` and its own definite
-    #: ``(p, theta)``, so the r-dependent (bluer-on-axis) local spectra that
-    #: the reduced kernel averages away are modelled explicitly. Mutually
-    #: exclusive with ``smearing`` (the mixture REPLACES the kernel; asking
-    #: for both raises). Autodiff solvers only. Roughly 40x the reduced
-    #: kernel's cost per iteration at the default 24x16 node grid.
+    #: Chromatic focal mixture (:mod:`croak.focal`) instead of the reduced
+    #: smearing kernel — the full model. Each focal-plane node carries the
+    #: chromatic Airy filter ``A(r, omega)`` and its own definite ``(p, theta)``,
+    #: so the r-dependent (bluer-on-axis) local spectra that the reduced kernel
+    #: averages away are modelled explicitly. Mutually exclusive with
+    #: ``smearing`` (the mixture REPLACES the kernel; asking for both raises).
+    #: Autodiff solvers only. Roughly 40x the reduced kernel's cost per
+    #: iteration at the default 24x16 node grid.
     focal: bool = False
     focal_n_radial: int = 24
-    #: 16, not 8: the coherent (apertured) sum needs the finer azimuthal
-    #: quadrature — 8 costs 4e-5 of trace peak.
+    #: Number of azimuthal nodes. 16, not 8: the coherent (apertured) sum needs
+    #: the finer azimuthal quadrature (8 costs 4e-5 of trace peak). Refine with
+    #: the radial and collection quadratures to check convergence.
     focal_n_azimuth: int = 16
     focal_rmax_units: float = 4.0
     #: Focusing focal length (mm). The reduced kernel never needs it (f
     #: cancels between spot size and tilt); the explicit mixture does. For
-    #: simulated scans it is stored in the file (``f_foc``, files written
-    #: after 2026-08-26) and adopted with the rest of the geometry.
+    #: simulated scans it is stored in the file (``f_foc`` when available) and
+    #: adopted with the rest of the geometry.
     focal_f_mm: float = 100.0
     #: Collection model riding on the mixture: ``"off"`` sums incoherently
     #: over the focal plane (exact only for full-beam collection), ``"file"``
     #: rebuilds the collection aperture from a simulated scan's own
     #: ``window_def_*`` record, ``"manual"`` builds a centred hole at the
     #: phase-matched corner from ``collection_diam_mm``. A tightly apertured
-    #: instrument sits far from the incoherent limit and the mixture
-    #: over-blurs without this.
+    #: instrument sits far from the incoherent limit: the finite aperture
+    #: changes the spatial interference, and without this the mixture
+    #: over-blurs.
     collection: str = "off"
     collection_mode: str = "integrated"
     collection_diam_mm: float = 0.5
-    #: Spectral-frame exponent ``p``: the measured spectrum used for the
-    #: initial guess and the ``reg_spectrum`` target is reweighted by
-    #: ``(omega/omega0)^(2p)`` in intensity before retrieval. The focal
-    #: mixture's ``ew`` is the ON-AXIS focal field, while a measured/beamlet
-    #: spectrum is spatially integrated — bluer on axis by omega^2 for an
-    #: aperture-diffraction beamlet, reduced towards 0 as the collection
-    #: opens (measured: ~1.0 at gap 0.5 mm, ~0.5 at 1.0 mm).
-    #: Leave 0 for the reduced kernel, whose implicit frame is the
-    #: mixture-averaged one. GDD/span are insensitive to it; durations move
-    #: by a few %.
+    #: Spectral-frame exponent ``p``: the measured spectrum used for the initial
+    #: guess and the ``reg_spectrum`` target is reweighted in intensity by
+    #: ``((omega + omega0)/omega0)**(2*p)`` (absolute over central frequency)
+    #: before retrieval. The focal mixture's field is the ON-AXIS focal field,
+    #: while a measured/beamlet spectrum is spatially integrated; in the
+    #: declared diffraction convention ``p = 1`` converts the integrated
+    #: aperture-diffraction beamlet to the on-axis entrance field. Opening the
+    #: collection reduces the effective value (in our earlier scans, ~1.0 at a
+    #: 0.5 mm gap and ~0.5 at 1.0 mm). Leave 0 for the reduced kernel, whose
+    #: implicit frame is the mixture-averaged one. GDD and spectral span are
+    #: insensitive to it; durations move by a few percent. See
+    #: :doc:`/reference/conventions`.
     spectrum_frame_p: float = 0.0
     # extra fitted parameters (lbfgs-ad / lm / lm-optx / cma-es): slab thickness
     # (dispersive PG/SD only), a delay-zero offset and the smearing strength;
@@ -437,43 +455,50 @@ class RetrieveParams:
     # smearing channel deviates from the geometric prediction; needs fit_smearing
     fit_smearing_split: bool = False
     polish_two_phase: bool = False
-    #: Where the model's delay zero sits (AD solvers): ``"coincidence"`` (gate–probe
-    #: coincidence, the forward model's native convention) or ``"marginal_peak"``
-    #: (every model trace re-centred on its own delay-marginal peak, the convention
-    #: the preprocessing gives the data — no free parameter). The latter is the
-    #: single-cycle protocol: a coherently collected trace peaks tens of as from
-    #: coincidence, growing with the chirp, and a fixed origin costs ~10 % of
-    #: duration while a free ``fit_tau0`` wanders on chirped pulses (FROG N102).
+    #: Where the model's delay zero sits (AD solvers): ``"coincidence"``
+    #: (gate–probe coincidence, the forward model's native convention) or
+    #: ``"marginal_peak"`` (every model trace re-centred on its own row-gain
+    #: weighted delay-marginal peak, the convention the preprocessing gives the
+    #: data, with no free parameter; needs uniform delays). The latter is the
+    #: single-cycle choice: a coherently collected trace peaks tens of
+    #: attoseconds from coincidence, growing with the chirp, so a fixed origin
+    #: costs duration accuracy (~10 % in our earlier instrument scans) while a
+    #: free ``fit_tau0`` wanders on chirped pulses. See
+    #: :mod:`croak.delay_origin`.
     delay_origin: str = "coincidence"
     #: ``|τ0| ≤ tau0_bound_fs`` (fs) for a fitted delay offset; 0 = unbounded.
     tau0_bound_fs: float = 0.0
-    #: Amplitude-smoothness weight (2nd difference of ``|E(w)|``, max-normalised).
-    #: Used *together with* ``reg_spectrum``: 0.03 alongside a spectrum weight of
-    #: 0.01 beat every single-penalty setting tested, on every metric at once and
-    #: across eight arms at two depths -- 12% better in complex error, 2.4 points
-    #: better in retrieved duration, and 2.5x smoother in the worst case, than
-    #: ``reg_spectrum`` = 0.1 alone. Adding it never hurt in any configuration
-    #: measured, noiseless or noisy. Same objective-scale caveat as
-    #: ``reg_spectrum`` below.
+    #: Amplitude-smoothness weight (second difference of ``|E(omega)|``,
+    #: max-normalised). Used *together with* ``reg_spectrum``: on our dispersive
+    #: TG-FROG tests, 0.03 alongside a spectrum weight of 0.01 beat every
+    #: single-penalty setting on every metric at once, across eight arms at two
+    #: depths: 12 % better in complex error, 2.4 points better in retrieved
+    #: duration and 2.5x smoother in the worst case than ``reg_spectrum`` = 0.1
+    #: alone. Adding it never hurt in any configuration measured, noiseless or
+    #: noisy. The same objective-scale caveat as ``reg_spectrum`` applies (the
+    #: LM family uses a different scale).
     reg_amp: float = 0.03
     reg_phase: float = 0.0
-    #: Spectrum-divergence weight. 1e-2 is the measured optimum for the
-    #: gradient solvers: scanning it over three decades on a dispersive
-    #: TG-FROG trace moves the trace error by only 14% but the pulse error by
-    #: 44%, with a clear interior optimum here. The penalty does not remove
-    #: misfit so much as move it out of the spectral amplitude, where it is
-    #: constrained, and into the phase, where it is not -- so both a weight
-    #: that is too small (amplitude error dominates) and one too large (phase
-    #: error dominates) are worse. Do NOT tune this by watching the trace
-    #: error: it barely responds.
+    #: Spectrum-divergence weight (penalises mismatch between the retrieved and
+    #: independently measured spectral amplitude). 1e-2 is the gradient-family
+    #: default: on our dispersive TG-FROG tests, scanning it over three decades
+    #: moved the trace error by only 14 % but the pulse error by 44 %, with a
+    #: clear interior optimum. The penalty does not remove misfit so much as
+    #: move it out of the spectral amplitude, where it is constrained, and into
+    #: the phase, where it is not, so both too small a weight (amplitude error
+    #: dominates) and too large a one (phase error dominates) are worse. Do NOT
+    #: tune this by watching the trace error: it barely responds.
     #:
-    #: NOTE this value is for the L-BFGS/gradient family, which minimises the
-    #: scalar R + lambda P. The LM solvers add the penalty as residual rows
-    #: (R^2 + lambda' P), so the same number is far stronger there; see
-    #: :data:`REG_DEFAULTS` for the per-family values and the lambda' = 2 R
-    #: lambda mapping between them. croak does not translate automatically, so
-    #: reset both weights when changing `solver` to "lm"/"lm-optx" (the GUI
-    #: does this for you).
+    #: The papers' validation protocol uses 0.03 for both this and ``reg_amp``
+    #: (with "lbfgs-ad" from a transform-limited start, 400 iterations).
+    #:
+    #: This value is for the L-BFGS/gradient family, which minimises the scalar
+    #: R + lambda P. The LM solvers add the penalty as residual rows
+    #: (R² + lambda' P), so the same number is far stronger there; see
+    #: :data:`croak.solver.REG_DEFAULTS` for the per-family values and the
+    #: lambda' = 2 R lambda mapping between them. croak does not translate
+    #: automatically, so reset both weights when changing ``solver`` to
+    #: "lm"/"lm-optx" (the GUI does this for you).
     reg_spectrum: float = 1e-2
     # temporal (pedestal) penalty (LBFGS-AD / cma-es) + its time window (fs)
     reg_time: float = 0.0

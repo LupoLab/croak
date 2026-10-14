@@ -49,10 +49,11 @@ a small trace error does not imply a correct pulse. See
 
 ## Marginal consistency checks
 
-Pre-retrieval trace QC from the frequency marginal: the marginal predicted from
+Pre-retrieval consistency checks from the frequency marginal: the marginal predicted from
 the independent spectrum (exact for SHG, transform-limited for PG/TG/SD), its
-centroid/width anchors, and the centroid-matching efficiency-exponent picker. The
-background is in [FROG trace marginals as consistency checks](../../explanation/marginals.md).
+centroid/width diagnostics, and the centroid-matching efficiency-exponent
+picker. The predictions assume the thin local model; propagation and
+collection change the marginal. The background is in [FROG trace marginals as consistency checks](../../explanation/marginals.md).
 
 ```{eval-rst}
 .. automodule:: croak.marginal_checks
@@ -118,8 +119,8 @@ different beamline point. The background and caveats are in
 
 A whole retrieval — load, preprocess, retrieve, dispersion compensation and
 uncertainty — captured as serialisable per-stage parameters and replayed without
-the GUI. {func}`~croak.session.run_session` drives the same stage mappings the
-wizard uses; {func}`~croak.session.retarget` re-points an *experimental* session at
+the GUI. {func}`~croak.session.engine.run_session` drives the same stage mappings the
+wizard uses; {func}`~croak.session.retarget.retarget` re-points an *experimental* session at
 a new dataset folder. {class}`~croak.session.options.SessionOptions` also records
 which stage-1 loader the trace came from (`entry`, see
 {data}`~croak.session.options.ENTRIES`), so a simulated session replays through
@@ -135,6 +136,8 @@ measured loader — see [Saving and loading](../../howto/saving_and_loading.md).
 
 .. automodule:: croak.session.pipeline
    :members:
+
+.. autofunction:: croak.session.pipeline.assemble_simulated_tracedata
 
 .. automodule:: croak.session.dispersion
    :members:

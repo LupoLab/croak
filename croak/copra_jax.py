@@ -2,7 +2,7 @@ r"""JAX-accelerated COPRA (``copra-jax``).
 
 A drop-in twin of :class:`croak.copra.COPRA` that runs the per-iteration work on
 the JAX forward/adjoint kernel (:func:`croak.forward_jax.make_forward_adjoint_fns`)
-instead of the per-delay NumPy loops. The algorithm is byte-for-byte the same as
+instead of the per-delay NumPy loops. The update rules follow
 :func:`croak.copra.run_copra` — same two modes, same step sizes, same
 local→global switch and convergence tests — only the two stage bodies are
 vectorised:
@@ -12,7 +12,8 @@ vectorised:
 * the **local** sweep, which is inherently sequential (each delay updates
   :math:`\tilde E` for the next), is expressed as a ``jax.lax.scan`` over the
   delay-index permutation. The permutation is drawn host-side with the same
-  NumPy ``rng`` as the reference, so the two implementations track each other.
+  NumPy ``rng`` as the reference, so the two implementations track each other
+  (up to floating-point differences in the vectorised arithmetic).
 
 The outer iteration loop (mode switching, best-error tracking, callbacks,
 abstol/reltol stops) stays in Python, exactly as :class:`croak.lbfgs_hand.LBFGSHand`
@@ -109,7 +110,7 @@ def run_copra_jax(
         return mu[:, None] if R_omega else mu
 
     def project(psi, measured):
-        """Amplitude projection (JAX clone of :func:`croak.copra._project`)."""
+        """Amplitude projection (JAX clone of ``croak.copra._project``)."""
         amp = jnp.abs(psi)
         target = jnp.sqrt(jnp.maximum(measured, 0.0))
         nz = amp > 0

@@ -9,6 +9,9 @@ retrieval would otherwise absorb. The physics is in
 [FROG trace marginals as consistency checks](../explanation/marginals.md); this
 page is the recipe.
 
+The identities assume a thin, local interaction and complete delay support; a
+dispersive slab, smearing or a finite collection aperture also reshape the marginal.
+
 ## Predict a marginal from a spectrum
 
 {func}`croak.marginal_checks.predicted_marginal` takes a uniform **absolute
@@ -63,11 +66,11 @@ print("width OK:", sigma_meas > pred.sigma_spectrum)   # rigorous lower bound
 
 Interpreting a mismatch:
 
-- **SHG** — any centroid/width/shape mismatch is a *trace* problem (calibration,
-  spectral response, scatter, detector nonlinearity), never the pulse.
+- **SHG** — a centroid, width or shape mismatch means the trace and spectrum are
+  inconsistent: calibration, spectral response, scatter or detector nonlinearity.
 - **PG / TG** — the centroid is still a hard calibration check; a width below
-  `σ_S` means spectral clipping or detector roll-off, above `σ_TL` means additive
-  broadband artefacts.
+  `σ_S` means spectral clipping or detector roll-off. The TL width `σ_TL` is a soft
+  reference: phase structure can exceed it.
 - **SD** — only the width lower bound is rigorous; the centroid holds at TL or for
   a temporally symmetric pulse.
 
@@ -89,8 +92,8 @@ n = mc.auto_third_order_exponent(
 corrected = trace * croak.preprocess.third_order_scale(lam, n)[:, None]
 ```
 
-This is the physically grounded replacement for matching the marginal *shape* to
-the spectrum.
+This fits one empirical response exponent; it does not correct delay-dependent
+collection effects.
 
 ## In the GUI
 

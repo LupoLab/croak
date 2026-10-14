@@ -12,11 +12,11 @@ can fit noise.
 Three errors, all dimensionless and all zero for a perfect retrieval:
 
 ``eps_It``
-    temporal intensity :math:`|E(t)|^2`, energy-normalised, on the truth's own
-    time axis, minimised over the retrieval's time-translation gauge.
+    temporal intensity :math:`|E(t)|^2`, compared after optimal intensity scaling, on
+    the truth's own time axis, minimised over the retrieval's time-translation gauge.
 ``eps_Iw``
     spectral intensity :math:`|\tilde E(\omega)|^2` over the truth's support
-    band, each normalised to unit L2 norm so the arbitrary scale cancels.
+    band, compared after optimal intensity scaling so the arbitrary scale cancels.
 ``eps_Ew``
     the complex field :math:`\tilde E(\omega)`, minimised over the three
     quantities a FROG measurement genuinely cannot determine — amplitude scale,
@@ -27,7 +27,9 @@ Three errors, all dimensionless and all zero for a perfect retrieval:
 Each is a least-squares distance after removing exactly the gauge freedoms that
 are unobservable, and no others: a metric that quotients out more would flatter
 the retrieval, one that quotients out less would score a pure relabelling as
-error.
+error. Compare the same field reference and spectral density in both arguments.
+For SHG, resolve the conjugate time-reversal branch separately with
+:func:`croak.processing.resolve_time_direction`.
 """
 
 from __future__ import annotations
@@ -103,12 +105,11 @@ def eps_temporal_intensity(
     near 1), then the cross-correlation peak refines it to **sub-sample**
     precision via :func:`croak.preprocess.marginal_peak_delay`.
 
-    The refinement is not a nicety. Aligning only to the nearest sample leaves up
-    to half a step of residual offset, which a normalised rms scores as roughly
-    ``dt / 2 sigma``. Measured on an 8x-oversampled 20 fs Gaussian (0.125 fs
-    step), a half-step delay scores 5.2e-3 under integer-bin alignment and
-    2.3e-5 with the sub-sample fit — a floor 220x lower, and the difference
-    between a number that is all grid artefact and one that is not.
+    The refinement matters. Aligning only to the nearest sample leaves up to
+    half a step of residual offset, which a normalised rms scores as roughly
+    ``dt / 2 sigma``. On an 8x-oversampled 20 fs Gaussian (0.125 fs step), a
+    half-step delay scores 5.2e-3 under integer-bin alignment and 2.3e-5 with
+    the sub-sample fit: a floor 220x lower.
 
     Parameters
     ----------
@@ -149,7 +150,7 @@ def eps_temporal_intensity(
     step = float(np.mean(np.diff(t0)))
     lags = (np.arange(correlation.size) - (i0.size - 1)) * step
     ir = sampled(marginal_peak_delay(lags, correlation))
-    # least-squares scale gauge (2026-08-30): min_c ||c I - I_true|| /
+    # least-squares scale gauge: min_c ||c I - I_true|| /
     # ||I_true|| = sin(theta). The unit-energy normalization above is kept
     # for the alignment steps (it stabilises the correlation) but no longer
     # sets the compared scale, so a low-level pedestal costs its own norm
@@ -202,7 +203,7 @@ def eps_spectral_intensity(
         raise ValueError("the truth spectrum is identically zero")
     band = b > threshold * peak
     a, b = a[band], b[band]
-    # least-squares scale gauge (2026-08-30): min_c ||c a - b|| / ||b||
+    # least-squares scale gauge: min_c ||c a - b|| / ||b||
     # = sin(theta). Scale-free in both arguments; replaces the earlier
     # unit-norm (chordal) form 2 sin(theta/2), to which it agrees to first
     # order and from which it differs by <1% below 0.3.
@@ -216,7 +217,9 @@ def eps_complex_field(spectrum: ArrayLike, truth: ArrayLike) -> float:
 
     Geib's :math:`\varepsilon`: the normalised distance between two complex
     spectra after minimising over amplitude scale, absolute phase and delay —
-    exactly the three transformations a PNPS measurement cannot resolve. Written
+    exactly the three continuous transformations a PNPS measurement cannot
+    resolve. Resolve any SHG conjugate time-reversal ambiguity separately.
+    Written
     as an overlap,
 
     .. math::
@@ -303,15 +306,16 @@ def truth_errors(
         The known pulse, from the synthetic or simulated load.
     frame_p : float, optional
         The ``spectrum_frame_p`` the retrieval ran with. A frame-corrected
-        retrieval (the focal-mixture protocol) carries its amplitude in the
-        ON-AXIS frame — the measured spectrum reweighted by
-        ``((omega+omega0)/omega0)**(2 p)`` in intensity — while the truth lives
-        in the measurement frame. Passing the exponent undoes that reweighting
-        on the retrieved spectrum (and rebuilds the temporal field from it), so
-        all three errors compare like with like: a phase-only retrieval then
-        scores ``eps_Iw = 0`` instead of the fixed frame footprint (~0.107 for
-        the 1 fs validation spectrum at ``p = 0.5``). Leave at 0 for retrievals
-        that never reframed.
+        retrieval carries its amplitude in the on-axis frame, while the stored
+        integrated beamlet truth lives in the measurement frame. This function
+        divides the retrieved complex spectrum by
+        ``((omega + omega0) / omega0)**frame_p`` and recomputes its temporal
+        field, so all three errors compare like with like: a phase-only
+        retrieval then scores ``eps_Iw = 0`` instead of the fixed frame
+        footprint (~0.107 for a 1 fs spectrum at ``p = 0.5``). ``frame_p=1``
+        is the declared on-axis convention; ``0.5`` an empirical effective one.
+        Use zero when no conversion was applied. See
+        :doc:`/reference/conventions`.
 
     Returns
     -------

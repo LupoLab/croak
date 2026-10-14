@@ -107,7 +107,7 @@ def run_copra(
     reltol : float, optional
         Relative-improvement convergence tolerance (``0`` disables). Iteration
         stops once the best FROG error has improved by less than ``reltol``
-        (relative) over the last :data:`_COPRA_PATIENCE` iterations — i.e. the
+        (relative) over the last ``_COPRA_PATIENCE`` iterations — i.e. the
         run has plateaued (including after the global-mode switch).
     abstol : float, optional
         Absolute target FROG error (``0`` disables): stop once the best error

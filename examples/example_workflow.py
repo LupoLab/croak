@@ -56,15 +56,17 @@ def make_experiment_file(path: str) -> tuple[float, float]:
 
     # Band from the wavelength marginal at 1e-4 of its peak (the -40 dB point,
     # where the signal really ends on a log plot). A few-percent cut looks
-    # generous on a linear scale but clips the wings, which costs a factor of
-    # four in the achievable trace error.
+    # generous on a linear scale but clips the wings, which here costs a factor of
+    # four in the achievable trace error. On measured data, set the threshold
+    # above the noise floor.
     marg = trace_exp.sum(axis=1)
     sig = np.where(marg > 1e-4 * marg.max())[0]
     return lam_nm[sig[0]] * 1e-9, lam_nm[sig[-1]] * 1e-9
 
 
 def main() -> None:
-    tmp = Path(tempfile.gettempdir())
+    workspace = tempfile.TemporaryDirectory(prefix="croak-example-")
+    tmp = Path(workspace.name)
     h5_path = str(tmp / "croak_experiment.h5")
     lam_min, lam_max = make_experiment_file(h5_path)
 
@@ -91,7 +93,9 @@ def main() -> None:
     print(f"Regridded trace: {td.trace.shape[0]} freqs × {td.delays.size} delays")
 
     # --- retrieve ---
-    result = croak.retrieve_from_tracedata(td, algorithm="copra", maxiters=250)
+    result = croak.retrieve_from_tracedata(
+        td, algorithm="copra", maxiters=250, rng=np.random.default_rng(0)
+    )
     print(f"FROG error R = {result.error:.4%}")
 
     # --- post-process ---
@@ -103,7 +107,7 @@ def main() -> None:
     print(f"Fitted GDD = {pr.gdd_fs2:.0f} fs²,  TOD = {pr.tod_fs3:.0f} fs³")
     # Sanity check on the spectrum itself: energy in the unmeasured grid-edge bins.
     # Well under 1% means the band is wide enough and nothing has been invented
-    # outside the measured range — see croak.processing.edge_energy_fraction.
+    # outside the measured range; see croak.processing.edge_energy_fraction.
     print(f"Edge energy = {pr.edge_energy:.3%} (taper loss {td.taper_loss:.3%})")
 
     # --- plot & save ---

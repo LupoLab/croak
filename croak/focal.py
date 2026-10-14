@@ -4,37 +4,48 @@ r"""Chromatic focal mixture: the smearing kernel without its achromatic reductio
 :math:`\mathbf r` to two arrival-time parameters :math:`(p,\vartheta)` carried by a
 bivariate Gaussian, with the focal weight :math:`|A(\mathbf r)|^6` evaluated at the
 carrier wavelength alone. That reduction keeps the *phases* the focal average imposes
-and discards its *amplitude* structure, because the mask maps to transverse wavevector
-as :math:`x = k_\perp z_{\text{mask}} c/\omega`: the focal amplitude
-:math:`A(r,\omega)` therefore depends on the product :math:`r\omega`, and the local
-field at radius :math:`r` is the retrieved field passed through a
+and discards its *amplitude* structure. Because the mask maps to transverse
+wavevector as :math:`x = k_\perp z_{\text{mask}} c/\omega`, the focal amplitude
+:math:`A(r,\omega_{\rm abs})` depends on the product :math:`r\omega_{\rm abs}`, and
+the local field at radius :math:`r` is the retrieved field passed through a
 frequency-dependent filter. Different focal positions see *different spectra*, hence
-different local pulses, and the measured trace is a generation-weighted mixture of them.
+different local pulses, and the measured trace is a generation-weighted mixture of
+them.
 
 For a transform-limited pulse that costs a few percent of duration. For a chirped one
 it is much larger, because reshaping the spectrum changes how far the local pulse
-stretches: full 3D simulations of an apertured instrument under-report a
-:math:`+2\,\mathrm{fs}^2` pulse by 23%, against 8% for an otherwise identical
+stretches: in our earlier full 3D simulations, an apertured instrument under-reported
+a :math:`+2\,\mathrm{fs}^2` pulse by 23 %, against 8 % for an otherwise identical
 instrument whose beams carry no chromatic transverse structure.
 
 This module keeps the mixture explicit. The focal plane is sampled by a quadrature
-and each node carries
+and each node carries its area weight and
 
-* the chromatic amplitude filter :math:`A(r,\omega)`, applied to the field so that
-  the three-arm product supplies :math:`A^3` and the trace :math:`|A|^6`
-  automatically --- the weight of the reduced model, but now inside the spectrum
-  rather than outside it; and
+* the chromatic amplitude filter :math:`A(r,\omega_{\rm abs})`, applied to the
+  pulse spectrum before transforming to time and forming the nonlinear product; and
 * the *definite* arrival-time offsets :math:`(p,\vartheta)` of that node, in place
   of the reduced model's distribution over them.
 
-The reduced kernel is recovered when :math:`A` is held at the carrier: the second
-moments of :math:`(p,\vartheta)` under the :math:`|A|^6` weight are exactly the
-closed-form :math:`\sigma_p`, :math:`\sigma_\vartheta`, :math:`\rho` of
-:mod:`croak.smearing`, which :func:`reduced_moments` checks.
+For an achromatic filter the three-arm product supplies :math:`A^3` and the trace
+:math:`|A|^6`, the weight of the reduced model; a chromatic filter cannot be
+factored outside the nonlinear time-domain product, which is the point of the
+mixture. When :math:`A` is held at the carrier, the second moments of
+:math:`(p,\vartheta)` under the :math:`|A|^6` weight are exactly the closed-form
+:math:`\sigma_p`, :math:`\sigma_\vartheta`, :math:`\rho` of :mod:`croak.smearing`,
+which :func:`reduced_moments` checks (matching moments does not make the Gaussian
+kernel identical to the full Airy-weighted distribution).
+
+Without a collection aperture the model sums node intensities, which is exact for
+full-beam collection. With :mod:`croak.collection` it restores their relative phase,
+transforms to the aperture and forms the selected detector observable.
+
+The filters have unit on-axis amplitude, so the pulse must be supplied in the
+on-axis field reference; see :func:`airy_amplitude`,
+:doc:`/reference/conventions` and :doc:`/howto/collection_aperture`.
 
 Cost is one forward evaluation per node instead of one per Gauss--Hermite
-:math:`p`-node, so a few tens of times the reduced model. That is the price of not
-approximating the mixture.
+:math:`p`-node: roughly 40 times the reduced model per iteration at the default
+24 x 16 node grid.
 """
 
 from __future__ import annotations
@@ -76,47 +87,44 @@ _ARMS_PG = ((-1.0, +1.0), (+1.0, -1.0), (+1.0, +1.0))
 
 
 def airy_amplitude(u: NDArray[np.float64]) -> NDArray[np.float64]:
-    r"""Airy amplitude :math:`2J_1(u)/u`, with the removable singularity handled.
+    r"""Evaluate the unit-peak Airy amplitude :math:`2J_1(u)/u`.
 
     Parameters
     ----------
     u : ndarray
-        Reduced focal coordinate :math:`u = \pi D r/(\lambda f) = D r \omega/(2 f c)`.
+        Reduced coordinate :math:`u=\pi D r/(\lambda f)=D r\omega_{\rm abs}/(2fc)`.
 
     Returns
     -------
     ndarray
-        Amplitude, normalised to 1 at ``u = 0``.
+        Real field amplitude, with the removable singularity set to one at zero.
 
-    Warnings
-    --------
-    The normalisation is unit **peak**, not unit **power**. Because the focal
-    spot shrinks as :math:`1/\omega`, the power integral carries a spurious
-    frequency dependence,
+    Notes
+    -----
+    The normalisation is unit on-axis **amplitude**, not unit **power**. Because
+    the focal spot shrinks as :math:`1/\omega_{\rm abs}`, the power integral
+    carries a frequency dependence,
+    :math:`\int |A|^2\,\mathrm d^2r\propto\omega_{\rm abs}^{-2}`, whereas an
+    unclipped aperture physically passes the same power at every frequency. The
+    field that multiplies these filters is therefore the ON-AXIS field, not the
+    spatially integrated one. An integrated beamlet spectrum converts to it with
+    the field factor :math:`\omega_{\rm abs}/\omega_0` (intensity
+    :math:`(\omega_{\rm abs}/\omega_0)^2`), where :math:`\omega_0` is the
+    pulse's carrier frequency: this is ``spectrum_frame_p = 1`` in
+    :func:`croak.session.pipeline.apply_spectrum_frame`. Weighting a truth by
+    :math:`\sum_k a_k |A_k(\omega)|^2` instead imposes this convention's
+    :math:`\omega^{-2}` as if it were a chromatic transmission and shortens the
+    apparent pulse. See :doc:`/reference/conventions`.
 
-    .. math:: \int |A|^2 \, \mathrm{d}^2 r \;\propto\; \omega^{-2},
-
-    whereas an unclipped aperture physically passes the same power at every
-    frequency. Any quantity formed by integrating over the radial coordinate
-    therefore inherits a factor of :math:`\omega^{-2}` that is a convention of
-    this function, not physics. Weighting a "beamlet truth" by
-    :math:`\sum_k a_k |A_k(\omega)|^2`, for instance, imposes an order-of-
-    magnitude chromatic transmission across a few-femtosecond DUV band and
-    shortens the apparent pulse; the correct truth for a mixture built from
-    this amplitude is the *unfiltered* source spectrum.
-
-    This does **not** affect the mixture physics. At fixed :math:`\omega` the
-    relative weighting between radii---the chromatic focal structure the
-    mixture exists to represent---is exactly :math:`|A(r,\omega)|^2` and is
-    correct. The :math:`\omega^{-2}` is a *global* spectral factor on the
-    mixture output, which per-frequency response factors (``R_omega``) absorb
-    in retrieval. It matters only when a mixture trace or spectrum is compared
-    to an external reference in absolute terms.
-
-    Note also what the mixture consequently does *not* contain: an unclipped
-    hole passes all its power, so this amplitude carries chromatic focal
-    *structure* but no chromatic *vignetting*. An instrument whose mask clips a
-    guided mode has both.
+    At fixed frequency the relative weighting between radii, the chromatic
+    focal structure the mixture exists to represent, is exactly
+    :math:`|A(r,\omega)|^2`. The local filter changes the pulse inside the
+    nonlinear product, so it is not equivalent to a single output spectral
+    response that ``R_omega`` can absorb. The Airy shape describes focusing of a
+    uniformly illuminated, unclipped hole: it carries chromatic focal
+    *structure* but no chromatic *vignetting*, which an instrument whose mask
+    clips a guided mode also has and which needs its own treatment (e.g. a
+    beamlet reference spectrum).
     """
     u = np.asarray(u, dtype=float)
     out = np.ones_like(u)
@@ -185,7 +193,7 @@ class FocalMixture:
         (see :mod:`croak.collection`). ``None`` for a mixture built without them.
     collection : CollectionAperture or None
         Finite collection aperture. ``None`` (default) is the full-beam incoherent sum
-        the model has always done; anything else transforms the focal field to k,
+        for complete collection; anything else transforms the focal field to k,
         windows it and integrates there.
     evolve : EvolveSpec or None
         Depth-resolved mixture (fc-z). ``None`` (default) is the entrance-face
@@ -219,7 +227,7 @@ class FocalMixture:
     def signal_position(self) -> NDArray[np.float64]:
         r"""Mask-plane position of the phase-matched signal, :math:`r_1+r_2-r_3` (m).
 
-        Phase matching sends the third-order signal out along
+        The degenerate carrier construction places the signal along
         :math:`\mathbf k_1+\mathbf k_2-\mathbf k_3`, which maps back to this mask
         position. For the square BOXCARS layout it is the fourth corner -- the one the
         collection hole sits on.
@@ -247,8 +255,9 @@ class FocalMixture:
         Returns
         -------
         ndarray, shape (K, N)
-            One filter per node. Apply to the field once; the three-arm product then
-            supplies :math:`A^3` and the trace :math:`|A|^6`.
+            One filter per node. Apply it to each arm spectrum before transforming
+            to time and multiplying the three fields. Only an achromatic common
+            filter reduces to an external :math:`A^3` amplitude factor.
         """
         omega = np.asarray(omega, dtype=float)
         if self.profile == "gaussian":
@@ -309,8 +318,9 @@ def focal_mixture(
         quadrature in physical units. The model itself is chromatic.
     n_radial, n_azimuth : int, optional
         Quadrature nodes. The azimuthal integrand is smooth and periodic, so uniform
-        sampling converges spectrally and 16 nodes is generous; the radial integrand
-        carries the Airy oscillations and wants more.
+        sampling converges spectrally and 16 nodes is generous for the incoherent
+        sum; the radial integrand carries the Airy oscillations and wants more. A
+        finite collection aperture can need finer sampling of both.
     r_max_units : float, optional
         Radial cut in units of :math:`\lambda f/D`. :math:`|A|^6` falls as
         :math:`u^{-9}`, so 6 captures the weight to ~1e-4. Note that a *coherent*
@@ -420,7 +430,7 @@ def evolved_profile_table(
     with the in-glass walk :math:`\bm\delta_j(z) = -z\,\mathbf r_j/(f\,n_0)`
     (Snell: transverse wavevector conserved, so the ray angle divides by the
     index; the sign follows the ``+r_j/(f c)`` tilt convention of
-    :func:`_arm_offsets`) and
+    ``_arm_offsets``) and
     :math:`k_z = \sqrt{(n_0\,\omega/c)^2 - k_\perp^2}` in the glass — the
     full square root, computed cancellation-safely as
     :math:`k_z - k_{z0} = -k_\perp^2/(k_{z0} + \sqrt{k_{z0}^2 - k_\perp^2})`.
@@ -447,7 +457,7 @@ def evolved_profile_table(
     terms as :math:`z \to 0`, so a zero-phase/zero-walk table is BIT-identical
     to the entrance filter — the reduction the tests assert.
 
-    Two v1 approximations, both documented deliberately: the glass index is
+    Two approximations are used: the glass index is
     evaluated at the carrier (:math:`n_0 = n(\omega_0)`) in both the walk and
     :math:`k_z` (the chromatic correction is second order in the small
     quantities), and bins with :math:`\omega_{\rm abs} \le 0` or a non-finite
@@ -467,7 +477,8 @@ def evolved_profile_table(
     n_kperp : int, optional
         Gauss–Legendre nodes of the transverse-wavevector integral. The
         evolved profiles oscillate more than the entrance Airy; 256 holds the
-        propagator-truth test at ~1e-6 of peak over 40 µm.
+        propagator-truth test at ~1e-6 of peak over 40 µm. Refine it for
+        thicker slabs.
 
     Returns
     -------
@@ -692,9 +703,10 @@ def reduced_moments(mix: FocalMixture, wavelength: float) -> dict[str, float]:
     Self-test of the geometry and quadrature: these must reproduce the closed forms
     of :mod:`croak.smearing` --- :math:`\sigma_p = 0.49135\,(d/D)\lambda/c`,
     :math:`\sigma_\vartheta = 0.54933\,(d/D)\lambda/c`, :math:`\rho = 1/\sqrt5`
-    --- to the quadrature's accuracy. Agreement means the mixture is sampling the
-    same focal average the reduced kernel models, and differs from it only by
-    keeping the frequency dependence.
+    --- to the quadrature's accuracy. Agreement means the mixture samples the
+    same focal average the reduced kernel models. It checks second moments
+    only: the full spatial distribution is not Gaussian, and a finite
+    collection aperture adds coherent effects the reduced kernel lacks.
 
     Returns
     -------

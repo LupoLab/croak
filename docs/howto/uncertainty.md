@@ -1,17 +1,10 @@
 # Estimating FWHM uncertainty
 
-A single retrieval gives one number for the pulse duration. {mod}`croak.uncertainty`
-attaches a **statistical** error bar to it by resampling — so you can quote, e.g.,
-*"6.0 ± 0.3 fs"*. The conceptual background (why this works, what it does and does not
-capture) is in [Uncertainty of the retrieved pulse duration](../explanation/uncertainty_estimation.md);
-this page is the recipe.
-
-```{warning}
-The interval is the **statistical (precision) uncertainty only**, conditional on the
-forward model and the noise model. It excludes systematic error — delay/wavelength
-calibration, detection response, geometry, model mismatch — which often dominates real
-measurements. Quote it as *statistical* and add a systematic budget separately.
-```
+A retrieved duration depends on noisy data and uncertain calibration. Choose
+which contribution to propagate, then repeat the retrieval or evaluate its local
+covariance. The result is conditional on those assumptions, not an automatic
+total experimental error bar. See [the theory](../explanation/uncertainty_estimation.md)
+and the [thickness example](../examples/thickness_uncertainty.md).
 
 ## Quick start
 
@@ -61,7 +54,7 @@ solver with them, warm-started from the solution. Mismatched settings bias the i
 * - `"thickness"`
   - **Systematic, not statistical.** Propagate a measured substrate-thickness prior
     through a *dispersive* retrieval (see [below](#substrate-thickness-systematic)).
-* - `"covariance"`
+* - `covariance_uncertainty(...)`
   - **Fast analytic.** The linearised Gauss–Newton covariance —
     {func}`~croak.covariance.covariance_uncertainty`. No re-retrieval; the natural
     cross-check on the bootstraps (see [below](#analytic-covariance)).
@@ -69,8 +62,17 @@ solver with them, warm-started from the solution. Mismatched settings bias the i
 
 The first three are *statistical* estimators. Running more than one and comparing is the
 strongest check: agreement builds confidence; disagreement points at the noise model
-(A vs B) or a non-Gaussian posterior. The `"covariance"` estimator is the fast analytic
-counterpart — agreement with a bootstrap validates both.
+(A vs B) or a non-Gaussian posterior. The covariance function is the local analytic
+counterpart.
+
+```{note}
+The statistical methods drop stagnated replicates by default: any replicate whose
+trace error exceeds `convergence_tol` × the median replicate error
+(`convergence_tol=3.0`) is discarded, as is any non-finite result. Compare
+`u.n_converged` with `u.n_resamples` to see how many were kept. The thickness method
+disables this filter (`convergence_tol=1e9`), because there a raised error in the
+prior's tails is physical misfit.
+```
 
 ## The noise model (parametric)
 
@@ -97,7 +99,8 @@ thickness (`material`/`thickness`). When that thickness is an independently **me
 input with its own error bar — e.g. `9.952 ± 0.539` µm — the retrieved FWHM inherits a
 *systematic* uncertainty that the statistical bootstraps above cannot see: every one of
 their replicates reuses the *same* fixed thickness. For short, deep-UV pulses this term
-routinely **dominates** the statistical one.
+can dominate: in the [thickness example](../examples/thickness_uncertainty.md) it is about
+six times larger than the parametric bootstrap.
 
 {func}`~croak.uncertainty.thickness_bootstrap` (method `"thickness"`) propagates the
 measured thickness prior $L\sim\mathcal N(L_0,\sigma_L)$ by brute-force Monte-Carlo: it
@@ -120,8 +123,8 @@ print(u.summary())
 croak.plot_thickness_sensitivity(u)   # FWHM-vs-thickness, FROG-error-vs-thickness, band
 ```
 
-The statistical and thickness terms are independent, so combine them in quadrature for a
-total error budget:
+If the statistical and calibration contributions are independent and approximately
+Gaussian, a quadrature approximation is:
 
 ```python
 from math import hypot
@@ -132,8 +135,8 @@ total_pm = hypot(stat.plus_minus, u.plus_minus)   # ± half-widths (s)
 The `plot_thickness_sensitivity` figure also shows **FROG error vs thickness** — a
 consistency check. A flat curve means the data does not constrain the thickness (the full
 prior propagates); a clear minimum near $L_0$ means the trace itself prefers a thickness,
-partially constraining it. Unlike the statistical bootstrap, a higher error in the tails
-here is *physical misfit*, not stagnation — so this method does not convergence-filter it.
+partially constraining it. A higher error in the tails is mostly physical misfit, so
+this method does not convergence-filter it; check for failed optimisation yourself.
 ```
 
 A complete, runnable script is in `examples/example_thickness_uncertainty.py`.
@@ -141,7 +144,17 @@ A complete, runnable script is in `examples/example_thickness_uncertainty.py`.
 (analytic-covariance)=
 ## Analytic covariance (no re-retrieval)
 
-{func}`~croak.covariance.covariance_uncertainty` (method `"covariance"`) is the fast
+The current covariance interface supports the core model and reduced smearing,
+but does not expose chromatic focal/collection models, depth weighting or
+`delay_origin="marginal_peak"`. Do not use a covariance built from a different
+model as the uncertainty of the original retrieval. The Jacobian omits
+regularisation curvature; penalised fits need additional care. With an explicit
+noise model, residual whitening currently replaces the residual weights,
+although those weights still enter the fitted gain. See the
+{func}`~croak.covariance.parameter_covariance` notes.
+
+
+{func}`~croak.covariance.covariance_uncertainty` (a separate function, not a dispatcher method) is the fast
 analytic alternative: it rebuilds the least-squares residual Jacobian $J$ at the retrieved
 spectrum, forms the Gauss–Newton covariance $\hat\sigma^2 (J^\top J)^{+}$, and propagates it
 to the FWHM by sampling the Gaussian parameter posterior — one Jacobian and cheap forward
@@ -167,7 +180,7 @@ print(cov.rank, cov.null_dim, cov.reduced_chisq)   # full covariance + diagnosti
 Use it in a **low-dimensional basis** (`phase_basis="bspline"`), where it agrees with the
 bootstrap to within a small factor. For a full *pointwise* retrieval the many soft
 (poorly constrained) modes make it unstable. It is a first-order (Laplace) approximation —
-near the transform limit or at low SNR, trust the bootstrap. The forward-model and
+near the transform limit or at low SNR, examine resampling and coverage as well. The forward-model and
 parameterisation keywords must reproduce the original retrieval.
 ```
 
@@ -214,7 +227,8 @@ croak.plot_uncertainty(u)   # two panels: FWHM histogram + 68 %/95 % intensity b
 ```
 
 The `plus_minus` is the half-width of the **68 % interval** (robust to outliers), not the
-sample standard deviation — quote `point_estimate ± plus_minus`.
+sample standard deviation — for a skewed distribution report the actual interval endpoints as well as the
+point estimate; a symmetric half-width can conceal an offset interval.
 
 ## Combining estimates and saving
 
@@ -279,8 +293,8 @@ FWHM error bar.
 ## Performance
 
 Each replicate is a full warm-started retrieval, so cost ≈ `n_resamples` × one retrieval.
-Use a fast solver (e.g. `"copra"`/`"lbfgs"`) and a modest `maxiters` (the warm start
-converges quickly); `n_resamples ≈ 200`–`300` suffices for a 1σ interval, more for the
+Use a solver supporting the original model and a budget that converges the
+replicates; `n_resamples ≈ 200`–`300` suffices for a 1σ interval, more for the
 95 % tails.
 
 ## See also

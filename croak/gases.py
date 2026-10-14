@@ -40,9 +40,9 @@ equation of state, so
 The ideal-gas approximation is accurate to ~0.1 % for helium and air up to a few
 bar; it deviates from a real-gas treatment (Luna uses CoolProp) only at high
 pressure (tens of bar, e.g. hollow-core-fibre compression). The Sellmeier poles
-sit in the deep XUV, so :math:`n` is smooth across the optical/IR band; any
-non-finite value outside the valid range is masked downstream by
-:func:`croak.materials.beta`.
+sit in the deep XUV, so :math:`n` is smooth across the optical/IR band. Non-finite
+values are masked by :func:`croak.materials.beta`; a finite value outside the
+formula's validated range is not detected.
 """
 
 from __future__ import annotations

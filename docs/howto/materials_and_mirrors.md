@@ -1,9 +1,13 @@
 # Materials and mirrors
 
-croak models dispersion from three sources, all of which feed the same machinery —
-the dispersive [forward model](../explanation/forward_model.md) (retrieving
-*through* a medium) and the [dispersion tuner](../tutorials/05_dispersion_tuning.md)
-(compressing a retrieved pulse):
+Use material data to describe a nonlinear medium or to propagate a retrieved
+pulse through a known optical path. Use mirror data to apply or remove the
+spectral phase and attenuation of reflections during post-processing. These
+operations have different roles: the [forward model](../explanation/forward_model.md)
+fits a measurement, while [dispersion tuning](../tutorials/05_dispersion_tuning.md)
+explores the pulse after retrieval.
+
+The optical data come from five sources:
 
 - **built-in Sellmeier materials** (fused silica, CaF₂, …);
 - **custom materials** you register yourself, including pages from the
@@ -12,7 +16,8 @@ the dispersive [forward model](../explanation/forward_model.md) (retrieving
 - **chirped mirrors**, from bundled data or your own measurement;
 - **beam-path coating mirrors** (Si, MgF₂/Al) to back-propagate out of the pulse.
 
-This guide shows how to use and extend each one.
+Each dataset has a valid wavelength range, and mirror data are given for a
+polarisation and angle of incidence.
 
 ## Built-in materials
 
@@ -29,7 +34,7 @@ or to {func}`~croak.dispersion.apply_dispersion` to add or remove a known thickn
 of glass:
 
 ```python
-# add 2 mm of fused silica to a retrieved spectrum, then take it back out
+# add 2 mm of fused silica to a retrieved spectrum
 ew = croak.apply_dispersion(g.omega, res.omega0, res.spectrum,
                            material_thicknesses={"SiO2": 2e-3})
 ```
@@ -66,7 +71,8 @@ over the built-in set and are resolved case-insensitively; remove one with
 The optional `croak[ridb]` extra bridges to the
 [refractiveindex.info](https://refractiveindex.info) database, giving you thousands
 of measured and modelled materials without writing Sellmeier formulae yourself.
-Install it with `pip install croak[ridb]` (or `uv sync --extra ridb`); the first
+Add it to a project with `uv add "croak[ridb]"` (or, in a source checkout,
+`uv sync --extra ridb`); the first
 lookup downloads the full database (~hundreds of MB) to
 `~/.refractiveindex.info-database`.
 
@@ -115,16 +121,12 @@ Because a gas is registered as an ordinary material, it works **everywhere a
 material name does** — including the dispersion auto-compressor, which sweeps the
 path length at the set pressure. The available gases are in
 {data}`croak.gases.GASES` (`('Helium', 'Air')`). The ideal-gas scaling is accurate
-to ~0.1 % for these gases up to a few bar; it is an approximation at high pressure
-(tens of bar), where a real-gas equation of state would differ.
+to about 0.1 % for these gases up to a few bar; at tens of bar a real-gas equation
+of state would differ.
 
-The GUI's dispersion stage exposes this as a **Gases** group: pick a gas, set the
-pressure and the path length, and the pulse updates live. The pressure control
-spans 0–10 bar at **millibar** resolution — the spin box, its arrows and the slider
-all step by 1 mbar, so a few-mbar residual pressure is as easy to dial as a bar of
-fill gas. (10 bar is also about where the ideal-gas scaling above stops being
-quantitative.) The path length runs to **±999 cm**, covering metre-scale purge
-paths; negative pre-compensates, and **Auto** optimises over the full range.
+The GUI's **Gases** group selects the gas, pressure and path length. Pressure
+ranges from 0–10 bar in 1 mbar steps; path length ranges to ±999 cm. Negative
+length removes the modelled phase, and **Auto** optimises over the allowed range.
 
 ## Chirped mirrors
 
@@ -160,8 +162,8 @@ compressed = croak.apply_dispersion(g.omega, res.omega0, res.spectrum,
                                    mirror_bounces={"PC70": 6})
 ```
 
-(For good compressor mirrors `R ≳ 99 %` in band, so the loss is small; pass only
-`phase_fn` to `register_mirror` for the old phase-only behaviour.)
+For good compressor mirrors `R ≳ 99 %` in band, so the loss is small; pass only
+`phase_fn` to `register_mirror` for a phase-only calculation.
 
 `mirror_bounces` can be combined with `gdd`/`tod`/`fod` and `material_thicknesses`
 in a single {func}`~croak.dispersion.apply_dispersion` call, and is one of the knobs
@@ -196,19 +198,26 @@ polarisation, and the valid range:
 ```python
 phase_fn, amp_fn, valid_range = mirrors.load_coating("MgF2/Al @ 0°", "s")
 croak.dispersion.register_mirror("MgF2Al", phase_fn, amp_fn)   # phase + amplitude
+
+phase_fn, amp_fn, _ = mirrors.load_coating("Si @ 45°", "s")
+croak.dispersion.register_mirror("Si45", phase_fn, amp_fn)
 ```
 
 A **negative** bounce count removes the mirror: `apply_dispersion` then applies
 `exp(-iNφ)` *and* divides the spectrum by `r(λ)^N` (the net amplitude gain is
-clamped so a small reflectivity cannot blow it up). Several mirrors back-propagate
-in one call:
+clamped so a small reflectivity cannot blow it up). Several registered coatings
+back-propagate in one call:
 
 ```python
 upstream = croak.apply_dispersion(
     g.omega, res.omega0, res.spectrum,
-    mirror_bounces={"Si": -1, "MgF2Al": -6, "MgF2Al_45s": -2},
+    mirror_bounces={"MgF2Al": -6, "Si45": -2},
 )
 ```
+
+Back-propagation cannot recover spectral content where the reflectivity is
+close to zero; the clamp limits the noise it amplifies there. Keep the spectrum
+inside the coating's valid wavelength range.
 
 At normal incidence the `s` and `p` data coincide; at oblique incidence they
 differ, so pick the polarisation that matches your beam.

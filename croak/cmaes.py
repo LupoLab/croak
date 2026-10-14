@@ -1,12 +1,13 @@
-r"""Global retrieval by evolution strategy (``cma-es``), powered by evosax.
+"""Global retrieval by evolution strategy (``cma-es``), powered by evosax.
 
 Every other retriever (except COPRA) is a *local* optimiser, so a poor initial
-guess never converges. This retriever runs a **global** population search —
-CMA-ES (default), Separable CMA-ES or Differential Evolution — over the same
+guess can leave it in the wrong basin. This retriever runs a **global** population
+search — CMA-ES (default), Separable CMA-ES or Differential Evolution — over the same
 differentiable parameterisation the gradient solvers use (full amplitude+phase,
 phase-only, or the reduced cubic B-spline phase basis). Because the forward model
 is JAX, the whole population is evaluated in a single jitted ``vmap`` device call,
-so a generation costs roughly one batched forward pass.
+so a generation costs roughly one batched forward pass (scaling with the
+population size and the forward-model quadrature).
 
 The intended workflow is a global search here followed by a local refinement:
 run ``cma-es`` (typically with the low-dimensional ``phase_basis="bspline"``),
@@ -17,11 +18,12 @@ CMA-ES / DE scale better if used on the full-dimensional parameterisation.
 The same smoothness / spectral-match regularisation as the gradient solvers is
 available (``reg_amp``/``reg_phase``/``reg_spectrum``): the penalties are added
 to the FROG error to form the *total* the evolution strategy minimises, while
-selection and reporting stay on the bare FROG error so results remain comparable
-to the other retrievers. The penalties self-gate by mode/basis, so on the common
+selection uses the regularised objective and reporting exposes the bare
+FROG error separately. The penalties self-gate by mode/basis, so on the common
 B-spline path only the phase penalty is active (amplitude/spectral are no-ops).
 
-evosax is an optional dependency — ``pip install croak[evo]``.
+evosax is an optional dependency — ``pip install "croak[evo]"`` (or
+``uv add "croak[evo]"``).
 """
 
 from __future__ import annotations
@@ -112,7 +114,7 @@ def run_cmaes(
     already ``jit(vmap(...))``) returning, per population member, the
     ``(total, frog_error)`` pair: the *total* is the regularised objective the
     evolution strategy is driven by (``ask``/``tell``), while the bare
-    *frog_error* is what is selected and reported on. The returned ``best_u`` is
+    *frog_error* is reported separately. The returned ``best_u`` is
     the member with the lowest **total** ever evaluated (consistent with the
     gradient solvers, which return the minimiser of the regularised objective),
     and ``R_log`` is that member's bare FROG error after each generation.
@@ -201,8 +203,8 @@ class CMAES(Retriever):
     reg_amp, reg_phase, reg_spectrum, spectrum_target
         Smoothness / spectral-match regularisation weights, identical to the
         gradient solvers (see :class:`croak.lbfgs_ad.LBFGSAD`). The penalties are
-        added to the FROG error to form the *total* the search minimises, but the
-        result is still selected and reported on the bare FROG error. The
+        added to the FROG error to form the *total* the search minimises and
+        selects on; the reported trace error excludes them. The
         penalties self-gate by mode/basis, so amplitude/spectral terms are no-ops
         in phase-only or B-spline mode; ``reg_spectrum`` additionally needs an
         independent ``spectrum_target`` (full mode).
@@ -227,12 +229,14 @@ class CMAES(Retriever):
         exclusive with ``smearing``, and incompatible with ``fit_smearing``
         (an explicit mixture has no kernel width to scale).
 
-        Only worth its cost for a broadband pulse. The reduced kernel's widths
-        scale as :math:`\sigma\propto\lambda`, so freezing them at the carrier
-        is a -16%/+24% spread of width across a 1 fs deep-UV band and costs a
-        mean 12% of retrieved duration there, against 3.5% at 2 fs. The mixture
-        needs one field build per focal node rather than per Gauss-Hermite
-        node, so it is one to two orders of magnitude slower.
+        Worth its cost for a broadband pulse. The reduced kernel's widths scale
+        as :math:`\sigma\propto\lambda`, so freezing them at the carrier is a
+        -16 %/+24 % spread of width across a 1 fs deep-UV band; in our earlier
+        instrument scans that cost a mean 12 % of retrieved duration there,
+        against 3.5 % at 2 fs. The mixture needs one field build per focal node
+        rather than per Gauss-Hermite node, so it is one to two orders of
+        magnitude slower; check quadrature convergence for the chosen pulse and
+        geometry.
     seed : int or None
         Optional explicit PRNG seed (otherwise derived from the framework rng).
 

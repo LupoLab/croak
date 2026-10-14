@@ -12,11 +12,12 @@ measurement: the loader produces the same `load_data` dictionary that
 {func}`~croak.session.pipeline.assemble_load_data` does, so you keep all of croak's
 filtering, windowing and regridding options.
 
-Two reduced scans from the companion paper's validation study ship with the
-package in `examples/data/` — the 1 fs thickness series and the single-cycle
-RDW pulse — so everything on this page can be tried immediately;
-`examples/example_paper_thickness.py` and `examples/example_paper_rdw.py` are
-worked retrievals of them (see [Validation](../explanation/validation.md)).
+The bundled reduced simulation datasets in `examples/data/` (a 1 fs
+substrate-thickness series and a single-cycle RDW pulse, both simulated with
+[ModelPNPS.jl](https://github.com/LupoLab/ModelPNPS.jl)) let you try everything
+on this page immediately; `examples/example_paper_thickness.py` and
+`examples/example_paper_rdw.py` are worked retrievals of them (see the
+[example gallery](../examples/index.md)).
 
 ## The expected file layout
 
@@ -35,7 +36,7 @@ worked retrievals of them (see [Validation](../explanation/validation.md)).
 | `grid/τfwhm` | scalar | input-pulse intensity FWHM (s) |
 | `grid/zsave` | `(nz,)` | saved propagation distances (m), entrance `0` → exit `zmax` — optional (multi-thickness format) |
 | `scanvariables/τ` | `(Nτ,)` | delay axis (s) |
-| `Iω_win` | `(Nω, nz, Nτ)` | signal **integrated over all k** (collect-all-light) |
+| `Iω_win` | `(Nω, nz, Nτ)` | signal energy integrated over the selected collection window |
 | `Iω_win_reimaged` | `(Nω, nz, Nτ)` | signal at the **on-axis** pixel (fibre/slit-coupled) |
 | `Iω_full` | `(Nω, nz, Nτ)` | full signal beam, **no aperture crop** (no mask vignetting) — optional (newer files) |
 
@@ -57,19 +58,16 @@ signal beam (a new k-direction) is extracted through a signal-hole window.
   hole maps to k-space as `x = kx·z·c/ω`, so it collects an ω-dependent slice of
   the beam — the beamlet is therefore **chromatically vignetted** relative to the
   source (it is blue-shifted, and is the spectrum that actually gates).
-- **`Iω_win` vs `Iω_win_reimaged`** are two ways to read the *same* signal:
-  `Iω_win` integrates `|E|²` over all transverse k (a detector collecting all the
-  light), while `Iω_win_reimaged` takes the on-axis pixel after re-imaging (a
-  fibre- or slit-coupled spectrometer). They differ by ≈λ² in their wavelength
-  response (an integrated total-power vs on-axis-intensity factor), so the on-axis
-  trace needs a *larger* third-order exponent. Pick the one matching your real
-  apparatus.
-- **`Iω_full`** (newer files) is the full signal beam collected *without* the
-  signal-aperture crop. It carries no mask vignetting, so loading it as the trace
-  (`window_key="Iω_full"`) needs little or no third-order correction — useful for
-  isolating the pulse from the apparatus response. The `window_key` selector lists
-  only the windows a given file actually stores, so `Iω_full` appears only when
-  present.
+- **`Iω_win` versus `Iω_win_reimaged`** are two observables of the same signal:
+  `Iω_win` integrates $|E|^2$ over the collection window (a detector collecting
+  all the light it passes), while `Iω_win_reimaged` takes the on-axis pixel after
+  re-imaging (a fibre- or slit-coupled spectrometer). They differ by roughly
+  $\lambda^2$ in their wavelength response, so the on-axis trace needs a larger
+  third-order exponent. Pick the one matching your apparatus.
+- **`Iω_full`** (newer files) is the full signal beam without the
+  collection-aperture crop. It still carries the input-mask filtering and the
+  radiated-field factor. The `window_key` selector lists only the windows a file
+  actually stores.
 
 (selecting-a-thickness)=
 ## Selecting a thickness
@@ -77,10 +75,9 @@ signal beam (a new k-direction) is extracted through a signal-hole window.
 A simulation can save the signal at **several propagation depths through the
 nonlinear medium in one file** — the `nz` axis of each trace window — and records
 those depths in `grid/zsave` (strictly increasing, from the entrance `0` to the
-substrate exit `zmax`). Because the field at an intermediate depth `z` is exactly
-the field a dedicated thinner run would produce, **one full-thickness run yields
-every shorter thickness for free**: you can retrieve the pulse after any saved
-thickness without re-simulating.
+substrate exit `zmax`). The field at an intermediate depth is the field a thinner
+slab would produce at its exit, with the same input and collection, so **one
+full-thickness run yields every shorter thickness** without re-simulating.
 
 Pick the thickness with either knob of {func}`~croak.io.read_simulated_scan` (and
 the matching {class}`~croak.session.params.SimulatedLoadParams` fields):
@@ -97,7 +94,7 @@ from croak import io
 io.read_simulated_z_positions("scan_collected.h5")        # -> e.g. [0, 4, …, 40] µm, or None
 scan = io.read_simulated_scan("scan_collected.h5", z_thickness=20e-6)   # the 20 µm slice
 scan.z_index            # the resolved slice index that was loaded
-scan.z_positions        # the zsave axis (m), or None for a legacy file
+scan.z_positions        # the zsave axis (m), or None for a single-thickness file
 ```
 
 ```{note}
@@ -107,15 +104,10 @@ meaningful, and the loader keeps its previous behaviour (`z_index = -1`). Passin
 `z_thickness` to such a file raises, since there is no thickness axis to match.
 ```
 
-```{tip}
-The new format also adds `Iω_full` (the full signal-beam collection, no aperture
-crop). You can **load it directly as the trace** with `window_key="Iω_full"` (see
-above) — it carries no mask vignetting. Separately, the ratio `Iω_win / Iω_full` is
-the *exact* per-(ω, τ) collection/vignetting efficiency of the signal aperture, so
-it could replace the approximate `(λ/µm)^n` correction below with a physically
-exact one; croak does not use it for *correction* yet — that is a planned
-enhancement.
-```
+The ratio `Iω_win / Iω_full`, where both are stored, is the collection
+efficiency of the signal aperture for that simulated field at each (ω, τ). It
+depends on the field and the delay, so it is not a transferable detector
+calibration, and croak does not use it as a correction.
 
 ## The ω → λ Jacobian the loader applies
 
@@ -142,80 +134,84 @@ read scan -> λ = 2πc/ω -> drop ω ≤ 0 and crop to the band
 with the chosen reference spectrum (beamlet or source) offered as the independent
 spectrum.
 
-## Why the third-order exponent is large — the physics
+## Why the third-order exponent is large: the physics
 
-The simulated signal carries an `ω`-dependent factor that croak's envelope model
-omits, removed by the `third_order` correction `×(λ/µm)^n ∝ ω^{-n}`. The required
-`n` is large (~4–8) and non-integer; this is **real physics**, not a bug, and it
-decomposes as:
+The simulated signal carries an ω-dependent factor that croak's envelope model
+omits; the optional `third_order` correction multiplies the trace by
+$(\lambda/\mathrm{\mu m})^n \propto \omega^{-n}$ to remove it. The required
+$n$ is large (about 4–8) and non-integer. This is physics, not a bug, and it
+decomposes into three parts:
 
-1. **Radiated field → ω².** The propagation generates the signal *field* as
-   $E_\mathrm{sig}(\omega) \propto \omega\,P_\mathrm{NL}(\omega)$ (the
-   wave-equation source term), so the intensity carries $\omega^2$. This is present
-   in any real measurement and is the *only* part croak's envelope model strictly
-   omits.
-2. **Triple mask vignetting → the dominant term.** The signal is a product of
-   **three** masked beams, each chromatically vignetted (per-beam intensity vignette
-   $\propto \omega^{1.9}$ for the example file), so the signal intensity picks up
-   $\sim\omega^{5.6}$.
-3. **Spatial collection → ±2.** `Iω_win` (integrated) and `Iω_win_reimaged`
-   (on-axis) differ by the mode area $\propto\lambda^2$.
+1. **Radiated field, about ω².** The generated field carries a factor
+   $\omega_{\rm abs}/n(\omega_{\rm abs})$ multiplying the nonlinear
+   polarisation (the wave-equation source term), so the intensity carries its
+   square, close to $\omega^2$. This is present in any real measurement.
+2. **Triple mask vignetting, the dominant term.** The signal is a product of
+   **three** masked beams, each chromatically vignetted (a per-beam intensity
+   vignette of about $\omega^{1.9}$ for the example file), so the signal
+   intensity picks up roughly $\omega^{5.6}$. Because the three beams mix
+   frequency triplets, this is a curve rather than an exact power law.
+3. **Spatial collection, about ±2.** `Iω_win` (integrated) and
+   `Iω_win_reimaged` (on-axis) differ by the mode area, about $\lambda^2$.
 
-Fitted over the signal band these combine to ≈**4.8** for `Iω_win` and ≈**6.7**
-for `Iω_win_reimaged` *against the source spectrum*.
+Fitted over the signal band of the bundled reduced simulation datasets, these
+combine to about **4.8** for `Iω_win` and **6.7** for `Iω_win_reimaged` against
+the *source* spectrum.
 
 ```{tip}
 **Use the beamlet spectrum as the reference** (`spectrum_source="beamlet"`, the
-default). The mask vignetting is a linear filter on the gating beam — it belongs
-in the reference spectrum, not in a trace correction. Choosing it removes the
-triple-vignette term *physically* and the retrieved spectrum then matches the
-gating beam, not the ideal source.
+default). The mask vignetting is a linear filter on the gating beam, so it
+belongs in the reference spectrum, not in a trace correction. Choosing the
+beamlet removes the triple-vignetting term physically, and the retrieved
+spectrum then matches the gating beam rather than the ideal source.
 ```
 
-### Correcting the ω-dependence — a single exponent is only approximate
+### Correcting the ω-dependence: a single exponent is only approximate
 
-The composite factor is a **curve** (radiated ω² × chromatic collection), not a
-true power law, so a single `third_order_exp` only approximates it: the best value
-is band-dependent and depends on what you align. For `Iω_win` + the beamlet
-reference, the *retrieved spectrum* overlays the gating spectrum at ≈**2.5**
-(matching its centroid) to ≈**3.5** (matching its peak); `Iω_win_reimaged` needs
-≈2 more (the on-axis vs total-power mode-area factor). Too small an exponent leaves
-the retrieved spectrum blue-shifted. Because no single power law is exact, prefer
-one of these instead:
+Because the composite factor is a curve, a single `third_order_exp` only
+approximates it, and the best value depends on the band and on what you align.
+For `Iω_win` with the beamlet reference, the retrieved spectrum overlays the
+gating spectrum at about **2.5** (matching its centroid) to **3.5** (matching its
+peak); `Iω_win_reimaged` needs about 2 more. Too small an exponent leaves the
+retrieved spectrum blue-shifted. Three alternatives avoid the guesswork:
 
-1. **Calibrate it (most rigorous).** Send a known broadband source down the
-   *signal* channel (signal aperture → detector), measure its chromatic
-   throughput, and divide it out. Then only the fundamental radiated ω² remains.
-2. **Rω per-frequency scaling** (`R_omega=True` on the Retrieve stage). The FROG
-   error gives each frequency row its own least-squares scale $\mu(\omega)$, so it
-   absorbs *any* separable ω-response — curved or power-law — with **no exponent at
-   all**. Caveat: it does this by discarding the spectral-amplitude information
-   entirely — one free scale per row *is* the frequency marginal — so the amplitude
-   is pinned only through each row's delay structure, and grows spurious energy at
-   the band edges where that structure is weakest. It is also solver-dependent (a
-   gradient solver recovered the gating spectrum here; COPRA drifted bluer). **Never
-   use it alone**: pair it with option 3, and check
-   {func}`croak.processing.edge_energy_fraction` on the result. See
+1. **Calibrate it.** Send a known broadband source down the *signal* channel
+   (signal aperture to detector), measure its chromatic throughput and divide it
+   out. Only the radiated ω² factor then remains. This is the most rigorous
+   option, and the only one that gives a defensible amplitude from the trace
+   itself.
+2. **Rω per-frequency scaling** (`R_omega=True` on the Retrieve stage). Each
+   frequency row gets its own least-squares scale $\mu(\omega)$, which absorbs
+   any separable ω-response with no exponent at all. It does so by discarding the
+   spectral-amplitude information (one free scale per row *is* the frequency
+   marginal), so the amplitude is pinned only through each row's delay structure
+   and grows spurious energy at the band edges where that structure is weakest.
+   **Never use it alone**: pair it with option 3, and check
+   {func}`~croak.processing.edge_energy_fraction` on the result. See
    [per-frequency scaling](regularisation.md#per-frequency-scaling).
-3. **Anchor the amplitude with your measured spectrum.** Either **phase-only
-   retrieval** (hold the spectral amplitude at the measured gating spectrum and
-   retrieve only the phase — a per-ω gain doesn't touch the τ-structure that
-   carries the phase, so this is immune to the response), or a light spectral
-   regularisation (`reg_spectrum`) toward that spectrum.
+3. **Anchor the amplitude with the measured spectrum.** Either retrieve
+   **phase-only** (hold the amplitude at the measured gating spectrum; a
+   per-frequency gain does not touch the delay structure that carries the
+   phase), or add a light `reg_spectrum` towards that spectrum.
 
-So: if you trust your measured gating spectrum, **Rω + a light `reg_spectrum`**, or
-**phase-only**, removes the exponent guesswork; a single exponent (≈2 from the
-radiated-field $\omega^2$ factor, a little more with chromatic collection — the
+If you trust the measured gating spectrum, **Rω with a light `reg_spectrum`**,
+or **phase-only** retrieval, removes the exponent; a single exponent (the
 marginal-check stage's **Auto** picks it from your spectrum) is the quick
-approximation; calibrate the signal-channel response when you need a defensible
-amplitude *from the trace itself*.
+approximation. None of these corrections removes delay-dependent collection
+effects, which need the [collection model](collection_aperture.md).
 
 ```{note}
-The mask **blue-shifts** the gating spectrum (e.g. 260 → 248 nm) but barely changes
-the transform-limited duration. So when validating, compare the retrieved
-**duration** to the input FWHM, but compare the retrieved **spectrum/centroid** to
-`grid/Iω_beamlet`, not to the ideal source.
+The mask **blue-shifts** the gating spectrum (for example 260 → 248 nm) but
+barely changes the transform-limited duration. When validating, compare the
+retrieved **duration** with the input FWHM, but compare the retrieved
+**spectrum and centroid** with `grid/Iω_beamlet`, not with the ideal source.
 ```
+
+Use an auxiliary spectrum in the field convention of the model. A source,
+integrated beamlet and on-axis entrance spectrum are not interchangeable.
+Compare durations only after converting the **complex field** into a common
+convention; a small centroid shift need not imply a negligible duration change.
+See [field reference planes](../reference/conventions.md#field-reference-planes).
 
 ### The time-domain truth overlay
 
@@ -227,7 +223,7 @@ actually gates, the default) or the ideal pre-mask **source** (`grid/It`) — an
 matching spectrum (`grid/Iω_beamlet` or `grid/Iω`) is used for its spectral panel
 so the overlaid pulse is self-consistent. The oversampled grid (`To`/`Ito*`) is
 used when present. A file that stores only one falls back to it automatically
-(legacy and Gaussian-beam files store only `It`). Because the blind retrieval
+(older and Gaussian-beam files store only `It`). Because the blind retrieval
 reconstructs the **gating** beamlet, `"beamlet"` is the like-for-like truth to
 compare against; pick `"source"` only to check against the ideal input.
 
@@ -248,32 +244,21 @@ selected field into its Fourier convention and retains it on the
 complex field)** initial guess in the GUI, and the same initial condition in
 scripts.
 
-For the strongest forward-model check, use the raw native grid. The generating
-field then reaches the forward model without a spectral regrid:
+The strongest forward-model check evaluates the model on the stored complex
+field on the native grid, with the matching reference plane and observable, so
+no spectral interpolation intervenes: evaluate {func}`~croak.forward.maketrace`
+(or the JAX trace function) on the stored spectrum and compare with the trace
+after fitting the gain. [Validation](../explanation/validation.md#fixed-field-validation-and-numerical-convergence)
+gives the global-gain and row-gain residuals obtained this way. An independently
+generated three-dimensional trace does not match a reduced model to rounding
+error; only a trace generated by the same discrete map has a numerical zero at
+its generating field.
 
-```python
-data = assemble_simulated_load_data(simulated)
-td = assemble_simulated_tracedata(simulated)
-params = RetrieveParams(solver="lbfgs-ad", maxiters=1, truth_init=True)
-result = run_retrieval(params, td, truth=data["truth"])
-print(result.error)
-```
-
-The lower-level equivalent is
-`retrieve_from_tracedata(td, guess="truth", truth=data["truth"])`. A legacy
-intensity-only file fails with a clear error if truth initialisation is selected;
-croak does not invent a phase from the stored intensities.
-
-On the native grid this is an exact test: nothing between the stored field and
-the forward model is lossy, so a correct model reproduces the trace to rounding
-(`R ~ 1e-16`). Read any larger number as a real discrepancy. Off the native grid
-— the regrid path — the spectral resampling sets a small floor of its own, so
-compare seeds there rather than reading the absolute value.
-
-Only the *generating* field gives zero. Picking `truth_source="beamlet"` on a
-scan whose trace was generated from the source pulse compares against a
-different (vignetted) field, and the residual is that physical difference, not a
-model defect.
+Truth initialisation starts a retrieval from the known field:
+`retrieve_from_tracedata(td, guess="truth", truth=data["truth"])` or
+`RetrieveParams(truth_init=True)`. It tests the local behaviour of the inverse
+problem, not blind recovery. An intensity-only file raises a clear error if
+truth initialisation is selected; croak does not invent a phase.
 
 ## Scoring a retrieval against the truth
 
@@ -289,7 +274,7 @@ pane shows all three beside the FROG error whenever a known pulse is loaded:
 | $\epsilon_{I_\omega}$ | spectral intensity $\|\tilde E(\omega)\|^2$ | scale, **all** phase |
 | $\epsilon_{E_\omega}$ | the complex field $\tilde E(\omega)$ | scale, absolute phase, delay |
 
-Each removes exactly the gauge freedoms a PNPS measurement genuinely cannot
+Each removes exactly the freedoms that a PNPS measurement cannot
 determine, and no others. Read them together: $\epsilon_{I_\omega}$ small with
 $\epsilon_{E_\omega}$ large means the amplitude is right and the phase is not —
 the failure a trace error hides most easily. $\epsilon_{E_\omega}$ is Geib's
@@ -319,7 +304,7 @@ The options live on {class}`~croak.session.params.SimulatedLoadParams`:
 | `z_index` | `-1` | raw propagation slice (substrate exit); used when `z_thickness_um` is `None` |
 | `lam_min_nm`, `lam_max_nm` | `140`, `800` | wavelength band to **load** (crop); see below. The GUI seeds these to the file's full range |
 | `interaction` | `"pg"` | TG-FROG ≈ PG ($E\,|E(t-\tau)|^2$); or `"sd"` |
-| `reverse_trace` | `None` | delay-sign convention: `None` auto-detects from the file's `/grid/delay_convention` marker (gate-frame files load unreversed; legacy files are negated); explicit `True`/`False` overrides |
+| `reverse_trace` | `None` | delay-sign convention: `None` auto-detects from the file's `/grid/delay_convention` marker (gate-frame files load unreversed; older files without the marker are negated); explicit `True`/`False` overrides |
 | `third_order` / `third_order_exp` | `True` / `2.0` | divide out the $\propto\omega^n$ efficiency (approximate) |
 | `use_spectrum` | `True` | feed a known spectrum as the independent spectrum (off for a blind test) |
 | `spectrum_source` | `"beamlet"` | which spectrum: `"beamlet"` (post-mask, recommended) or `"source"` |
@@ -432,8 +417,8 @@ print(res.error)
 ```
 
 Because the trace is the ω-density on its own grid, there is no Jacobian, no
-interpolation and no windowing between the file and the solver — so a clean
-retrieval here confirms the physics independently of the preprocessing choices.
+interpolation and no windowing between the file and the solver, so the
+retrieval is independent of preprocessing choices.
 Compare it against the regular regrid path (same options, `raw_direct=False`) to
 see what the filtering and regridding change. The retrieval accepts the
 simulation's delays directly (the forward model gates-and-FFTs per delay), so no
@@ -497,7 +482,7 @@ uv run croak replay options.toml
 ```
 
 ```{note}
-**Retargeting does not apply.** {func}`croak.retarget` re-points a session at
+**Retargeting does not apply.** {func}`croak.session.retarget.retarget` re-points a session at
 another *per-dataset folder*, a convention of measured acquisitions (trace,
 spectrum and backgrounds sharing a folder with stable filenames). A simulated
 session is one scansave file with no such siblings, so retargeting it raises — and

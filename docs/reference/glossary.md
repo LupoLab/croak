@@ -9,7 +9,8 @@ and the names used in the code.
 |--------|---------|-------------|
 | $\tilde E(\omega)$ | complex pulse spectrum (the unknown) | `spectrum`, `ew` |
 | $E(t)$ | complex temporal field | `field`, `et` |
-| $\omega$ | centred angular frequency (rad/s) | `omega`, `g.omega` |
+| $\Omega$ (often $\omega$ in the API) | centred frequency offset (rad/s) | `omega`, `g.omega` |
+| $\omega_{\rm abs}=\omega_0+\Omega$ | absolute optical angular frequency (rad/s) | `omega + omega0` |
 | $\omega_0$ | carrier angular frequency | `omega0` |
 | $t$ | time (s) | `t`, `g.t` |
 | $\tau$ | delay (s) | `tau`, `delays` |
@@ -26,12 +27,18 @@ and the names used in the code.
 
 ```{admonition} R vs G
 :class: note
-The normalised RMS trace error is written **$G$** (the "G-error") in much of the
-FROG literature and **$R$** throughout croak. They are the same quantity
-({func}`croak.metrics.compute_R`, `result.error`).
+The peak-normalised rms trace error
+$R=\sqrt{r/(MN\,\max(T_\text{meas}w)^2)}$ is written **$G$** (the "G-error")
+in much of the FROG literature and **$R$** throughout croak. They are the same
+quantity ({func}`croak.metrics.compute_R`, `result.error`); with weights, croak
+uses the weighted residual and the peak of the weighted measured trace.
 ```
 
 ## Terms
+
+croak
+: **Complete Retrieval by Optimisation and Adjoint Kernels** — the package
+  for retrieving a complex pulse from a model of its FROG measurement.
 
 PNPS
 : **Parameterised Nonlinear-Process Spectra** — the family of self-referenced
@@ -48,16 +55,17 @@ Interaction / geometry
   [Interactions](../explanation/interactions.md).
 
 TG-FROG
-: **Transient-Grating FROG**; for a single unknown pulse its signal reduces to the
-  **PG** kernel, so croak retrieves it with `interaction="pg"`.
+: **Transient-Grating FROG**; for identical coincident gate replicas in the local model, its signal
+  reduces to the **PG** kernel, so croak retrieves it with `interaction="pg"`.
 
 Test / gate field
 : the undelayed field $E$ and the delayed field $G(t)=E(t-\tau)$ entering an
   interaction.
 
 Trace error $R$
-: the normalised, dimensionless fit metric; $\lesssim 10^{-3}$ is excellent,
-  $10^{-3}$–$10^{-2}$ is a good experimental retrieval.
+: the normalised, dimensionless residual between measured and fitted traces.
+  Interpret it relative to noise, weights, preprocessing and the model. A small
+  value does not by itself establish field accuracy.
 
 Thin medium
 : the classic FROG approximation of an infinitely thin, dispersionless nonlinear
@@ -103,3 +111,26 @@ Chirped mirror
 : a multilayer mirror that imparts a designed, wavelength-dependent group delay per
   reflection. Registered into {data}`croak.dispersion.MIRRORS` and applied by number
   of bounces; see [Materials and chirped mirrors](../howto/materials_and_mirrors.md).
+
+Field reference
+: the plane and spatial definition of the reported complex field. Source,
+  transverse-integrated beamlet, effective and on-axis entrance fields can have
+  different amplitudes and temporal profiles. See [conventions](conventions.md).
+
+$p$, $\delta$
+: the two timing coordinates of the spatial (smearing) model: the gate-pair
+  separation and the probe-to-gate-centroid offset ({mod}`croak.smearing`). For
+  PG the two gate replicas arrive at $\tau-\delta\mp p/2$ in the probe frame;
+  for SD, $p$ separates the two unconjugated replicas and $\delta$ offsets the
+  conjugated arm (see [the forward model](../explanation/forward_model.md#geometric-smearing)).
+
+$p_f$
+: the exponent of a declared spectral field conversion
+  $\widetilde E_{p_f}=(\omega_{\rm abs}/\omega_0)^{p_f}\widetilde E_{\rm int}$,
+  referenced to the carrier $\omega_0$.
+  It labels a field convention, not a detector-response correction.
+
+Detector response
+: wavelength-dependent conversion from optical signal to recorded counts.
+  Distinguish it from the nonlinear source factor and the coordinate Jacobian
+  used to convert a density per wavelength to one per frequency.

@@ -33,8 +33,8 @@ dispersive form.
 
 ```{note}
 croak works with the **baseband** spectrum $\tilde E(\omega)$ on a centred
-angular-frequency grid (zero at the carrier). The carrier $\omega_0$ enters only
-through the dispersive model. See [Conventions](../reference/conventions.md).
+angular-frequency grid (zero at the carrier). The carrier $\omega_0$ fixes absolute frequency for dispersion, wavelength
+conversion and spatial instrument models. See [Conventions](../reference/conventions.md).
 ```
 
 ## Signal operators for FROG geometries
@@ -49,38 +49,31 @@ each a different instantaneous nonlinearity in the time domain:
 | Self-diffraction | $E^2\,G^*$ | `"sd"` | $\omega_0$ |
 | Polarisation gating | $E\,\lvert G\rvert^2$ | `"pg"` | $\omega_0$ |
 
-The **transient-grating** (TG-FROG) geometry that headlines the
-[companion paper](validation.md) shares the **PG** signal kernel
+The **transient-grating** (TG-FROG) geometry used in
+[validation](validation.md), with coincident gate replicas, shares the **PG** signal kernel
 $E\lvert G\rvert^2$, so retrieving TG-FROG data uses `interaction="pg"`. See
 [Interactions](interactions.md) for the signal fields and their adjoints.
 
 ## The standard idealisations, and where they fail
 
-Classic FROG retrieval idealises the measurement in three ways, and each fails
-for few-femtosecond pulses in the deep ultraviolet:
+The simplest model treats the medium as thin, the replicas as spatially
+uniform, and the detector response as a frequency-dependent scale. Check these
+assumptions against the pulse bandwidth and instrument:
 
-1. **The medium is treated as infinitely thin and non-dispersive** — the
-   signal {eq}`pnps` is evaluated at a single plane. Accurate in the
-   near-infrared; in the DUV even a few micrometres of substrate impose
-   group-velocity and higher-order dispersion that reshape the pulse *within*
-   the interaction region, plus wavelength-dependent phase-matching filtering
-   over the finite interaction length. A thin-medium retrieval of a ~1 fs DUV
-   pulse returns a pulse up to 2.6 times too long — at a low trace error.
-2. **The beam geometry is treated as ideal.** In any focused non-collinear
-   arrangement the relative delay between the beams varies across the focal
-   spot, smearing the trace along the delay axis. At 260 nm and practical
-   BOXCARS mask ratios the blur is about a femtosecond — comparable to the
-   pulse.
-3. **The collection is treated as perfect.** The signal reaches the
-   spectrometer through an aperture, and for an octave-spanning pulse that
-   aperture is a coherent chromatic filter that reshapes the trace in a way
-   no spectral calibration absorbs.
+1. **Finite dispersive medium.** The pulse evolves while the nonlinear signal
+   is generated, and contributions from different depths interfere. In the DUV,
+   even micrometre-scale substrates can matter for few-femtosecond pulses.
+2. **Crossed focused beams.** Relative arrival times vary across the focal
+   spot. The resulting trace depends on the mask geometry, pulse and focusing;
+   a reduced smearing model approximates this dependence under stated assumptions.
+3. **Finite collection.** An aperture selects a coherent part of the signal.
+   Its effect can depend on delay as well as frequency, so a row-wise spectral
+   calibration need not absorb it.
 
-croak's [forward model](forward_model.md) contains all three effects — the
-dispersive slab, the geometric smearing kernel, and the chromatic
-focal/collection model — each recoverable as an explicit limit, so the
-standard model is the same code with the extra physics switched off. The
-[validation study](validation.md) measures where each ingredient matters.
+The [forward-model chapter](forward_model.md) develops these models and their
+limits. The [validation study](validation.md) shows bounded examples in which a
+small trace residual coexists with a substantially wrong pulse. It also includes
+cases that remain poorly retrieved with a more detailed model.
 
 ## Ambiguities
 
@@ -92,10 +85,10 @@ carries *trivial ambiguities* that retrieval cannot resolve from the trace alone
 - for SHG-FROG, the **direction of time** ($E(t) \to E^*(-t)$).
 
 croak's results inherit these: compare retrieved pulses up to a constant phase and
-a time shift. Some geometries (SD, PG, TG) break the time-reversal ambiguity.
-*Non-trivial* ambiguities (genuinely distinct pulses with the same trace) are
-rare for well-sampled traces and are the reason retrieval is run from several
-[random restarts](../howto/solver_selection.md).
+a time shift. SD, PG and TG do not have the general SHG time-reversal symmetry, although
+particular fields or incomplete data can remain difficult to distinguish.
+Several [random starts](../howto/solver_selection.md) test sensitivity to local
+minima; they do not prove uniqueness or remove an information ambiguity.
 
 ## Beyond FROG
 

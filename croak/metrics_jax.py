@@ -18,7 +18,7 @@ Conventions match :mod:`croak.metrics` and :mod:`croak.lbfgs`:
   :class:`croak.lbfgs.LBFGS`.
 
 The second-difference smoothness penalties mirror
-:func:`croak.pulses._second_diff_penalty` so regularised retrieval matches the
+``croak.pulses._second_diff_penalty`` so regularised retrieval matches the
 analytic-gradient solver.
 """
 
@@ -40,7 +40,7 @@ __all__ = [
 def mu_global(
     t_meas: jnp.ndarray, t_sim: jnp.ndarray, weights: jnp.ndarray
 ) -> jnp.ndarray:
-    r"""Optimal global scale factor :math:`\mu` (JAX clone of :func:`compute_mu`).
+    r"""Compute the optimal global trace scale factor with JAX.
 
     Mirrors :func:`croak.metrics.compute_mu`. ``weights`` is a per-frequency
     vector broadcast along the delay axis.
@@ -52,7 +52,7 @@ def mu_global(
 def mu_per_freq(
     t_meas: jnp.ndarray, t_sim: jnp.ndarray, weights: jnp.ndarray
 ) -> jnp.ndarray:
-    """Per-frequency scale factors (JAX clone of :func:`compute_mu_per_freq`).
+    """Compute the optimal scale factor for each frequency row with JAX.
 
     Mirrors :func:`croak.metrics.compute_mu_per_freq` with ``freq_axis=0``
     (sum over delays). As there, the weights cancel between numerator and
@@ -116,7 +116,8 @@ def residual_vector(
 
     Returns :math:`(T_\mathrm{meas}-\mu T_\mathrm{sim})\,w/\sqrt{\mathrm{denom}}`
     flattened to 1-D, so that its Euclidean norm equals the FROG error
-    :func:`frog_error`. Levenberg–Marquardt drives this vector to zero.
+    :func:`frog_error`. The least-squares solvers minimise its squared norm,
+    with any penalty rows appended separately.
     """
     mu = _mu(t_meas, t_sim, weights, R_omega=R_omega)
     resid = (t_meas - mu * t_sim) * weights[:, None]
@@ -140,12 +141,12 @@ def _second_diff(a: jnp.ndarray, *, normalize_by_max: bool) -> jnp.ndarray:
 
 
 def amplitude_penalty(amp_params: jnp.ndarray) -> jnp.ndarray:
-    """Amplitude smoothness penalty (max-normalised), as in :class:`ArrayPulse`."""
+    """Amplitude smoothness penalty (max-normalised), as in ``ArrayPulse``."""
     return _second_diff(amp_params, normalize_by_max=True)
 
 
 def phase_penalty(phase_params: jnp.ndarray) -> jnp.ndarray:
-    """Phase smoothness penalty (mean squared curvature), as in :class:`ArrayPulse`."""
+    """Phase smoothness penalty (mean squared curvature), as in ``ArrayPulse``."""
     return _second_diff(phase_params, normalize_by_max=False)
 
 

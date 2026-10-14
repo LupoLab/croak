@@ -14,7 +14,9 @@ kernelspec:
 Once you have a retrieved pulse you often want to ask: *how short could it be if I
 removed its residual chirp?* {mod}`croak.dispersion` applies Taylor and material
 dispersion to a spectrum and auto-tunes it to maximise the temporal peak power —
-i.e. to compress the pulse.
+as one measure of compression. Peak power, FWHM and satellite energy need not
+be optimised by the same phase. Start with the [first retrieval](01_first_retrieval.md)
+and [propagation guide](../user_guide/dispersion.md).
 
 ```{code-cell} ipython3
 import numpy as np
@@ -28,14 +30,14 @@ def center(t, intensity):
 def temporal_intensity(grid, ew):
     return np.abs(grid.ifft(ew)) ** 2
 
-g = croak.Grid(128, dt=0.4e-15)
+g = croak.Grid(512, dt=0.5e-15)
 omega0 = croak.maths.wlfreq(800e-9)
 ```
 
 ## A chirped pulse
 
-We retrieve a chirped pulse (it carries GDD and TOD), so there is real dispersion
-to remove.
+We generate and retrieve a synthetic pulse with known GDD and TOD. Its time
+window contains the pulse and scanned delays without wrapping the main signal.
 
 ```{code-cell} ipython3
 ew_true = croak.gaussian_pulse(g, 5e-15, phases=[40e-30, 300e-45])
@@ -43,7 +45,7 @@ delays = np.linspace(-60e-15, 60e-15, 90)
 trace = croak.maketrace(g.omega, delays, ew_true, "pg")
 
 res = croak.retrieve(trace, g.omega, delays, "pg", algorithm="copra",
-                    maxiters=250, rng=np.random.default_rng(0))
+                    maxiters=250, omega0=omega0, rng=np.random.default_rng(0))
 I_retr = temporal_intensity(g, res.spectrum)
 print(f"trace error R  = {res.error:.2e}")
 print(f"retrieved FWHM = {croak.maths.fwhm(*center(g.t, I_retr)) * 1e15:.2f} fs")
@@ -94,8 +96,8 @@ intensity normalised to unit peak, the peak power is `energy / ∫I dt` — the 
 divided by the effective duration — so compressing the pulse raises it towards the
 transform-limited maximum at fixed energy:
 
-```python
-pr = croak.process_result(res, measured=td.trace, energy=100e-6)  # 100 µJ
+```{code-cell} ipython3
+pr = croak.process_result(res, measured=trace, energy=100e-6)  # 100 µJ
 print(f"peak power     = {pr.peak_power/1e6:.1f} MW")
 print(f"TL peak power  = {pr.peak_power_tl/1e6:.1f} MW")  # the maximum achievable
 ```

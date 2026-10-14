@@ -1,19 +1,21 @@
-r"""Levenberg–Marquardt retrieval via Optimistix (``lm-optx``).
+"""Retrieve with on-device Optimistix Levenberg–Marquardt (``lm-optx``).
 
-A JAX-native twin of :class:`croak.lm.LM`: it drives the **same** flattened FROG
-residual (:func:`croak.metrics_jax.residual_vector`, with the same amplitude /
-phase / spectral regularisation rows appended so ``‖rows‖² == reg·penalty``) to
-zero, over the same real parameter vector (:mod:`croak._jax_pulse`), with the same
-JAX forward model (:mod:`croak.forward_jax`). The **only** difference from
-:class:`~croak.lm.LM` is the optimiser: instead of SciPy ``least_squares`` driving
-a host-side trust-region loop with a JAX Jacobian materialised and transferred
-every iteration, Optimistix's :class:`optimistix.LevenbergMarquardt` runs the
-whole damped Gauss–Newton loop **on-device** (each step jitted) with the Jacobian
-handled by ``lineax``.
+A JAX-native twin of :class:`croak.lm.LM`: it drives the same flattened FROG
+residual (:func:`croak.metrics_jax.residual_vector`, with the same
+amplitude/phase/spectral regularisation rows appended) to zero, over the same
+real parameter vector, with the same JAX forward model. Instead of SciPy
+``least_squares`` driving a host-side trust-region loop with a JAX Jacobian
+materialised and transferred every iteration, Optimistix's Levenberg–Marquardt
+runs the whole damped Gauss–Newton loop on-device (each step jitted) with the
+linear algebra handled by ``lineax``. Being pure JAX, it is a genuine
+Levenberg–Marquardt with the analytic Jacobian, which the MINPACK route of
+:class:`croak.lm.LM` cannot offer (see :mod:`croak.lm`).
 
-Because it is pure JAX it also sidesteps the MINPACK reentrancy crash that stops
-:class:`croak.lm.LM` from using a genuine LM with the analytic JAX Jacobian (see
-the :mod:`croak.lm` docstring): this is a true JAX-Jacobian Levenberg–Marquardt.
+The implementation is unconstrained: it does not enforce a non-negative fitted
+thickness, so check fitted values.
+
+See :doc:`/explanation/algorithms` for the objective, linear-system choices and
+comparison with SciPy's trust-region solver.
 """
 
 from __future__ import annotations
@@ -68,12 +70,8 @@ _LINEAR_SOLVERS: dict[str, lx.AbstractLinearSolver] = {
 class OptxLM(Retriever):
     r"""Optimistix Levenberg–Marquardt solver with a JAX Jacobian.
 
-    The flattened residual, parameterisation and options match
-    :class:`croak.lm.LM`; only the optimiser differs (Optimistix's on-device
-    :class:`optimistix.LevenbergMarquardt` in place of SciPy ``least_squares``).
-    Because it is pure JAX it runs a genuine LM with the analytic Jacobian and so
-    sidesteps the MINPACK reentrancy crash described in the :mod:`croak.lm`
-    docstring.
+    The residual conventions match :class:`croak.lm.LM`; the optimiser runs
+    on-device and is unconstrained, so bounds are not enforced.
 
     Parameters
     ----------
@@ -93,12 +91,17 @@ class OptxLM(Retriever):
         exclusive with ``smearing``, and incompatible with ``fit_smearing``
         (an explicit mixture has no kernel width to scale).
 
-        Only worth its cost for a broadband pulse. The reduced kernel's widths
-        scale as :math:`\sigma\propto\lambda`, so freezing them at the carrier
-        is a -16%/+24% spread of width across a 1 fs deep-UV band and costs a
-        mean 12% of retrieved duration there, against 3.5% at 2 fs. The mixture
-        needs one field build per focal node rather than per Gauss-Hermite
-        node, so it is one to two orders of magnitude slower.
+        Worth its cost for a broadband pulse. The reduced kernel's widths scale
+        as :math:`\sigma\propto\lambda`, so freezing them at the carrier is a
+        -16 %/+24 % spread of width across a 1 fs deep-UV band; in our earlier
+        instrument scans that cost a mean 12 % of retrieved duration there,
+        against 3.5 % at 2 fs. The mixture needs one field build per focal node
+        rather than per Gauss-Hermite node, so it is one to two orders of
+        magnitude slower; check quadrature convergence for the chosen pulse and
+        geometry.
+    phase_only : bool, optional
+        Hold the initial spectral amplitude fixed and retrieve phase only.
+    phase_basis : {"pointwise", "bspline"}, optional
         Phase parameterisation; ``"bspline"`` uses ``n_nodes`` cubic-spline
         control points (implies phase-only). See
         :func:`croak._jax_pulse.make_spline_phase_basis`.
@@ -111,18 +114,17 @@ class OptxLM(Retriever):
         exactly as in :class:`croak.lm.LM`. See :doc:`/howto/regularisation`.
     linear_solver : {"normal", "qr"}, optional
         How to solve the damped Gauss--Newton system each iteration (default
-        ``"normal"``). ``"normal"`` forms ``J^T J + lambda I`` and takes its
-        Cholesky factor; ``"qr"`` factorises the stacked ``[J; sqrt(lambda) I]``
-        operator directly, which is Optimistix's own default. ``"normal"`` is
-        roughly 2x faster on a full-size pointwise retrieval because the Gram
-        matrix is a single BLAS ``gemm`` while the tall-skinny QR is panel-bound.
-        It squares the condition number, so switch to ``"qr"`` if a badly scaled
-        problem stalls or returns a non-finite result. See
-        :doc:`/explanation/algorithms`.
+        ``"normal"``). ``"normal"`` forms ``J^T J + lambda I`` and takes its Cholesky
+        factor; ``"qr"`` factorises the stacked ``[J; sqrt(lambda) I]`` operator
+        directly, which is Optimistix's own default. ``"normal"`` was roughly 2x faster
+        on a full-size pointwise retrieval in our benchmarks, because the Gram matrix is
+        a single BLAS ``gemm`` while the tall-skinny QR is panel-bound. It squares the
+        condition number, so switch to ``"qr"`` if a badly scaled problem stalls or
+        returns a non-finite result. See :doc:`/explanation/algorithms`.
     reltol, abstol : float, optional
         Convergence tolerances (defaults ``1e-4`` / ``1e-8``). ``abstol`` is the
         Optimistix ``atol``; ``reltol`` is passed as the Optimistix ``rtol`` *and*
-        drives a relative-improvement plateau stop in :func:`croak._optimistix.run_optx`
+        drives a relative-improvement plateau stop in ``run_optx``
         (stop once the best FROG error improves by less than ``reltol`` over the last
         few steps). The plateau stop is needed because Optimistix's own Cauchy
         termination is ``atol``-dominated near convergence and effectively ignores
@@ -143,7 +145,7 @@ class OptxLM(Retriever):
         (default ``False``): a dimensionless multiplier on both kernel widths,
         equivalently the mask ratio ``d/D``. Requires ``smearing``. Do not enable
         it together with ``fit_thickness`` — the smearing width is a nuisance
-        parameter that will happily absorb dispersion-model error. See
+        parameter that can absorb dispersion-model error. See
         :doc:`/howto/geometric_smearing`.
     fit_smearing_split : bool, optional
         Fit the gate-shape (``p``) and delay (``delta``) kernel widths as two

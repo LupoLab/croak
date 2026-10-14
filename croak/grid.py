@@ -16,7 +16,8 @@ frequency in the middle). The forward *model* (see :mod:`croak.forward`) instead
 works in raw DFT-bin order; the unshifted, unnormalised transforms it uses are
 exposed as the module-level :func:`raw_fft`/:func:`raw_ifft`.
 
-All FFTs are computed with :mod:`scipy.fft`.
+This NumPy-facing module uses :external+scipy:mod:`scipy.fft`; the JAX forward
+models use the corresponding JAX transforms with the same conventions.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ def raw_fft(x: NDArray[np.complexfloating]) -> NDArray[np.complex128]:
 
 
 def raw_ifft(x: NDArray[np.complexfloating]) -> NDArray[np.complex128]:
-    """Unitary-inverse (``1/N``) DFT (``scipy.fft.ifft``).
+    """Inverse DFT with ``1/N`` normalisation (``scipy.fft.ifft``).
 
     Companion to :func:`raw_fft`; the time→frequency transform in DFT-bin order.
     """

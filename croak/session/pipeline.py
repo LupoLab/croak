@@ -83,7 +83,7 @@ def _resolve_reverse_trace(p: SimulatedLoadParams, scan) -> bool:
     """Resolve the delay-axis reversal: explicit setting, else the file marker.
 
     Files that declare ``delay_convention == "gate"`` are already stored in
-    the gate-delay (paper) frame and must not be reversed; legacy files
+    the gate-delay (paper) frame and must not be reversed; older files
     (marker absent, ``"legacy"``) use the probe-delayed frame and are negated.
     """
     if p.reverse_trace is not None:
@@ -230,7 +230,7 @@ def assemble_simulated_load_data(p: SimulatedLoadParams) -> dict:
     For a multi-thickness scan (one that stores ``/grid/zsave``), ``p`` selects
     which propagation thickness to load: ``z_thickness_um`` (µm) picks the nearest
     saved slice, and falls back to the substrate-exit slice when ``None`` (also
-    the only behaviour for the legacy single-thickness format).
+    the only behaviour for the older single-thickness format).
 
     The simulated trace is an angular-frequency density :math:`I_\omega`; the
     measured-data pipeline (regrid) multiplies the loaded trace by
@@ -242,6 +242,8 @@ def assemble_simulated_load_data(p: SimulatedLoadParams) -> dict:
     reversal → normalise. The chosen reference spectrum (post-mask ``beamlet`` by
     default, or the pre-mask ``source``) is offered as the independent spectrum;
     the mask vignetting is handled by that choice, not by a trace correction.
+    The focal-mixture models need the on-axis reference (``beamlet_reimaged``)
+    or a frame conversion; see :func:`apply_spectrum_frame`.
 
     Parameters
     ----------
@@ -345,19 +347,19 @@ def assemble_simulated_load_data(p: SimulatedLoadParams) -> dict:
 
 @dataclass(frozen=True)
 class SimulatedGeometry:
-    r"""What a simulated scan says about the instrument that produced it.
+    r"""Describe the recorded slab thickness and mask geometry of a simulated scan.
 
     The retrieval needs three numbers that are properties of the *simulation*,
     not of the trace: how far the signal propagated (the slab thickness), and
     the mask hole diameter and edge-to-edge spacing that set the smearing
     kernel through :math:`d/D = (\text{spacing} + D)/2D`. Carrying them by hand
-    is how a sweep ended up running a gap-500 kernel against a gap-1000 trace,
-    which cost ~2% of retrieved duration while *lowering* nothing observable in
-    the trace error. Reading them off the file removes that failure mode.
+    is error-prone: running a gap-500 kernel against a gap-1000 trace cost ~2 %
+    of retrieved duration while changing nothing observable in the trace error.
+    Reading them off the file removes that failure mode.
 
-    Every field is ``None`` when the file does not record it: older files
-    predate the geometry metadata, and the honest answer is then "unknown",
-    not a plausible default.
+    Every field is ``None`` when the file does not record it (older files
+    predate the geometry metadata): the answer is then "unknown", not a
+    plausible default.
     """
 
     #: Propagation distance of the selected slice (µm) — the slab thickness the
@@ -410,7 +412,7 @@ def _reference_spectrum(scan: io.SimulatedScan, source: str) -> np.ndarray:
     ``"beamlet_reimaged"`` is the on-axis beamlet (the chromatic focal mixture's
     own frame, so with it the mixture needs no ``spectrum_frame_p`` reweighting);
     ``"beamlet"`` the transverse-integrated one (the 1-D models' frame, up to
-    App. D's calibrated exponent); ``"source"`` the pre-mask input. Falls back
+    the ``spectrum_frame_p`` exponent); ``"source"`` the pre-mask input. Falls back
     along ``reimaged -> beamlet -> source`` when a file lacks the requested one.
     """
     if source == "beamlet_reimaged" and scan.Iomega_beamlet_reimaged is not None:
@@ -665,8 +667,8 @@ def assemble_simulated_tracedata(p: SimulatedLoadParams) -> TraceData:
 # ---------------------------------------------------------------------------
 #: Coarse-grid downsample and row-skip used for the GUI's *interactive* baseline
 #: preview (``fast_baseline=True``). The baseline is smooth, so solving on every
-#: 4th delay and skipping near-zero rows is ~3× faster at ~1% baseline difference;
-#: the committed/headless path stays exact.
+#: 4th delay and skipping near-zero rows is ~3× faster at ~1 % baseline
+#: difference; the committed/headless path stays exact.
 _FAST_BASELINE_DOWNSAMPLE = 4
 _FAST_BASELINE_SKIP_BELOW = 0.01
 
@@ -680,9 +682,9 @@ def build_tracedata(
     :func:`croak.preprocess.load_and_clean` SI arguments.
 
     ``fast_baseline`` (off by default) solves the arPLS baseline on a coarse delay
-    grid and skips near-zero rows — a ~3× speedup at ~1% baseline difference, for
-    the GUI's interactive preview. Headless replay and direct callers get the
-    exact, full-resolution baseline.
+    grid and skips near-zero rows — a ~3× speedup at ~1 % baseline difference,
+    for the GUI's interactive preview. Headless replay and direct callers get
+    the exact, full-resolution baseline.
     """
     ds = _FAST_BASELINE_DOWNSAMPLE if fast_baseline else 1
     skip = _FAST_BASELINE_SKIP_BELOW if fast_baseline else 0.0
@@ -899,8 +901,8 @@ def focal_mixture_from_params(
     - ``"manual"``: a hole of ``collection_diam_mm`` at the phase-matched
       BOXCARS corner ``(-d, -d)``, ``d = (gap + D)/2``, hard-edged — the
       physical pinhole of an experiment. (``"file"`` reproduces a simulated
-      scan's soft tanh edge exactly, which exists there as a grid-resolution
-      device, not physics.)
+      scan's recorded edge and weighting convention; a soft quadrature edge
+      there is a grid-resolution device, not a physical transmission.)
 
     Raises
     ------
@@ -961,16 +963,19 @@ def focal_mixture_from_params(
 
 
 def apply_spectrum_frame(p: RetrieveParams, td: TraceData) -> TraceData:
-    """Reweight the measured spectrum into the retrieval frame, if requested.
+    """Reweight an independent spectrum into a declared retrieval field reference.
 
-    Multiplies ``td.Iomega`` by ``((omega + omega0)/omega0)**(2 p)`` with
-    ``p = spectrum_frame_p``, moving the initial guess and the
-    ``reg_spectrum`` target together into the frame the forward model's
-    ``ew`` lives in. The focal mixture's ``ew`` is the ON-AXIS focal field,
-    bluer than a spatially integrated spectrum;
-    the reduced kernel's implicit frame is the integrated one, so leave the
-    exponent at 0 there. A no-op when the exponent is 0 or there is no
-    independent spectrum.
+    Multiply ``td.Iomega`` by ``((omega + omega0)/omega0)**(2*p)`` with
+    ``p=spectrum_frame_p``. The initial amplitude and spectral-penalty target
+    therefore move together into the frame the forward model's field lives in.
+    The focal mixture's field is the ON-AXIS focal field, bluer than a spatially
+    integrated spectrum; in the stated diffraction convention ``p=1`` converts
+    an integrated beamlet to the on-axis entrance field, and ``p=0.5`` is an
+    empirical effective convention. The reduced kernel's implicit frame is the
+    integrated one, so leave the exponent at 0 there.
+    The function does not modify a stored complex truth automatically. See
+    :doc:`/reference/conventions` for like-for-like comparisons. Zero exponent
+    or an absent independent spectrum leaves the input unchanged.
     """
     if p.spectrum_frame_p == 0.0 or td.Iomega is None:
         return td
@@ -1159,13 +1164,12 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
 
 
 def covariance_kwargs(p: RetrieveParams, td: TraceData | None = None) -> dict:
-    """Forward-model + parameterisation kwargs for the covariance estimator.
+    """Build the supported model and parameterisation options for covariance.
 
-    Mirrors the dispersive-slab, smearing and pulse-parameterisation settings of
-    the retrieval (the subset :func:`croak.covariance.covariance_uncertainty`
-    consumes), so the analytic covariance is rebuilt on exactly the model that was
-    fitted. ``td`` is needed only to rebuild the smearing kernel; without it the
-    kernel is omitted.
+    This includes the core slab, reduced smearing and phase parameterisation.
+    It does not reconstruct focal/collection, depth-weight or marginal-peak
+    centred models; do not interpret its output as matching those retrievals.
+    ``td`` supplies the carrier needed to rebuild a reduced smearing kernel.
     """
     return {
         "material": p.material if p.dispersive else None,

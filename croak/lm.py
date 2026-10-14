@@ -1,37 +1,34 @@
-r"""Levenberg–Marquardt retrieval via :func:`scipy.optimize.least_squares` (``lm``).
+r"""Retrieve by nonlinear least squares with SciPy (``lm``).
 
 A least-squares retriever that drives the flattened FROG residual
-:math:`(T_\mathrm{meas}-\mu T_\mathrm{sim})\,w/\sqrt{\mathrm{denom}}` to zero
-(its Euclidean norm is exactly the FROG error :math:`R`). By default it uses
-SciPy's trust-region reflective solver (``method="trf"``, of the
-Levenberg–Marquardt family) with the **Jacobian supplied by JAX**
-(:func:`jax.jacfwd` — forward mode, since there are far fewer parameters than
-residuals); MINPACK's classic ``method="lm"`` is honoured with a numeric
-Jacobian instead (see *Choice of* ``method`` below).
-
+:math:`(T_\mathrm{meas}-\mu T_\mathrm{sim})\,w/\sqrt{\mathrm{denom}}` to zero.
 It shares the JAX forward model (:mod:`croak.forward_jax`), the residual builder
-(:mod:`croak.metrics_jax`) and the pulse parameterisation (:mod:`croak._jax_pulse`)
-with :class:`~croak.lbfgs_ad.LBFGSAD`, and supports the same forward-model
-options: thin or dispersive propagation, phase-only retrieval, ``R_omega``
-adaptive scaling, and amplitude / phase smoothness regularisation (added as extra
-residual rows so that ``||rows||^2 == reg * penalty``).
+(:mod:`croak.metrics_jax`) and the pulse parameterisation
+(:mod:`croak._jax_pulse`) with :class:`~croak.lbfgs_ad.LBFGSAD`.
 
 Choice of ``method``
 --------------------
-The default is SciPy's trust-region least-squares ``method="trf"`` (the
-Levenberg–Marquardt family), driven by the **analytic JAX Jacobian**. We do
-*not* default to MINPACK's classic ``method="lm"`` because its Fortran driver
-calls the user Jacobian back from compiled code, and evaluating the JAX/XLA
-Jacobian program from inside that callback segfaults the interpreter (a hard
-XLA-reentrancy crash; the JAX *residual* is fine, only the Jacobian program
-crashes). ``"trf"`` is pure-Python SciPy, accepts the analytic Jacobian, and for
-these unconstrained problems is numerically equivalent. If ``method="lm"`` is
-requested explicitly it is honoured **with a numeric (finite-difference)
-Jacobian** of the JAX residual, so the process cannot crash.
+The default ``method="trf"`` is SciPy's trust-region reflective least squares,
+driven by the analytic JAX Jacobian (forward mode,
+:external+jax:func:`jax.jacfwd`, since there are far fewer parameters than
+residuals). Explicit ``method="lm"`` selects MINPACK's classic
+Levenberg–Marquardt with a finite-difference Jacobian; ``"dogbox"`` is also
+available. MINPACK is not the default because its Fortran driver calls the
+user Jacobian back from compiled code, and evaluating the JAX/XLA Jacobian
+program from inside that callback crashes the interpreter (an XLA re-entrancy
+fault; the JAX *residual* is fine). ``"trf"`` is pure-Python SciPy, accepts the
+analytic Jacobian, and for these unconstrained problems reaches the same
+minima; the numeric Jacobian keeps the MINPACK route from crashing.
 
-Because the method minimises the *sum of squares*, the regularisation weight
-scales the penalty relative to :math:`R^2` (whereas :class:`croak.lbfgs.LBFGS`
-adds it to :math:`R`); the penalty *functions* themselves are identical.
+The normalised trace residual has Euclidean norm :math:`R`. Regularisation
+is appended as residual rows, so the squared objective is
+:math:`R^2 + \sum_k\lambda_k P_k`, rather than the gradient solvers'
+:math:`R + \sum_k\lambda_k P_k`. Equal penalty weights therefore do not define
+equal regularised problems. See :doc:`/explanation/algorithms`.
+
+The model supports thin local SHG/PG/SD and dispersive PG/SD, with optional
+spatial models, phase constraints and fitted scalar parameters as documented
+below. Bounds depend on the selected least-squares method.
 """
 
 from __future__ import annotations
@@ -64,7 +61,7 @@ Complex = NDArray[np.complex128]
 
 
 class LM(Retriever):
-    r"""Levenberg–Marquardt solver (SciPy ``least_squares``) with a JAX Jacobian.
+    r"""Retrieve with SciPy nonlinear least squares and a JAX Jacobian by default.
 
     Parameters
     ----------
@@ -88,12 +85,17 @@ class LM(Retriever):
         exclusive with ``smearing``, and incompatible with ``fit_smearing``
         (an explicit mixture has no kernel width to scale).
 
-        Only worth its cost for a broadband pulse. The reduced kernel's widths
-        scale as :math:`\sigma\propto\lambda`, so freezing them at the carrier
-        is a -16%/+24% spread of width across a 1 fs deep-UV band and costs a
-        mean 12% of retrieved duration there, against 3.5% at 2 fs. The mixture
-        needs one field build per focal node rather than per Gauss-Hermite
-        node, so it is one to two orders of magnitude slower.
+        Worth its cost for a broadband pulse. The reduced kernel's widths scale
+        as :math:`\sigma\propto\lambda`, so freezing them at the carrier is a
+        -16 %/+24 % spread of width across a 1 fs deep-UV band; in our earlier
+        instrument scans that cost a mean 12 % of retrieved duration there,
+        against 3.5 % at 2 fs. The mixture needs one field build per focal node
+        rather than per Gauss-Hermite node, so it is one to two orders of
+        magnitude slower; check quadrature convergence for the chosen pulse and
+        geometry.
+    phase_only : bool, optional
+        Hold the initial spectral amplitude fixed and retrieve phase only.
+    phase_basis : {"pointwise", "bspline"}, optional
         Phase parameterisation. ``"pointwise"`` (default) optimises one phase
         value per frequency bin. ``"bspline"`` optimises the ``n_nodes`` control
         points of a cubic B-spline over the spectral support — a strong
@@ -106,7 +108,7 @@ class LM(Retriever):
         Use per-frequency adaptive scaling factors.
     reg_amp : float or None, optional
         Amplitude second-difference smoothness weight, added as extra residual
-        rows. ``None`` (default) resolves to the settled LM-family weight
+        rows. ``None`` (default) resolves to the default LM-family weight
         ``3e-5`` (:data:`croak.solver.REG_DEFAULTS`; the residual-rows
         objective needs far smaller weights than the gradient solvers); pass
         ``0`` to disable.
@@ -115,7 +117,7 @@ class LM(Retriever):
     reg_spectrum : float or None, optional
         Spectral-match weight pulling the retrieved spectral amplitude towards
         ``spectrum_target`` (full mode only; added as extra residual rows).
-        ``None`` (default) resolves to the settled LM-family ``1e-5`` and is
+        ``None`` (default) resolves to the default LM-family ``1e-5`` and is
         inert without a ``spectrum_target``; pass ``0`` to disable.
     spectrum_target : array_like or None, optional
         Measured spectral **intensity** on the retrieval grid (e.g.
@@ -146,7 +148,7 @@ class LM(Retriever):
         (default ``False``): a dimensionless multiplier on both kernel widths,
         equivalently the mask ratio ``d/D``. Requires ``smearing``. Do not enable
         it together with ``fit_thickness`` — the smearing width is a nuisance
-        parameter that will happily absorb dispersion-model error. See
+        parameter that can absorb dispersion-model error. See
         :doc:`/howto/geometric_smearing`.
     fit_smearing_split : bool, optional
         Fit the gate-shape (``p``) and delay (``delta``) kernel widths as two

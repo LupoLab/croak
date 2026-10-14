@@ -1,12 +1,12 @@
-r"""Optional bridge to the refractiveindex.info database.
+"""Optional bridge to the refractiveindex.info database.
 
 Wraps the ``refractiveindex`` PyPI package to browse
 `refractiveindex.info <https://refractiveindex.info>`_ materials.
 
-The package is an **optional** dependency (``pip install croak[ridb]``); every
-function here imports it lazily so importing :mod:`croak` never requires it. On
-first use the package downloads the full polyanskiy database (hundreds of MB) to
-``~/.refractiveindex.info-database`` and caches it.
+The package is an **optional** dependency (``pip install "croak[ridb]"`` or ``uv add
+"croak[ridb]"``); every function here imports it lazily so importing ``croak`` never
+requires it. On first use the package downloads the full polyanskiy database (hundreds
+of MB) to ``~/.refractiveindex.info-database`` and caches it.
 
 The catalogue is exposed as ordered *shelf → book → page* lists of
 ``(identifier, label)`` for cascading GUI combos, and :func:`make_material`

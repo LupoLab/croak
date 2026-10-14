@@ -2,11 +2,12 @@
 
 **croak** stands for *Complete Retrieval by Optimisation and Adjoint Kernels*.
 
-*Complete* is the substantive claim. Retrieval returns the full complex field —
-amplitude *and* phase — and, in the dispersive geometries, the field as it
-propagates inside the nonlinear medium rather than a thin-medium approximation to
-it. *Adjoint kernels* names the machinery: each interaction (SHG, SD, PG)
-contributes a kernel to the forward map, and each carries a matching hand-derived
+*Complete* refers to what is retrieved and what is modelled: the full complex
+field, amplitude *and* phase, through a forward model that includes the
+measurement physics (propagation in the nonlinear medium, beam geometry and
+collection) rather than a thin-medium idealisation of it. *Adjoint kernels*
+names the machinery: each interaction (SHG, SD, PG) contributes a kernel to the
+forward map, and each carries a matching hand-derived
 [Wirtinger adjoint](../explanation/gradients.md) that yields exact gradients for
 the cost of one extra forward pass.
 
@@ -23,16 +24,14 @@ taken on the Python Package Index. Rather than decorate it — `toad-frog`,
 `pytoad`, and similar — the package was renamed outright.
 
 Automatic differentiation is, if anything, more central now than when it named
-the package: geometric smearing, the fitted medium thickness and delay-zero,
-the B-spline phase basis and the Laplace covariance all depend on it.
-What changed is that it is no longer the only thing the name needs to cover. The package
-grew a hand-derived Wirtinger adjoint for the core model, a complete
-measurement-to-result workflow, and uncertainty quantification — and "trace
-optimisation through automatic differentiation" had come to describe one component
-rather than the whole.
-
-*Adjoint kernels* covers both routes: each interaction contributes a kernel to the
-forward map, and its derivative is available either in closed form or through AD.
+the package: geometric smearing, the focal and collection models, the fitted
+medium thickness and delay-zero, the B-spline phase basis and the Laplace
+covariance all depend on it. What changed is that it no longer covers the whole
+package, which grew a hand-derived Wirtinger adjoint for the core model, a
+complete measurement-to-result workflow and uncertainty quantification.
+*Adjoint kernels* covers both routes: each interaction contributes a kernel to
+the forward map, and its derivative is available either in closed form or
+through AD.
 
 ## The mascot
 

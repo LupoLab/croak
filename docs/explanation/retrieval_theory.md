@@ -1,17 +1,16 @@
 # Retrieval as nonlinear least squares
 
-Pulse retrieval is an inverse problem: find the spectrum $\tilde E(\omega)$ whose
-modelled trace best matches the measurement. croak treats this as a **weighted
-nonlinear least-squares** fit, which under Gaussian measurement noise is the
-maximum-likelihood estimate. Every solver — step-based or quasi-Newton — minimises
-the same objective and converges to the same minimum; they differ only in their
-trajectory there.
+Pulse retrieval estimates a complex spectrum by matching a predicted intensity
+trace to data. This chapter defines the residual, the fitted detector scale and
+the role of additional constraints. Read it alongside the
+[algorithm comparison](../tutorials/02_choosing_an_algorithm.md) and
+[solver selection guide](../howto/solver_selection.md).
 
-```{image} ../_static/paper/figure_loop.png
-:alt: The retrieval loop — a candidate spectrum enters the differentiable forward model, the weighted residual plus regularisation forms the objective, and its AD gradient drives a standard optimiser.
-:width: 95%
-:align: center
-```
+Weighted least squares corresponds to a Gaussian likelihood when the residual
+weights are inverse noise standard deviations and the noise assumptions hold.
+Uniform or heuristic weights need not have that statistical interpretation.
+The optimisation is non-convex: different starts and algorithms can reach
+different stationary points. Regularisation also changes the objective.
 
 ## The objective
 
@@ -48,17 +47,36 @@ enabled with `R_omega=True`. This absorbs a frequency-dependent detection
 efficiency that a single global scale cannot. It is most useful on experimental
 data whose response is uncalibrated.
 
-The cost is not incidental: one free scale per row is precisely the frequency
-marginal, so $\mu_\omega$ removes the trace's grip on the retrieved **spectral
-amplitude** altogether, leaving it constrained only through each row's delay
-structure. That grip is weakest at the edges of the band, and since
-$|E(\omega)|^2\ge 0$ the freed bins can only grow. Rω also *lowers* the reported
-$R$, because it adds one parameter per row — so a smaller error is not evidence
-the spectrum improved. Always pair it with `phase_only` or `reg_spectrum`
-(the solvers' default `reg_spectrum` does this automatically whenever an
-independent spectrum is supplied); see
-[Regularisation](../howto/regularisation.md#per-frequency-scaling) for the
-measurements, and {func}`croak.processing.edge_energy_fraction` for the diagnostic.
+One gain per frequency removes the absolute amplitude information in the trace's
+frequency marginal. The remaining delay structure still constrains the field,
+but its spectral amplitude can become poorly determined, especially near the
+band edges. A lower residual is expected with more fitted gains and does not
+establish a better spectrum. Use an appropriate spectral constraint and inspect
+[edge energy](../howto/postprocessing.md) and the
+[regularisation diagnostics](../howto/regularisation.md#per-frequency-scaling).
+
+For general residual weights $w_{nm}$, a row gain is
+
+```{math}
+\mu_n=\frac{\sum_m w_{nm}^2 M_{nm}T_{nm}}
+                 {\sum_m w_{nm}^2 T_{nm}^2}.
+```
+
+Only weights constant along a row cancel from this ratio. The standard solver
+interface takes per-frequency weights; resampling and masked objectives may
+need more general weights. A residual weight of $1/\sigma$ corresponds to an
+inverse variance of $1/\sigma^2$ in the squared loss.
+
+### Delay origin and gain-dependent centring
+
+The ordinary field time-origin ambiguity is separate from calibrating the
+relative delay of the replicas. With `delay_origin="marginal_peak"`, croak
+recentres the model using its response-weighted delay marginal. The gains and
+centre depend on the trial field, so their derivatives belong to the objective;
+{mod}`croak.delay_origin` includes those dependencies. This option requires
+uniformly spaced delays. The default `"coincidence"` retains the model's replica
+coincidence origin. A free `fit_tau0` is a different operation: it adds a fitted
+instrument parameter. See [fitting model parameters](../howto/fitting_thickness_tau0.md).
 
 ## The trace error R
 
@@ -71,15 +89,15 @@ the standard "FROG error", generalised to any PNPS trace
 R \;=\; \sqrt{\frac{r}{MN\,\max(T_\text{meas}\,w)^2}}.
 ```
 
-$M$ and $N$ are the delay and frequency counts. Dividing by the trace size and
-peak makes $R$ comparable across trace dimensions and intensity scales. As a rule
-of thumb:
+$M$ and $N$ are the delay and frequency counts. The normalisation removes an
+overall intensity scale, but the reported value still depends on the retained
+rectangle, weights, preprocessing and fitted gains. Including empty pixels can
+lower an rms/peak error. Compare values only with these choices stated.
 
-| $R$ | quality |
-|-----|---------|
-| $\lesssim 10^{-3}$ | excellent (clean synthetic data, converged) |
-| $10^{-3}\text{–}10^{-2}$ | good experimental retrieval |
-| $\gtrsim 10^{-2}$ | poor — suspect the guess, preprocessing or model |
+There is no universal boundary between a good and a poor retrieval. Compare the
+residual with noise and calibration evidence, inspect its structure, and test
+model and sampling sensitivity. A low $R$ can accompany a substantially wrong
+field, as the [validation examples](validation.md) demonstrate.
 
 ```{admonition} R, and the "G-error"
 :class: note
@@ -96,18 +114,25 @@ simulated trace.
 
 ## Why least squares (and not just projection)?
 
-Classic FROG algorithms (GPA, PIE, …) iterate *projections* and do not, in
-general, converge to the least-squares minimum of {eq}`residual` — they can stall
-at a worse fit even on noise-free data. croak's solvers are different:
+COPRA combines a projection-style local stage with a gradient stage on the
+full trace residual. Gradient solvers instead optimise a scalar loss directly;
+Levenberg–Marquardt operates on a vector of residuals. These routes can improve
+least-squares agreement, but none guarantees a global minimum.
 
-- {doc}`COPRA <algorithms>` retains a fast projection-style *local* stage but adds
-  a **global** gradient-descent stage on the full residual {eq}`residual`, so it
-  reaches the least-squares minimum;
-- {doc}`L-BFGS, L-BFGS-AD and LM <algorithms>` minimise {eq}`residual` (or its
-  square-root, the trace error) directly.
+Without regularisation, $R$ and $R^2$ have the same minimisers. With penalties,
+the distinction matters. Gradient solvers use
 
-Both COPRA and L-BFGS converge to the *same* minimum; see N. C. Geib *et al.*,
-*Optica* **6**, 495 (2019), and the [algorithms page](algorithms.md).
+```{math}
+J_{\rm grad}=R+\sum_j\lambda_j P_j,
+\qquad
+J_{\rm LM}=R^2+\sum_j\lambda'_j P_j.
+```
+
+LM appends scaled penalty residuals to its residual vector. For a given nonzero
+$R$, matching stationary conditions suggests $\lambda'_j=2R\lambda_j$ locally.
+This is not a fixed conversion valid along an entire optimisation. croak's
+[default weights](../howto/regularisation.md) differ between these solver families;
+use matched constraints when comparing algorithms, and record the actual values.
 
 ## Gradients
 

@@ -12,14 +12,14 @@ Jacobians that Levenberg–Marquardt and :mod:`croak.covariance` need. It backs 
 and serves as an independent oracle in the tests that cross-check the analytic
 adjoints.
 
-The maths is identical to :meth:`croak.forward.ForwardModel.signal_single`; only
-the array library changes. To reproduce the numpy model bit-for-bit the module
+The core local/slab map follows :meth:`croak.forward.ForwardModel.signal_single`.
+Additional paths implement chromatic focusing and coherent collection. The module
 
 * enables 64-bit JAX (``jax_enable_x64``) at import — single precision would not
   match the ``~1e-10`` agreement the tests assert;
 * works internally in **DFT-bin order** (``ifftshift`` on input, ``fftshift`` on
   output), using the unnormalised forward DFT for spectrum→time and the ``1/N``
-  inverse DFT for time→spectrum, exactly as :func:`croak.forward._fft0` /
+  inverse DFT for time→spectrum, exactly as :func:`croak.grid.raw_fft` /
   ``_ifft0``;
 * treats the slab propagation constant :math:`\beta(\omega)` as a **static
   constant**: it does not depend on the optimisation variables, so it is built
@@ -76,8 +76,9 @@ _C_LIGHT = 299_792_458.0
 
 #: Nonlinear-interaction *signal* maps, in JAX. AD (in :class:`~croak.lbfgs_ad.LBFGSAD`
 #: and :class:`~croak.lm.LM`) supplies the adjoint, but the hand-gradient retriever
-#: :class:`~croak.lbfgs_hand.LBFGSHand` and a future jitted COPRA need the explicit
-#: Wirtinger adjoints below. Keys match :data:`croak.interactions.INTERACTIONS`.
+#: :class:`~croak.lbfgs_hand.LBFGSHand` and :class:`~croak.copra_jax.COPRAJax` need the
+#: explicit Wirtinger adjoints below. Keys match
+#: :data:`croak.interactions.INTERACTIONS`.
 _JAX_INTERACTIONS: dict[str, Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]] = {
     "shg": lambda test, gate: test * gate,
     "sd": lambda test, gate: test**2 * jnp.conj(gate),
@@ -133,7 +134,7 @@ class _SignalConstants:
 
     Built once (with numpy) and promoted to JAX x64 arrays; captured in the
     forward / adjoint closures. Mirrors the attributes set in
-    :meth:`croak.forward.ForwardModel.__init__`.
+    ``croak.forward.ForwardModel.__init__``.
     """
 
     __slots__ = (
@@ -184,7 +185,8 @@ def _signal_with_tape(
     """Forward signal for one delay, returning ``(psi, test, gate)``.
 
     ``test``/``gate`` are the time-domain fields the adjoint needs (the JAX
-    analogue of :meth:`ForwardModel.signal_single`'s ``record=True`` tape).
+    analogue of :meth:`~croak.forward.ForwardModel.signal_single`'s
+    ``record=True`` tape).
     """
     ew = jnp.asarray(ew)
     ew_bin = jnp.fft.ifftshift(ew)
@@ -207,7 +209,7 @@ def _adjoint(
     gate: jnp.ndarray,
     tau: jnp.ndarray | float,
 ) -> jnp.ndarray:
-    """Adjoint of :func:`_signal_with_tape`: map ``psi_bar`` → ``ew_bar`` (centred).
+    """Adjoint of ``_signal_with_tape``: map ``psi_bar`` → ``ew_bar`` (centred).
 
     JAX port of :meth:`croak.forward.ForwardModel.adjoint_single`; reuses the
     ``test``/``gate`` tape returned by the matching forward pass.
@@ -301,10 +303,11 @@ def make_forward_adjoint_fns(
     r"""Build the matched JAX forward (with tape) and **hand-derived** adjoint.
 
     JAX twin of the forward/adjoint pair on :class:`croak.forward.ForwardModel`
-    (:meth:`signal_single` + :meth:`adjoint_single`). Both share one set of static
+    (:meth:`~croak.forward.ForwardModel.signal_single` +
+    :meth:`~croak.forward.ForwardModel.adjoint_single`). Both share one set of static
     constants and are ``vmap``/``jit``-friendly, so a caller can backpropagate a
     trace cotangent **without automatic differentiation** — the basis of
-    :class:`~croak.lbfgs_hand.LBFGSHand` and a future jitted COPRA.
+    :class:`~croak.lbfgs_hand.LBFGSHand` and :class:`~croak.copra_jax.COPRAJax`.
 
     Returns
     -------
@@ -361,7 +364,7 @@ def make_trace_fn(
     JAX twin of :meth:`croak.forward.ForwardModel.trace`. The returned
     ``trace(ew)`` maps a centred spectrum to an ``(Nomega, Ndelay)`` intensity
     trace :math:`|\psi|^2`, vectorising the single-delay signal over ``delays``
-    with :func:`jax.vmap`. It is differentiable and ``jit``-friendly.
+    with :external+jax:func:`jax.vmap`. It is differentiable and ``jit``-friendly.
 
     Parameters
     ----------
@@ -538,10 +541,10 @@ def make_param_trace_fn(
     Gauss–Legendre nodes :math:`\xi\in[0,1]` and weights :math:`\hat w`
     (:math:`\sum\hat w=1`) so that, at call time, the depth nodes are
     :math:`z_q=L\,\xi_q`, the weights are :math:`L\,\hat w_q`, and the
-    propagation phases :math:`e^{i\beta L\xi_q}`, :math:`e^{i\beta L(1-\xi_q)}`
-    are differentiable in ``L``. When it is not set, the nodes/weights are baked
-    once from :func:`quadrature_nodes_weights` (so the thin-medium single-node
-    case ``material=None`` is preserved for a ``tau0``-only fit).
+    propagation phases :math:`e^{i\beta L\xi_q}`, :math:`e^{i\beta L(1-\xi_q)}` are
+    differentiable in ``L``. When it is not set, the nodes/weights are baked once from
+    :func:`~croak.forward.quadrature_nodes_weights` (so the thin-medium single-node case
+    ``material=None`` is preserved for a ``tau0``-only fit).
 
     Parameters
     ----------
@@ -558,7 +561,7 @@ def make_param_trace_fn(
         that multiplies the kernel widths, so the smearing strength — equivalently the
         mask ratio ``d/D`` — can be fitted. A scalar scales both channels together; a
         length-2 vector ``(scale_p, scale_delta)`` scales the gate-shape (``p``) and
-        delay (``delta``) channels independently (see :func:`_smear_scale_pair`).
+        delay (``delta``) channels independently (see ``_smear_scale_pair``).
         ``None`` (default) leaves the model untouched.
     focal : FocalMixture or None, optional
         Chromatic focal mixture (:mod:`croak.focal`) in place of ``smearing``: the
@@ -580,8 +583,10 @@ def make_param_trace_fn(
         filter. The spec's slab parameters must match this function's
         ``material``/``thickness``/``npoints``/``quadrature`` (verified; the
         filters must sit on the same depth nodes as the propagation phases).
-        PG only; ``fit_thickness`` unsupported in v1. Cost is ~fc: the depth
-        axis is already batched, only the build-time table is new.
+        PG only; fitting thickness with evolved profiles is unsupported because
+        the table is built for fixed depth nodes. Cost is close to the entrance
+        mixture's: the depth axis is already batched, only the build-time table
+        is new.
     fit_smearing : bool, optional
         Make the trace differentiable in the smearing scale. Marker only, for the
         same reason as ``fit_tau0``; it does require ``smearing`` to be set.
@@ -593,10 +598,14 @@ def make_param_trace_fn(
         :math:`g(z_q)` on the locally generated signal. The overall scale is
         irrelevant (absorbed by :math:`\mu`); only the shape matters. Requires a
         dispersive slab and length ``npoints``. With ``fit_thickness`` the
-        envelope is pinned to the *normalized* nodes (it rescales with the fitted
+        envelope is pinned to the *normalised* nodes (it rescales with the fitted
         slab rather than staying fixed in absolute :math:`z`). ``None`` (default)
         is the uniform-generation model. Negligible for slabs much thinner than
         the beams' Rayleigh range.
+    depth_node_phase : array_like or None, optional
+        Complex multiplicative factors of shape ``(focal.nodes, npoints)``
+        applied to each focal/depth contribution. Requires ``focal``. Use for
+        explicit model diagnostics; these factors are not fitted automatically.
     depth_transverse : bool, optional
         Model the transverse decoherence of the depth integral. croak's depth
         quadrature normally adds the signal generated at every depth with the
@@ -609,9 +618,9 @@ def make_param_trace_fn(
                   (L - z_q),
 
         applied per aperture node :math:`j` *inside* the collection transform,
-        before the coherent depth sum (see :func:`_depth_phase_rate` for
+        before the coherent depth sum (see ``_depth_phase_rate`` for
         :math:`k_{\perp j}` and the exact :math:`k_z` used). Parameter-free and
-        opt-in; the default ``False`` leaves the existing model bit-identical.
+        opt-in; the default ``False`` omits this transverse exit phase.
         Requires ``focal`` with a ``collection`` and a dispersive slab. For a
         full-collection variant use a collection window much wider than the
         signal footprint (a large chromatic hole, or a wide ``chromatic=False``
@@ -619,7 +628,7 @@ def make_param_trace_fn(
         aperture-transform contraction per depth node instead of one total;
         with ``depth_weight`` and ``depth_node_phase`` it composes (both keep
         their existing meaning). See
-        ``docs/howto/collection_aperture.md`` for when the missing physics
+        :doc:`/howto/collection_aperture` for when the missing physics
         matters (it grows with slab thickness).
     other parameters
         As :func:`make_trace_fn`.

@@ -1,10 +1,12 @@
 # Post-processing and plotting results
 
 A {class}`~croak.result.RetrievalResult` already exposes the retrieved field,
-spectrum and their intensities/phases. {mod}`croak.processing` goes further: it
-turns a result into a display-ready {class}`~croak.processing.ProcessedResult` with
-oversampled profiles, fitted dispersion coefficients, marginals and residuals —
-everything the figures need.
+spectrum and their intensities and phases. {mod}`croak.processing` goes further:
+it turns a result into a display-ready {class}`~croak.processing.ProcessedResult`
+with oversampled profiles, fitted dispersion coefficients, marginals, residuals
+and a spectral-edge quality flag, everything the figures need. Read these
+alongside the [trace error](../explanation/retrieval_theory.md), which measures
+agreement with the model rather than with the pulse.
 
 ```python
 pr = croak.process_result(result, measured=td.trace, Iomega_meas=td.Iomega)
@@ -44,12 +46,13 @@ divided by the effective duration:
 ```python
 pr = croak.process_result(result, measured=td.trace, energy=100e-6)  # 100 µJ
 pr.peak_power       # retrieved-pulse peak power (W)
-pr.peak_power_tl    # transform-limited peak power (W) — same energy, shortest
-                    # duration, so the maximum achievable by compression
+pr.peak_power_tl    # transform-limited peak power (W) at the same energy
 ```
 
-The transform-limited reference carries the same energy in a shorter time, so its
-peak power is higher. Energy is conserved under the dispersion-stage (phase-only)
+For a fixed spectral amplitude and energy, a flat spectral phase gives the
+maximum peak power, so the transform-limited pulse sets the ceiling. Supply the
+energy of the same beam the retrieval describes (an on-axis field describes the
+centre of the beam, not its total power). Energy is conserved under the dispersion-stage (phase-only)
 compensation, so compressing the pulse raises its peak power towards `peak_power_tl`
 at fixed `E`. With `energy` unset (the default), `peak_power`/`peak_power_tl` are
 `None` and every plot stays in normalised units.
@@ -76,8 +79,8 @@ truth.peak_power(energy)      # W, or None when the energy is unknown
   (linear ramp removed), the transform-limited reference `It_tl`, and the FWHMs
   `fwhm_retr` / `fwhm_tl`. When a pulse `energy` is supplied, also the absolute
   `peak_power` / `peak_power_tl` (W) — see [below](#absolute-power-and-peak-power).
-- **Spectral (wavelength domain)** — spectral intensity `Iw` (and photon-weighted
-  `Ilam`), phase `phi_w` with a quartic fit `phi_w_fit`, and the dispersion
+- **Spectral (wavelength domain)** — frequency density `Iw` and wavelength density
+  `Ilam` (including the $|d\omega/d\lambda|$ Jacobian), phase `phi_w` with a quartic fit `phi_w_fit`, and the dispersion
   coefficients `gdd_fs2` / `tod_fs3` / `fod_fs4` from that fit. If you pass
   `Iomega_meas`, the measured spectrum `Iw_meas` is included for comparison.
 - **Trace** — the retrieved trace, the measured trace and their
@@ -92,17 +95,17 @@ Helpers are also exposed individually: {func}`~croak.processing.marginals`,
 
 ## Is the spectrum real
 
-A low trace error does not by itself mean the retrieved *spectrum* is
+A low trace error does not by itself mean the retrieved spectrum is
 trustworthy. The outermost {data}`~croak.preprocess.TAPER_COLLAR_BINS` (10)
-frequency bins at each end of the grid carry no measurement — `regrid`'s
+frequency bins at each end of the grid carry almost no measurement, because the
 [edge taper](grids_and_filtering.md#the-edge-taper-and-why-the-band-must-be-generous)
-has zeroed them — so the field there is nearly free, and because intensity cannot
-go below zero it drifts upward. The result is spectral energy appearing at the
-band edges that was never in the trace.
+takes them to zero. The field there is nearly free, and because intensity cannot
+go below zero it drifts upward: spectral energy appears at the band edges that
+was never in the trace.
 
 {func}`~croak.processing.edge_energy_fraction` measures it, and
 {attr}`ProcessedResult.edge_energy <croak.processing.ProcessedResult.edge_energy>`
-carries it. {func}`~croak.plot_retrieval` prints it in the spectrum panel, in red
+carries it. {func}`~croak.plotting.plot_retrieval` prints it in the spectrum panel, in red
 above {data}`croak.plotting.EDGE_ENERGY_WARN` (1 %):
 
 ```python
@@ -111,18 +114,24 @@ if pr.edge_energy > 0.01:
     print(f"{pr.edge_energy:.1%} of the pulse energy is off the measured band")
 ```
 
-Rules of thumb: **under 0.1 %** is a sound retrieval; **a few percent** means part
-of the reported spectrum — and therefore of the reported duration — is an
-artefact. On one DUV dataset, 15.6 % edge energy inflated the reported FWHM by
-14 % against the same retrieval with the edge bins removed.
+Rules of thumb from our deep-UV TG-FROG measurements: **under 0.1 %** is a sound
+retrieval; **a few percent** means part of the reported spectrum, and therefore
+of the reported duration, is an artefact. On one dataset, 15.6 % edge energy
+inflated the reported FWHM by 14 % against the same retrieval with the edge bins
+removed. A low value rules out this failure only; it does not certify the rest of
+the field.
 
-The two causes, in order of importance:
+The causes, in order of importance:
 
-1. `R_omega=True` used without `reg_spectrum` or `phase_only` — by far the biggest
-   contributor, and it *lowers* the reported error while doing it. See
+1. `R_omega=True` used without `reg_spectrum` or `phase_only`: by far the
+   biggest contributor, and it *lowers* the reported error while doing it. See
    [per-frequency scaling](regularisation.md#per-frequency-scaling).
-2. A `lam_min`/`lam_max` band tight enough that the taper cuts live signal —
+2. A `lam_min`/`lam_max` band tight enough that the taper cuts live signal;
    `load_and_clean` warns about this at load time.
+3. Noise fitted into signal-free bins on a noisy trace when no measured spectrum
+   is supplied as a target. The COPRA warm-up of `warm-lbfgs` has no spectral
+   penalty even when one is; see the
+   [thickness-uncertainty example](../examples/thickness_uncertainty.md).
 
 Note the metric counts bins, so it is only meaningful on a grid with room for two
 non-overlapping collars (≥ 21 points); it returns `0.0` below that.
@@ -180,10 +189,11 @@ pr = croak.process_result(result, measured=trace)
 
 It compares **temporal intensity** profiles by their best normalised
 cross-correlation over all lags, which keeps the decision independent of the
-absolute phase and the time origin (both ambiguous too) and reliable on an
-imperfect retrieval — only the *relative* ranking of the two branches has to be
-right. It is a no-op for PG and SD, which fix the direction of time, and on a
-near-symmetric pulse where the two branches score alike.
+absolute phase and the time origin (both ambiguous too), and reliable on an
+imperfect retrieval: only the relative ranking of the two branches has to be
+right. A time-symmetric intensity, such as a chirped Gaussian's, scores alike on
+both branches and is left unchanged. It is a no-op for PG and SD, which fix the
+direction of time.
 
 Reversal is applied by conjugating the spectrum, which is exact: the stored trace,
 `mu` and `error` remain valid. Note that the **spectral phase changes sign**, so
@@ -242,9 +252,9 @@ as tabs (**Traces**, **Pulse**, **Diagnostics**), and
 The spectrum panel is drawn against frequency by default; pass
 `spectral_axis="wavelength"` to `plot_retrieval` or `retrieval_plot_data` (or
 `axis="wavelength"` to `plot_spectral`) for the spectrometer's axis — both are
-unit-peak densities in their own variable, so the wavelength view carries the λ²
+unit-peak densities in their own variable, so the wavelength view carries the $1/\lambda^2$
 Jacobian and the frequency view does not.
-Colorbars shared by a pair of trace panels are drawn whenever both panels are on
+Colourbars shared by a pair of trace panels are drawn whenever both panels are on
 the page. Every `draw_*` returns the artists it created (for example
 {class}`~croak.plotting.TemporalArtists`), which is what a live view updates in
 place instead of redrawing.
@@ -269,26 +279,17 @@ own figures.
 
 ### Live views (GUI support)
 
-Two classes redraw nothing when new data arrive: they draw a figure once and then
-push later data onto the existing artists, which is what keeps the wizard's live
-previews cheap and steady. {class}`~croak.plotting.FrogFilterView` does this for
-the six-panel filter figure (`attach(fig)` then `update(td)`), and
-{class}`~croak.plotting.RetrievalPageView` for one page of retrieval panels
-(`draw(fig, data)`, then `update(data)` whenever `can_update(data)` says the new
-result differs only in values — same grid, same optional curves). Behind the page
-view, every `draw_<key>` has an `update_<key>(artists, data)` twin, and the
-invariant the tests hold them to is that `update(draw(d1), d2)` shows exactly
-what `draw(d2)` shows. {func}`~croak.plotting.plot_convergence` returns its
-artists for the same reason, and `update_convergence_curve` grows the error
-history in place.
+For custom interactive applications, see the [live-view contracts in the
+developer’s guide](../developer_guide/gui_sessions.md#live-views-gui-support).
 
-## Cosmetic windowing
+## Windowing the retrieved field
 
 To trim ringing or out-of-band energy from the *result* before plotting (without
 re-running the retrieval), apply {func}`croak.processing.post_filter` — a
 reversible temporal/spectral Planck taper that returns a new result. Pass the
 measurement windows `td.lamm_lims` / `td.tau_lims` (λm/τm) as `lam_lims` /
-`tau_lims`, not the full grid extent. See
+`tau_lims`. The stored trace and error still describe the unfiltered retrieval.
+See
 [Grids and filtering](grids_and_filtering.md).
 
 ## Residual dispersion
