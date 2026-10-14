@@ -1,23 +1,31 @@
 # References
 
-## Companion paper
+(companion-paper)=
+## Associated draft papers
 
-The theory, dispersive forward model, solvers and validation in this
-documentation are described in:
+Two unpublished manuscripts by J. C. Travers and C. Brahms inform this manual:
 
-> J. C. Travers and C. Brahms, *Extreme ultrashort pulse retrieval with
-> differentiable physical forward models* (to be published).
+- *Differentiable physical models for ultrashort-pulse retrieval* — the inverse
+  problem, retrieval protocol, field comparisons and retained failure cases.
+- *A dispersive and spatial model of transient-grating frequency-resolved
+  optical gating* — the coherent slab, timing reduction, chromatic focal fields,
+  finite collection and known-field validation.
 
-Please cite it if you use croak in published work. The software itself is
-archived on Zenodo: [doi:10.5281/zenodo.22182305](https://doi.org/10.5281/zenodo.22182305)
-(all versions; see the repository's `CITATION.cff`). See the project README for
-the paper's BibTeX entry and DOI once published.
+These titles identify draft sources, not published articles. No journal, DOI or
+public data accession is claimed for them. The [validation chapter](../explanation/validation.md)
+states which evidence comes from each draft and distinguishes it from the
+bundled illustrative examples.
+
+Cite the software version used for a calculation. The all-version software
+archive is [doi:10.5281/zenodo.22182305](https://doi.org/10.5281/zenodo.22182305);
+the repository's `CITATION.cff` records the software citation. Draft citations
+should retain their unpublished status until publication details are available.
 
 ## Foundational work
 
 - N. C. Geib, M. Zilk, T. Pertsch, and F. Eilenberger, "Common pulse retrieval
   algorithm: a fast and universal method to retrieve ultrashort pulses,"
-  *Optica* **6**, 495–505 (2019). — the COPRA algorithm and the least-squares /
+  *Optica* **6**, 495–505 (2019), [doi:10.1364/OPTICA.6.000495](https://doi.org/10.1364/OPTICA.6.000495). — the COPRA algorithm and the least-squares /
   projection analysis that croak's solvers build on.
 - R. Trebino, *Frequency-Resolved Optical Gating: The Measurement of Ultrashort
   Laser Pulses* (Springer, 2000). — the standard reference on FROG, its
@@ -30,24 +38,25 @@ the paper's BibTeX entry and DOI once published.
 
 - Z. Wang, E. Zeek, R. Trebino, and P. Kvam, "Determining error bars in
   measurements of ultrashort laser pulses," *J. Opt. Soc. Am. B* **20**,
-  2400–2407 (2003). — the bootstrap (data-resampling) method for FROG error bars.
+  2400–2405 (2003), [doi:10.1364/JOSAB.20.002400](https://doi.org/10.1364/JOSAB.20.002400). — the bootstrap (data-resampling) method for FROG error bars.
 - B. Efron and R. J. Tibshirani, *An Introduction to the Bootstrap* (Chapman &
   Hall, 1993). — the parametric, nonparametric and residual bootstrap.
 - T. J. DiCiccio and B. Efron, "Bootstrap confidence intervals," *Statist. Sci.*
   **11**, 189–228 (1996). — BCa (bias-corrected and accelerated) intervals for
-  skewed estimators such as the FWHM.
+  skewed estimators. croak implements bias correction without the acceleration
+  term (BC), not BCa; see [uncertainty theory](../explanation/uncertainty_estimation.md).
 - G. A. F. Seber and C. J. Wild, *Nonlinear Regression* (Wiley, 1989). — the
-  $\hat\sigma^2 (J^\top J)^{-1}$ covariance (Laplace / Cramér–Rao) of a nonlinear
-  least-squares fit.
+  $\hat\sigma^2 (J^\top J)^{-1}$ local covariance approximation of a nonlinear
+  least-squares fit, with its regularity and noise assumptions.
 
 ## Related techniques
 
 - M. Miranda *et al.*, "Simultaneous compression and characterization of
   ultrashort laser pulses using chirped mirrors and glass wedges" (d-scan),
-  *Opt. Express* **20**, 688–697 (2012).
+  *Opt. Express* **20**, 688–697 (2012), [doi:10.1364/OE.20.000688](https://doi.org/10.1364/OE.20.000688).
 - D. Spangenberg, E. Rohwer, M. H. Brügmann, and T. Feurer, "Ptychographic
   ultrafast pulse reconstruction" (time-domain ptychography),
-  *Opt. Lett.* **40**, 1002–1005 (2015).
+  *Opt. Lett.* **40**, 1002–1005 (2015), [doi:10.1364/OL.40.001002](https://doi.org/10.1364/OL.40.001002).
 
 ## Software and data sources
 

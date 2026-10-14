@@ -1,18 +1,16 @@
 # Materials and mirrors
 
-croak models dispersion from three sources, all of which feed the same machinery —
-the dispersive [forward model](../explanation/forward_model.md) (retrieving
-*through* a medium) and the [dispersion tuner](../tutorials/05_dispersion_tuning.md)
-(compressing a retrieved pulse):
+Use material data to describe a nonlinear medium or to propagate a retrieved
+pulse through a known optical path. Use mirror data to apply or remove the
+spectral phase and attenuation of reflections during post-processing. These
+operations have different roles: the [forward model](../explanation/forward_model.md)
+fits a measurement, while [dispersion tuning](../tutorials/05_dispersion_tuning.md)
+explores the pulse after retrieval.
 
-- **built-in Sellmeier materials** (fused silica, CaF₂, …);
-- **custom materials** you register yourself, including pages from the
-  [refractiveindex.info](https://refractiveindex.info) database;
-- **gases** (helium, air) at a chosen pressure and path length;
-- **chirped mirrors**, from bundled data or your own measurement;
-- **beam-path coating mirrors** (Si, MgF₂/Al) to back-propagate out of the pulse.
-
-This guide shows how to use and extend each one.
+Available optical data include built-in Sellmeier materials, custom refractive
+indices, the optional refractiveindex.info database, gases, chirped mirrors and
+beam-path coatings. Check the wavelength range, polarisation and conditions of
+each dataset before using it.
 
 ## Built-in materials
 
@@ -29,7 +27,7 @@ or to {func}`~croak.dispersion.apply_dispersion` to add or remove a known thickn
 of glass:
 
 ```python
-# add 2 mm of fused silica to a retrieved spectrum, then take it back out
+# add 2 mm of fused silica to a retrieved spectrum
 ew = croak.apply_dispersion(g.omega, res.omega0, res.spectrum,
                            material_thicknesses={"SiO2": 2e-3})
 ```
@@ -56,6 +54,11 @@ def n_sapphire(lam_m):                       # ordinary-ray Sellmeier, λ in met
 croak.materials.register_material("Sapphire", n_sapphire)
 ```
 
+The formula above illustrates registration; supply the validity limits from
+your material reference and return `nan` outside them before using it on a broad
+spectrum. An index formula alone does not describe absorption or nonlinear
+response.
+
 A registered material is then usable **everywhere a built-in name is** — including
 `material="Sapphire"` in {func}`croak.retrieve`. Registered names take precedence
 over the built-in set and are resolved case-insensitively; remove one with
@@ -66,7 +69,8 @@ over the built-in set and are resolved case-insensitively; remove one with
 The optional `croak[ridb]` extra bridges to the
 [refractiveindex.info](https://refractiveindex.info) database, giving you thousands
 of measured and modelled materials without writing Sellmeier formulae yourself.
-Install it with `pip install croak[ridb]` (or `uv sync --extra ridb`); the first
+Add it to a project with `uv add "croak[ridb]"` (or, in a source checkout,
+`uv sync --extra ridb`); the first
 lookup downloads the full database (~hundreds of MB) to
 `~/.refractiveindex.info-database`.
 
@@ -114,17 +118,14 @@ ew = croak.apply_dispersion(g.omega, res.omega0, res.spectrum,
 Because a gas is registered as an ordinary material, it works **everywhere a
 material name does** — including the dispersion auto-compressor, which sweeps the
 path length at the set pressure. The available gases are in
-{data}`croak.gases.GASES` (`('Helium', 'Air')`). The ideal-gas scaling is accurate
-to ~0.1 % for these gases up to a few bar; it is an approximation at high pressure
-(tens of bar), where a real-gas equation of state would differ.
+{data}`croak.gases.GASES` (`('Helium', 'Air')`). The ideal-gas scaling is an approximation. Its accuracy depends on the gas,
+pressure, temperature and wavelength; a pressure control's range is not a
+validated range of the equation of state.
 
-The GUI's dispersion stage exposes this as a **Gases** group: pick a gas, set the
-pressure and the path length, and the pulse updates live. The pressure control
-spans 0–10 bar at **millibar** resolution — the spin box, its arrows and the slider
-all step by 1 mbar, so a few-mbar residual pressure is as easy to dial as a bar of
-fill gas. (10 bar is also about where the ideal-gas scaling above stops being
-quantitative.) The path length runs to **±999 cm**, covering metre-scale purge
-paths; negative pre-compensates, and **Auto** optimises over the full range.
+The GUI's **Gases** group selects the gas, pressure and path length. Pressure
+ranges from 0–10 bar in 1 mbar steps; path length ranges to ±999 cm. Negative
+length removes the modelled phase, and **Auto** optimises over the allowed range.
+Check the optical-data validity and gas conditions independently.
 
 ## Chirped mirrors
 
@@ -160,8 +161,8 @@ compressed = croak.apply_dispersion(g.omega, res.omega0, res.spectrum,
                                    mirror_bounces={"PC70": 6})
 ```
 
-(For good compressor mirrors `R ≳ 99 %` in band, so the loss is small; pass only
-`phase_fn` to `register_mirror` for the old phase-only behaviour.)
+Pass only `phase_fn` to `register_mirror` when a phase-only calculation is
+intended. Include `amp_fn` when loss or spectral reshaping matters.
 
 `mirror_bounces` can be combined with `gdd`/`tod`/`fod` and `material_thicknesses`
 in a single {func}`~croak.dispersion.apply_dispersion` call, and is one of the knobs
@@ -206,9 +207,13 @@ in one call:
 ```python
 upstream = croak.apply_dispersion(
     g.omega, res.omega0, res.spectrum,
-    mirror_bounces={"Si": -1, "MgF2Al": -6, "MgF2Al_45s": -2},
+    mirror_bounces={"MgF2Al": -6},
 )
 ```
+
+Back-propagation estimates the upstream field under the assumed transfer
+function; it cannot recover information lost where reflectivity is small or
+zero. Check the valid wavelength range and amplification of noise.
 
 At normal incidence the `s` and `p` data coincide; at oblique incidence they
 differ, so pick the polarisation that matches your beam.

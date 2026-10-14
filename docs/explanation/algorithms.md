@@ -1,11 +1,13 @@
 # Retrieval algorithms
 
-croak ships ten solvers. All share the same [forward model](forward_model.md),
-the same [least-squares objective](retrieval_theory.md), the uniform
-{meth}`~croak.solver.Retriever.run` entry point and the same
-{class}`~croak.result.RetrievalResult`. They are registered in
-{data}`croak.retrieve.ALGORITHMS` and selected by name through
-{func}`croak.retrieve`:
+A retrieval algorithm searches the field parameters under a chosen measurement
+model and objective. Use [solver selection](../howto/solver_selection.md) for a
+practical starting choice and [the executed comparison](../tutorials/02_choosing_an_algorithm.md)
+for an example. This chapter explains the numerical methods and their limits.
+
+Ten named solvers share the {meth}`~croak.solver.Retriever.run` interface and
+{class}`~croak.result.RetrievalResult`. Supported models, constraints, objectives
+and stopping rules differ. The names accepted by {func}`croak.retrieve` are:
 
 | `algorithm` | Class | Gradient source | Family |
 |-------------|-------|-----------------|--------|
@@ -20,32 +22,20 @@ the same [least-squares objective](retrieval_theory.md), the uniform
 | `"cma-es"` | {class}`~croak.cmaes.CMAES` | none (derivative-free) | global / population |
 | `"warm-lbfgs"` | {class}`~croak.warm_lbfgs.WarmLBFGS` | JAX autodiff | quasi-Newton (COPRA-seeded) |
 
-The last row is a *composition* rather than a fifth family: `lbfgs-ad` started
-from a COPRA local-projection sweep instead of from the raw initial guess. It is
-the default because the initial guess is the largest source of run-to-run
-variation and the warm-up removes most of it; see
-["The warm start"](#the-warm-start) below.
+Warm L-BFGS composes a COPRA local sweep with L-BFGS-AD refinement. The remaining
+names represent four families: COPRA, L-BFGS, Levenberg–Marquardt and CMA-ES.
+Implementations of the same family can differ in line searches, stopping and
+floating-point trajectories. Matching objectives does not guarantee matching
+endpoints in a non-convex problem. See [objective normalisation](retrieval_theory.md).
 
-The first six rows are really **three algorithms with twin implementations**:
-`copra`/`copra-jax`, `lbfgs`/`lbfgs-hand`/`lbfgs-ad`/`lbfgs-optx` and `lm`/`lm-optx`
-each minimise the *same* objective and converge to the *same* answer — they differ
-only in where the numerics run (host NumPy vs on-device JAX) and how the gradient
-is obtained. The genuinely distinct families are **COPRA** (step-based), **L-BFGS**
-(quasi-Newton), **Levenberg–Marquardt** and **CMA-ES** (global). The four sections
-below describe each family, and ["JAX and Optimistix twins"](#jax-and-optimistix-twins)
-explains the variants.
-
-Dispersive propagation is a *parameter* of each solver
-(`material`/`thickness`/`npoints`/`omega0`), not a separate algorithm — the
-"D-COPRA" of the companion paper is simply {class}`~croak.copra.COPRA` with a
-`material` set.
+The dispersive slab is a model option, available for PG/SD across solvers;
+spatial mixtures require a supported JAX route. Numerical method and physical
+model are separate choices.
 
 ## COPRA
 
 The **Common Pulse Retrieval Algorithm** ({class}`~croak.copra.COPRA`,
-implemented in {func}`croak.copra.run_copra`) is fast and robust from poor
-guesses. It
-works directly with the frequency-domain signal $\psi(\omega)$ that the forward
+implemented in {func}`croak.copra.run_copra`) works directly with the frequency-domain signal $\psi(\omega)$ that the forward
 model produces and alternates two modes.
 
 **Local mode.** Sweep the delays in *random order*. For each delay $\tau_j$,
@@ -66,9 +56,8 @@ spectra.
 a few iterations), COPRA takes one *joint* gradient-descent step over all delays
 at once: first a descent of the residual {eq}`residual` in the signal
 $\psi_\text{all}$, then a descent in $\tilde E$ toward the updated signal, with
-step size scaled by `alpha` (default `0.25`). This global stage is what drives
-COPRA to the true [least-squares minimum](retrieval_theory.md) of the
-[objective $r$](retrieval_theory.md#the-objective).
+step size scaled by `alpha` (default `0.25`). The global stage descends the full [least-squares residual](retrieval_theory.md),
+without guaranteeing a global minimum.
 
 **Adaptive scaling (`Rω`).** By default the optimal scale $\mu$ in the projection
 above is a single global factor. With `R_omega=True` it is computed *per frequency*
@@ -81,8 +70,8 @@ rather than letting a `NaN` poison the adjoint.
 
 That guard keeps COPRA numerically sound, but the main cost of `Rω` is shared by
 every solver: giving each row its own scale removes the frequency marginal, and
-with it the trace's grip on the retrieved spectral amplitude. Use it only together
-with `phase_only` or `reg_spectrum` —
+with it the trace's grip on the retrieved spectral amplitude. Use a justified phase-only constraint in COPRA, or choose a gradient solver when
+a soft `reg_spectrum` constraint is needed; COPRA does not accept that penalty —
 see [Regularisation](../howto/regularisation.md#per-frequency-scaling).
 
 COPRA keeps the best-error spectrum and returns it. Convergence can be controlled
@@ -113,13 +102,13 @@ regularisation options COPRA does not:
 - a **spectral-match** penalty (`reg_spectrum`, `spectrum_target`) pulling the
   retrieved amplitude toward an independently measured spectrum.
 
-The amplitude and spectral penalties are **on by default** at the settled
+The amplitude and spectral penalties are **on by default** at the package
 weights (0.03 and 0.01; the spectral term binds only when a target spectrum is
 supplied) — pass `0` to disable them.
 
-See [Regularisation](../howto/regularisation.md). Its initial descent is more
-gradual than COPRA's but it converges steadily to the same minimum, and for
-phase-only problems it typically *outperforms* COPRA.
+See [Regularisation](../howto/regularisation.md). Its convergence depends on the initial field, constraints and line search.
+Compare runs under matched settings before attributing a difference to the
+algorithm alone.
 
 ## L-BFGS-AD (autodiff)
 
@@ -132,52 +121,40 @@ Because AD differentiates whatever the model and parameterisation produce, this
 is the most feature-complete solver in the package. Everything the closed-form
 adjoint does not cover lives here:
 
-- [geometric time smearing](../howto/geometric_smearing.md), whose incoherent sum
-  over quadrature nodes breaks both COPRA's projection and the hand-written
-  adjoints;
+- [geometric time smearing](../howto/geometric_smearing.md), which is not implemented by croak's single-field COPRA projection or current
+  analytic-adjoint solvers;
 - the [fitted extras](../howto/fitting_thickness_tau0.md) `fit_thickness`,
   `fit_tau0` and `fit_smearing`;
 - the [B-spline phase basis](#phase-parameterisation-the-b-spline-basis), which
   makes it the natural local refiner after a `cma-es` global search;
 - the [temporal penalty](#temporal-regularisation).
 
-It is also the quick path to a new [interaction](interactions.md) for which no
-adjoint has been derived, and — since the optimiser and objective otherwise match
-`lbfgs` exactly — the way the two gradient routes are cross-checked: run both on
-the same problem and they should track to numerical precision.
+A new interaction must first be implemented in the JAX forward model. Where
+the analytic and AD paths overlap, compare their directional derivatives at the
+same field; agreement of optimised endpoints alone is a weaker derivative check.
 
-```{admonition} Robustness to NLopt failures
-:class: note
-Both NLopt-backed solvers (`lbfgs`, `lbfgs-ad`) carry two guards. A non-finite
-objective or gradient is replaced by a large finite penalty with a zeroed
-gradient ({func}`croak.solver.guard_nonfinite`), so the line search backtracks
-instead of poisoning the optimiser state. And if NLopt itself fails internally
-(a line-search breakdown or roundoff limit — observed for roughly one in six
-random starts on large dispersive grids), the solver catches the exception and
-returns the **best iterate found** rather than aborting the retrieval. Each
-guard warns once per run, so a salvaged result is visible in the log; treat the
-warning as a hint to try more random starts or a better initial guess.
+```{note}
+NLopt-backed solvers warn if a non-finite evaluation is guarded or optimisation
+ends early after an internal failure. They can return the best recorded iterate.
+Treat the warning as a reason to inspect convergence and rerun with justified
+settings; a returned result does not establish successful termination.
 ```
 
 ## Levenberg–Marquardt
 
 {class}`~croak.lm.LM` drives the *flattened* FROG residual
 $(T_\text{meas}-\mu T_\text{sim})\,w/\sqrt{\text{denom}}$ — whose Euclidean norm
-is exactly $R$ — to zero with {func}`scipy.optimize.least_squares`. Its **Jacobian
-is supplied by JAX** ({func}`jax.jacfwd`, forward mode, since there are far fewer
-parameters than residuals). Levenberg–Marquardt has superlinear local convergence
-and reaches the **lowest final trace error** of the local solvers, which makes it
-a good *polishing* stage after COPRA or L-BFGS.
+is exactly $R$ — to zero with {external+scipy:func}`scipy.optimize.least_squares`. Its **Jacobian
+is supplied by JAX** ({external+jax:func}`jax.jacfwd`, forward mode, since there are far fewer
+parameters than residuals). Jacobian-based least-squares methods can converge rapidly near a well-resolved
+solution, making them useful for refinement after another solver. Their cost and
+achievable residual depend on conditioning, tolerances and constraints.
 
-```{admonition} Why the default is method="trf", not "lm"
-:class: warning
-{class}`~croak.lm.LM` defaults to SciPy's trust-region `method="trf"` with the
-analytic JAX Jacobian — **not** MINPACK's classic `method="lm"`. MINPACK's
-Fortran driver calls the user Jacobian back from compiled code, and evaluating the
-JAX/XLA Jacobian program from inside that callback crashes the interpreter. `trf`
-is pure-Python, accepts the analytic Jacobian and is numerically equivalent here.
-If you explicitly request `method="lm"`, croak honours it but switches to a numeric
-(finite-difference) Jacobian so the process cannot crash (with a warning).
+```{note}
+The class named `LM` defaults to SciPy's trust-region reflective method
+(`method="trf"`) with a JAX Jacobian. Explicit `method="lm"` uses a numerical
+Jacobian because of a compiled-callback compatibility limitation, and emits a
+warning. `lm-optx` implements a JAX-based Levenberg–Marquardt route.
 ```
 
 LM supports the same forward-model options, phase-only mode, `R_omega` and
@@ -186,39 +163,22 @@ the regularisation weight scales the penalty relative to $R^2$ rather than $R$).
 
 ## JAX and Optimistix twins
 
-Seven of the ten algorithms run their numerics in JAX. They divide into two
-groups, and the distinction matters:
+The JAX variants use compiled forward calculations and differ in where the
+optimisation loop runs. This can improve repeated evaluations, while initial
+compilation can dominate a small job. Their physical support is not identical:
 
-- `copra-jax`, `lbfgs-hand` and `lbfgs-optx` are **on-device reimplementations**
-  of COPRA and L-BFGS. They produce numerically equivalent results — the same
-  objective, the same parameterisation, the same convergence — and exist for
-  speed and platform reach, not new physics. Use them interchangeably with their
-  NumPy counterparts.
-- `lbfgs-ad`, `lm`, `lm-optx` and `cma-es` take their gradients from automatic
-  differentiation, and that **does** buy new physics and new estimands:
-  geometric smearing, fitted medium thickness, delay-zero and smearing width,
-  the B-spline phase basis and the temporal penalty are reachable only here (see
-  [Gradients](gradients.md)).
+| Solver | Numerical route |
+|---|---|
+| `copra-jax` | COPRA with compiled analytic operations |
+| `lbfgs-hand` | L-BFGS with the compiled analytic gradient |
+| `lbfgs-ad` | NLopt L-BFGS with JAX AD |
+| `lbfgs-optx` | Optimistix L-BFGS with JAX AD |
+| `lm` | SciPy trust-region least squares with JAX Jacobian by default |
+| `lm-optx` | Optimistix Levenberg–Marquardt |
 
-| `algorithm` | Twin of | What changes | Why |
-|-------------|---------|--------------|-----|
-| `"copra-jax"` | `copra` | global step is `vmap`/`jit`, the local sweep a `lax.scan` | a generation runs as one batched device call |
-| `"lbfgs-hand"` | `lbfgs` | the *same* analytic Wirtinger gradient, but jitted and `vmap`-ed in JAX (still **no** autodiff) | host→device transfers removed; the trace evaluation is the bottleneck, not the gradient maths |
-| `"lbfgs-ad"` | `lbfgs` | gradient from `jax.value_and_grad` of the JAX forward model | the most feature-complete solver: smearing, fitted extras, B-spline basis, temporal penalty. Also differentiates a new interaction with no hand-written adjoint, and cross-checks the analytic one |
-| `"lbfgs-optx"` | `lbfgs-ad` | NLopt's host-side loop → Optimistix's on-device {class}`optimistix.LBFGS` | the whole BFGS loop stays on-device |
-| `"lm-optx"` | `lm` | SciPy `least_squares` → on-device {class}`optimistix.LevenbergMarquardt` (Jacobian via `lineax`) | a *genuine* JAX-Jacobian LM, sidestepping the MINPACK reentrancy crash that forces {class}`~croak.lm.LM` to `method="trf"` |
-
-`lbfgs-ad` has the widest model coverage of these. It is also the cross-check: running
-`lbfgs` and `lbfgs-ad` on the same trace should track to numerical precision,
-which is how the two gradient routes are held against each other on real
-retrievals (`tests/test_ad_vs_analytic.py`; see [Gradients](gradients.md)).
-The `copra-jax`/`lbfgs-optx` twins do not expose anything their originals lack;
-`lm-optx` adds only `linear_solver` (below), which selects how its on-device
-damped Gauss--Newton system is solved and has no SciPy counterpart. `lbfgs-hand` carries the same regularisation penalties as
-`lbfgs` (`reg_amp`, `reg_phase`, `reg_spectrum`); `copra-jax`, like `copra`,
-takes none of them. The B-spline basis is available on `lbfgs-ad`,
-`lbfgs-optx`, `lm`, `lm-optx` and `cma-es`, and the temporal penalty
-`reg_time` (below) only on `lbfgs-ad` and `cma-es`.
+Check accepted options through {func}`croak.retrieve.algorithm_params`.
+The [regularisation table](../howto/regularisation.md#summary) and
+[spatial-model guides](../user_guide/models.md) state model and parameter support.
 
 ```{note}
 **`linear_solver` on `lm-optx`.** Every Levenberg--Marquardt iteration solves the
@@ -268,7 +228,7 @@ strand them in a bad local minimum (the usual remedy is
 [several random restarts](../howto/solver_selection.md)). {class}`~croak.cmaes.CMAES`
 (`algorithm="cma-es"`) instead runs a **global**, derivative-free population search
 — CMA-ES (default), Separable CMA-ES or Differential Evolution, via the optional
-[evosax](https://github.com/RobertTLange/evosax) backend (`pip install croak[evo]`).
+[evosax](https://github.com/RobertTLange/evosax) backend (`uv add "croak[evo]"`).
 
 Because the forward model is JAX, the whole population is evaluated in a single
 jitted `vmap`, so a generation costs roughly one batched forward pass. CMA-ES has
@@ -286,28 +246,24 @@ res = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lbfgs-ad",
                     guess=g0.spectrum, maxiters=300)
 ```
 
-It accepts the same smoothness / spectral-match / temporal regularisation as the
-gradient solvers — the penalties are added to the FROG error to form the *total*
-the strategy minimises, while selection and reporting stay on the bare FROG error,
-so results remain directly comparable to the other retrievers.
+It accepts spectral-amplitude, phase, spectrum-match and temporal penalties.
+Selection minimises their sum with the trace error; the reported trace error
+excludes those penalties. Compare the same total objective when assessing a
+change of solver. A population search does not certify a global minimum.
 
 ## The warm start
 
-`warm-lbfgs` ({class}`~croak.warm_lbfgs.WarmLBFGS`) runs COPRA's *local* stage
-alone and hands the result to `lbfgs-ad` as its initial guess. Nothing else
-changes: same forward model, same objective, same minimum being sought.
+`warm-lbfgs` ({class}`~croak.warm_lbfgs.WarmLBFGS`) runs COPRA's local
+projection sweeps, then passes their best field to `lbfgs-ad`. The final stage
+uses the full configured AD model and objective. The warm stage uses a simpler
+model: it can score the core dispersive model with reduced smearing, but its
+local projection does not invert that mixture. It does not include the focal or
+collection model, joint scalar fits, regularisation or marginal centring.
 
-The reason it is the default is that the two stages carry different amounts of
-measured information per iteration. COPRA's local sweep replaces each delay's
-signal modulus with the measured one — a projection, not a descent step — which
-moves a long way toward the data in very few iterations. Its global stage is an
-ordinary gradient descent and is not needed here, so it is disabled by holding
-`stall_patience` at a value the run can never reach. What arrives at L-BFGS is
-therefore a cheap estimate that already agrees with the trace, from which the
-gradient solver refines under the *full* model — including the parts COPRA's
-projection structurally cannot represent, above all geometrical smearing, where
-the measurement constrains an incoherent mixture with no single signal to
-project.
+This makes the warm stage an initialisation strategy whose usefulness depends
+on the data. Check direct `lbfgs-ad` when the starting field is already reliable
+or the omitted physics is substantial. See the [solver API](../reference/api/retrieval.md#warm-started-l-bfgs)
+for stage budgets and supported settings.
 
 Both stages report progress, so the convergence curve covers the whole run and
 the GUI's live preview is active from the first COPRA iteration rather than only
@@ -317,34 +273,11 @@ do not count the same unit of work: one COPRA "iteration" is a full local sweep
 over every delay, while one L-BFGS step is a single function evaluation. Compare
 each stage against itself, not across the rule.
 
-Measured across a Gaussian-beam control and an apertured mask, at transform
-limit, ±2 fs² and the mask ±0.625 fs² pair, at the 9.5 µm experimental
-substrate: mean complex error 38% lower (median 63%), mean duration error 52%
-lower, worst-case duration error 69.3% → 20.8%. Four of the eight cases improved
-by more than 20% in complex error and none degraded by more than 20%; the
-duration improved in seven of eight. It does little where the answer was already
-good and a great deal where it was not: it improves poor starts and leaves good
-ones roughly unchanged.
-
-Over a 1–40 µm ladder the complex-error ranges improve on most arms, clearly so
-on both chirped Gaussian arms and on mask −2 fs². (The retrieved-*duration*
-ranges over depth are mixed and slightly wider on the mask arms; that is one
-statistic, not the whole picture.)
-
-The largest effect is on **variance**. The spread in retrieved duration over
-starting points collapses on every chirped arm — five-fold on Gaussian +2 and
-mask −2, twelve-fold on Gaussian −2 (±36.9 → ±3.1 points) and mask +2 (±6.0 →
-±0.5) — while the transform-limited arms, never start-sensitive, are unchanged.
-A ±37% spread over initial guesses means the mean value is not informative on
-its own — and on real data you never learn which draw you got. Multi-restart is
-then also a diagnostic: agreement between warm and cold starts indicates a
-well-behaved landscape, while disagreement gives a spread you can report.
-
-One regression is known — the Gaussian transform-limited arm at depths away from
-9.5 µm, where the warm complex error reaches 0.63 against a cold maximum of
-0.18. That is the case where the cold start was already reliable. It costs one
-extra COPRA run; use `lbfgs-ad` directly if you are supplying a starting point
-you already trust.
+Warm starts can reduce sensitivity to an uninformative initial guess, but can
+also move a good supplied field into a worse basin. Compare with direct
+`lbfgs-ad` when you have a reliable initial field, and retain several starts for
+difficult cases. Start-to-start variation is an
+optimisation diagnostic, not an experimental error bar.
 
 ## Phase parameterisation: the B-spline basis
 
@@ -369,36 +302,17 @@ from the main pulse while keeping the spectrum and field an exact Fourier pair. 
 
 ## How they compare
 
-Both COPRA and L-BFGS converge to the same least-squares minimum, but their
-*paths* differ: COPRA descends rapidly at first then slows; L-BFGS descends
-gradually but steadily. A practical recipe is **L-BFGS (or COPRA) to converge,
-then a short LM polish** to reduce the final $R$, run from several
-[random restarts](../howto/solver_selection.md). When even restarts fail to escape
-a bad minimum, a **`cma-es` global search** (usually on the B-spline basis)
-followed by a local refine is the heavier-duty alternative. The
-[solver-selection guide](../howto/solver_selection.md) gives concrete
-recommendations by problem type.
+Compare algorithms on the same data, model, initial field, constraints and
+objective normalisation. Record compilation separately from repeated evaluation
+time, and compare physical outputs as well as iteration counts. COPRA can provide
+a useful initial field, L-BFGS can refine a regularised objective, and a
+Jacobian-based stage can test local refinement. CMA-ES explores a population,
+but it also has finite-budget failures and no global-optimum guarantee.
 
-The companion paper's solver study (see [Validation](validation.md)) puts
-numbers on this recipe, on retrievals of first-principles simulated traces:
-
-- Levenberg–Marquardt reaches the same solution as L-BFGS in about a twelfth
-  of the iterations, but each iteration assembles a full Jacobian — roughly
-  23× the wall clock per step — which is why it is used as a
-  warm-started polish rather than a cold solver. From random starts its trust
-  region is not a global search and it becomes the least reliable choice.
-- Multi-start with lowest-$R$ selection is part of the protocol on hard
-  traces, not a precaution: over 219 random starts on strongly chirped
-  single-cycle traces, a single start landed in the correct basin only
-  45–80% of the time, while the lowest-trace-error member of each ensemble
-  landed there in every configuration tested.
-- COPRA is best run as designed, with its single global scale $\mu$: the
-  retained frequency marginal acts as a built-in regulariser. Handing it
-  per-frequency factors instead opens the weakly constrained amplitude
-  directions with no penalty to close them — half of the tested restarts
-  failed outright, and on a chirped trace it returned 0.9 fs for a 5.5 fs
-  pulse. The gradient solvers pair $R_\omega$ with a spectral constraint for
-  the same reason.
+The [gallery comparison](../tutorials/02_choosing_an_algorithm.md) is one controlled
+example. [Validation](validation.md) documents the separate scientific retrieval
+protocol and its unsuccessful cases. Neither establishes a universal solver
+ranking.
 
 ## Next
 

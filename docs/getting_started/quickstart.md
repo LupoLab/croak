@@ -1,7 +1,9 @@
 # Quickstart
 
-This page is the ten-line tour. For a step-by-step, executed walk-through see the
-[first-retrieval tutorial](../tutorials/01_first_retrieval.md).
+Generate a synthetic FROG trace, retrieve a pulse from it, and inspect the result.
+This small calculation checks your [installation](installation.md); the
+[first retrieval tutorial](../tutorials/01_first_retrieval.md) explains the physics
+and plots. All times, frequencies and lengths passed to croak use SI units.
 
 ## Retrieve a pulse
 
@@ -9,100 +11,91 @@ This page is the ten-line tour. For a step-by-step, executed walk-through see th
 import numpy as np
 import croak
 
-# 1. A matched time/frequency grid and a test pulse (2.5 fs Gaussian with GDD).
 g = croak.Grid(128, dt=0.3e-15)
-ew = croak.gaussian_pulse(g, 2.5e-15, phases=[4e-30])   # phases = [GDD, TOD, ...]
+ew = croak.gaussian_pulse(g, 2.5e-15, phases=[4e-30])
 delays = np.linspace(-18e-15, 18e-15, 87)
-
-# 2. Synthesise a measured trace (here SHG-FROG).
 trace = croak.maketrace(g.omega, delays, ew, "shg")
-
-# 3. Retrieve — the API is uniform across algorithms.
-res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="copra")
-
-print(res.error)        # final trace error R (the normalised FROG error)
-field = res.field       # retrieved E(t)
-spectrum = res.spectrum # retrieved E(omega)
+res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="copra",
+                     guess=croak.gaussian_pulse(g, 1.8e-15), maxiters=300,
+                     rng=np.random.default_rng(0))
+print(f"trace error R = {res.error:.3g}")
 ```
 
-Equivalently, instantiate the solver class directly — useful when you want to set
-algorithm options:
+`Grid` defines matched time and angular-frequency axes. `gaussian_pulse` creates
+a pulse with a transform-limited intensity FWHM of 2.5 fs; the 4 fs² of spectral
+group-delay dispersion stretches it. `maketrace` predicts the intensity recorded
+at each frequency and delay in an SHG-FROG measurement. `retrieve` searches for a
+complex pulse that reproduces that trace. The seed makes this demonstration
+repeatable.
 
-```python
-solver = croak.COPRA(maxiters=100)
-res = solver.run(trace, g.omega, delays, "shg")
-```
+The trace is simulated, so its generating pulse is known. In an experiment,
+agreement with a trace is only one check on the retrieved field: calibration,
+measurement modelling and available independent measurements also matter.
 
 ## Choose an algorithm
 
-`algorithm=` selects from the registry {data}`croak.retrieve.ALGORITHMS`:
+This example explicitly selects COPRA. Omitting `algorithm` selects
+`"warm-lbfgs"`, a COPRA start followed by L-BFGS refinement. The same entry point
+supports all solvers, but their model support and options differ. Use the
+[solver selection guide](../howto/solver_selection.md) for practical choices and
+the executed [algorithm comparison](../tutorials/02_choosing_an_algorithm.md)
+for a worked example. A small residual alone does not identify the most accurate
+field.
 
-| Name | Class | Gradient | Notes |
-|------|-------|----------|-------|
-| `"warm-lbfgs"` | {class}`~croak.warm_lbfgs.WarmLBFGS` | JAX autodiff | **the default**: `lbfgs-ad` warm-started from COPRA |
-| `"copra"` | {class}`~croak.copra.COPRA` | analytic Wirtinger adjoint | fast, robust from poor guesses |
-| `"lbfgs"` | {class}`~croak.lbfgs.LBFGS` | analytic Wirtinger adjoint | flexible; regularisation, phase-only |
-| `"lbfgs-ad"` | {class}`~croak.lbfgs_ad.LBFGSAD` | JAX autodiff | widest model coverage: geometric smearing, fitted thickness/τ₀, B-spline basis, temporal penalty |
-| `"lm"` | {class}`~croak.lm.LM` | JAX Jacobian | Levenberg–Marquardt; lowest final error |
-| `"cma-es"` | {class}`~croak.cmaes.CMAES` | none (global) | population search to escape local minima (needs `croak[evo]`) |
-
-These six are the ones you will reach for most often; croak ships ten
-algorithms in total — the rest are numerically-equivalent on-device JAX twins
-(`copra-jax`, `lbfgs-hand`, `lbfgs-optx`, `lm-optx`). See
-[Choosing an algorithm](../tutorials/02_choosing_an_algorithm.md), the
-[solver-selection guide](../howto/solver_selection.md) and
-[Retrieval algorithms](../explanation/algorithms.md) for the full set.
-
-By default `retrieve()` shows a live progress bar and a short end-of-run summary;
-pass `progress=False` to silence it (or a `callback` to monitor it yourself).
+`retrieve` displays progress by default. Set `progress=False` for quiet batch
+runs, or supply a callback for your own monitoring. You can also instantiate a
+solver, for example `croak.COPRA(maxiters=100)`, and call its `run` method; the
+[solver API](../reference/api/retrieval.md) documents this interface.
 
 ## Dispersive retrieval
 
-To model propagation through a material slab, pass `material`, `thickness`,
-`npoints` and the carrier `omega0`. The same call generates the trace and
-retrieves from it:
+To include propagation through a nonlinear slab, specify the same material,
+thickness, depth quadrature and carrier in trace generation and retrieval:
 
 ```python
-omega0 = croak.maths.wlfreq(260e-9)                     # 260 nm carrier
-trace = croak.maketrace(g.omega, delays, ew, "pg",
-                       material="SiO2", thickness=10e-6, npoints=20, omega0=omega0)
+omega0 = croak.maths.wlfreq(260e-9)
+medium = dict(material="SiO2", thickness=10e-6, npoints=20, omega0=omega0)
+trace = croak.maketrace(g.omega, delays, ew, "pg", **medium)
 res = croak.retrieve(trace, g.omega, delays, "pg", algorithm="copra",
-                    material="SiO2", thickness=10e-6, npoints=20, omega0=omega0)
+                     rng=np.random.default_rng(0), **medium)
 ```
 
-Dispersive propagation is available for the **PG** and **SD** interactions (whose
-signal stays at the fundamental frequency), not **SHG**.
+The slab model supports PG and SD, whose signals remain near the fundamental
+carrier, but not SHG. The [dispersive tutorial](../tutorials/03_dispersive_retrieval.md)
+uses a suitable ultraviolet pulse and explains the recovered field's reference
+plane. The [measurement modelling guide](../user_guide/models.md) explains when
+spatial geometry and collection must also be included.
 
 ## Initial guesses
 
-The `guess` argument accepts:
-
-- `None` — a random Gaussian-spectrum start (the default);
-- a complex spectrum array of length `g.n`;
-- a {class}`croak.Pulse` (e.g. another `gaussian_pulse`).
-
-Retrieval is scale-invariant; guesses are normalised internally. Because the
-objective is non-convex, the standard practice is to retrieve from several random
-guesses and keep the lowest-`error` result.
+`guess` accepts `None` for a random Gaussian-spectrum start, a complex spectral
+array on the retrieval grid, or a {class}`croak.pulses.Pulse`. Guesses are normalised
+internally. Since the objective is non-convex, compare several starts when
+analysing data. Keep their settings and diagnostics; agreement between starts
+is a convergence check, not a measurement uncertainty.
 
 ## The result object
 
-Every algorithm returns a {class}`~croak.result.RetrievalResult` with a uniform
-interface:
+All solvers return a {class}`~croak.result.RetrievalResult`:
 
 ```python
-res.error          # final trace error R
-res.errors         # R at each iteration (convergence history)
-res.spectrum       # complex spectrum E(omega), centred order
-res.field          # complex field E(t)
-res.intensity_t    # |E(t)|^2
+res.error          # normalised trace error R
+res.errors         # trace-error history
+res.spectrum       # complex baseband spectrum, centred order
+res.field          # complex temporal field envelope
+res.intensity_t    # temporal intensity |E(t)|²
 res.phase_omega    # unwrapped spectral phase
-res.wavelength     # absolute wavelength axis (m), using omega0
-res.trace          # the retrieved (simulated) trace
+res.trace          # predicted trace, before fitted intensity scaling
 ```
+
+Use `res.mu` to scale the prediction when comparing it with the supplied data.
+Absolute wavelength coordinates require the correct fundamental `omega0`.
+See [interpreting results](../user_guide/results.md) for plotting, ambiguity
+resolution, duration and spectral-phase interpretation.
 
 ## Next steps
 
-- Clean and retrieve **measured** data: [Experimental workflow](../tutorials/04_experimental_workflow.md).
-- Understand the physics: [The PNPS framework](../explanation/pnps_framework.md).
-- Drive everything from a UI: [GUI](../howto/gui.md).
+Continue with [your first retrieval](../tutorials/01_first_retrieval.md), then
+[dispersive retrieval](../tutorials/03_dispersive_retrieval.md) and the
+[experimental workflow](../tutorials/04_experimental_workflow.md). The
+[example gallery](../examples/index.md) covers more specialised calculations.

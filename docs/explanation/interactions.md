@@ -1,9 +1,11 @@
 # Interactions
 
-An **interaction** defines the instantaneous nonlinear signal field that a FROG
-geometry produces, together with its reverse-mode (Wirtinger) adjoint. They live
-in {mod}`croak.interactions` and are the only geometry-specific piece of the
-forward model.
+Choose an **interaction** to describe how the overlapping pulse replicas generate
+the nonlinear signal. This choice determines the trace carrier, sensitivity to
+phase and available ambiguities. The [first tutorial](../tutorials/01_first_retrieval.md)
+uses SHG; the [dispersive tutorial](../tutorials/03_dispersive_retrieval.md) uses PG.
+The kernels below describe the instantaneous local response; propagation and
+collection are developed in the [forward model](forward_model.md).
 
 Each interaction takes a *test* field $E$ (undelayed) and a *gate* field $G$
 (delayed by $\tau$), both in the time domain, and returns the signal $s(t)$.
@@ -32,7 +34,7 @@ $\omega_0$. This single number has two consequences:
 :class: tip
 Transient-grating FROG — the geometry demonstrated in the
 [companion paper](validation.md) — has the third-order signal
-$E_1 E_2^* E_3$ with three replicas of the pulse. For a single unknown pulse this
+$E_1 E_2^* E_3$ with three replicas of the pulse. When the gate replicas coincide in time and share the same local field, this
 reduces to $E\,\lvert G\rvert^2$, i.e. the **PG** kernel. Use
 `interaction="pg"` for TG-FROG data.
 ```
@@ -51,8 +53,8 @@ get_interaction(PG())    # -> the same instance, unchanged
 
 ## The adjoint convention
 
-croak computes exact gradients by hand rather than by automatic differentiation
-(see [Gradients](gradients.md)). Each interaction therefore provides not only
+croak supports automatic differentiation and analytic adjoints
+(see [Gradients](gradients.md)). The analytic interaction interface provides
 `signal(test, gate)` but also `signal_adjoint(test, gate, s_bar)`, which
 back-propagates a cotangent through the nonlinearity.
 
@@ -80,38 +82,9 @@ set and the derivation.
 
 ## Extending to a new geometry
 
-A new geometry is a small subclass:
-
-```python
-import numpy as np
-from croak.interactions import Interaction
-
-class THG(Interaction):           # third-harmonic generation, s = E^2 G
-    name = "thg"
-    omega0_scale = 3.0            # signal near 3*omega0
-
-    def signal(self, test, gate):
-        return test**2 * gate
-
-    def signal_adjoint(self, test, gate, s_bar):
-        test_bar = 2.0 * np.conj(test) * gate * s_bar
-        gate_bar = np.conj(test**2) * s_bar
-        return test_bar, gate_bar
-```
-
-Register it in {data}`~croak.interactions.INTERACTIONS` (or pass the instance
-directly) and every solver and the forward model will use it unchanged. The JAX
-backend ([Gradients](gradients.md)) only needs the `signal` half — autodiff
-supplies the adjoint — which makes it a convenient way to check a new hand-derived
-`signal_adjoint`.
-
-To support [geometric smearing](forward_model.md#geometric-smearing) as well, add
-{meth}`~croak.interactions.Interaction.smeared_shifts` and
-{meth}`~croak.interactions.Interaction.smeared_signal`: the same signal written as a
-product of *three* separately shifted replicas, because the factors that coincide
-in the 1-D model acquire different arrival times across the focal spot. PG and SD
-implement them; a geometry without a three-arm form (SHG) simply does not, and the
-forward model raises if a kernel is supplied.
+Contributor interfaces and backend support are described in
+[extending interactions and solvers](../developer_guide/extending.md#interactions).
+The signal and adjoint equations above remain the physical reference for users.
 
 ## API
 

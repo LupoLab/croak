@@ -1,16 +1,10 @@
 # The wizard GUI
 
-croak ships a PyQt6 Qt-Widgets **wizard** that drives the whole library — load,
-preprocess, retrieve, tune dispersion — with embedded Matplotlib plots and
-threaded retrieval. It is pure orchestration: every number it computes comes from
-the same library functions documented here, so anything the GUI does, you can do
-in a script.
-
-```{admonition} Qt is optional at import
-:class: note
-Importing `croak` does **not** import Qt. Only `croak.gui` does, so the library is
-fully usable headless on machines without a display.
-```
+The graphical wizard guides you from a loaded trace to a retrieved pulse,
+dispersion analysis and uncertainty estimates. Its controls use the same
+calculations as the Python interface. If this is your first visit, follow
+[installing the GUI](../getting_started/gui.md), then try a synthetic trace
+whose pulse is known.
 
 Every plot carries the standard matplotlib navigation toolbar (Home, Pan,
 Zoom-to-rectangle, Save, and a live cursor read-out), so you can zoom and pan to
@@ -19,55 +13,27 @@ resets the view; **Home** restores it.
 
 ## Launching
 
-```bash
-croak-gui                      # console-script entry point
-# or
-uv run python -m croak.gui
-# or, from Python
-python -c "import croak.gui; croak.gui.run_wizard()"
+For a standalone tool installation:
+
+```console
+croak-gui
 ```
 
-{func}`croak.gui.main` is the console-script entry point;
-{func}`croak.gui.run_wizard` creates the `QApplication` and shows the window
-**maximised** — the plots want the room. Un-maximising gives the window the size
-you last left it (remembered between launches and clamped to the screen it opens
-on), or on a first run a window filling 90 % of the screen.
-
-The wizard is laid out for displays of **1366×768 logical pixels and up** (a
-1920×1080 monitor at Windows' 125 % scaling is 1536×864 logical pixels). Plot text
-— titles, axis labels, tick labels, legends and their padding — shrinks as a plot
-canvas gets smaller than the size its figure was designed for, down to 70 % of the
-default size, and grows back when the window does, so a laptop shows the same
-panels at a smaller type size rather than losing the axes behind their labels.
-Figures written by a stage's **Save…** button are drawn afresh at full size,
-whatever the window size ({class}`~croak.plotting.PlotScale` and
-{meth}`~croak.gui.canvas.MplCanvas.render` are the mechanism).
+Within a uv project or source checkout, use `uv run croak-gui`. The window
+remembers its size and the control-panel width between launches. A larger window
+gives the plots more space; figures exported with the stage's **Save…** button
+are drawn at full size independently of the window.
 
 ### Desktop integration
 
-The wizard carries its own icon (`croak/gui/resources/croak.svg`, rendered to the
-sizes each platform wants) and identifies itself as **croak** rather than as the
-Python interpreter that happens to be running it. That is the icon you see in the
-macOS Dock, the Windows taskbar and the Linux dock, and the name in the macOS menu
-bar and its *About croak* / *Quit croak* items — `run_wizard` sets it by giving Qt an
-`argv[0]` of its own, so it reads the same whichever way you launch.
-
-```{admonition} Two macOS caveats
-:class: note
-The **Cmd-Tab switcher and the Dock tooltip** still say `python3`. Those come from
-the application *bundle*, and a plain `croak-gui` process has none; only shipping a
-real `.app` would change them, which is not worth the build step for a tool run
-from a virtual environment.
-
-On **Windows** `croak-gui` is a `gui-scripts` entry point, so it does not open a
-console window behind the wizard — but Windows then has nowhere to write
-`stdout`/`stderr`, so a crash before the window appears is silent. Run
-`python -m croak.gui` there to see the traceback.
-```
+The application uses the croak icon. On macOS, the Dock tooltip or Cmd-Tab entry
+may still display `python3` because the process is launched through Python.
+On Windows, launching `uv run python -m croak.gui` from a terminal makes startup
+errors visible if the normal launcher closes before opening a window.
 
 ## Navigation
 
-Every page except the Welcome menu carries the same chrome: a header bar with the
+Every page except the Welcome menu carries the same controls: a header bar with the
 page title and a **?  Help** button that explains that page's options, and a
 footer with **Cancel** and **Main menu** at the bottom left and **← Back** /
 **Next →** at the bottom **right**. That includes the two entry pages, where the
@@ -123,9 +89,9 @@ and hand the trace straight to the marginal-check stage.
    delay-sign convention — negating the scan axis, so the trace is mirrored about
    τ = 0. Which end of a stage scan is "gate late" is a wiring convention the
    file does not record. It matters for **PG and SD**, whose kernels fix the
-   direction of time: a wrong setting there time-reverses the retrieved pulse and
-   flips the sign of every phase order (invisible on a symmetric
-   transform-limited pulse, so check it against a known chirp). An **SHG** trace
+   direction of time: a wrong setting changes the inferred time direction in the local model.
+   With propagation, also check consistency with the calibrated instrument. A
+   symmetric transform-limited pulse cannot determine the sign. An **SHG** trace
    is symmetric in delay even for a chirped pulse, so reversing it changes
    nothing and cannot settle SHG's own
    [direction-of-time ambiguity](../explanation/pnps_framework.md#ambiguities) —
@@ -141,25 +107,25 @@ and hand the trace straight to the marginal-check stage.
    cannot wash the image out.
 5. **Marginal check** — compare the trace's frequency marginal with the marginal
    **predicted** from the independent spectrum ({mod}`croak.marginal_checks`):
-   exact for SHG (the spectral autoconvolution), transform-limited for PG/TG/SD.
+   the thin-local-model prediction is exact for SHG and transform-limited
+   for PG/TG/SD. The [marginal guide](marginal_checks.md) states the assumptions;
+   propagation, collection and detector response can alter the comparison.
    It overlays the predicted marginal, marks the predicted vs measured **centroid**,
    reports the **width-bracket** check, and exposes the spectral **trust region**
    (defaults to 190–1000 nm for a measured trace, or the full loaded range for
    the noise-free simulated/synthetic traces), a **frequency/wavelength** axis
-   toggle (default frequency — the physically correct space; the wavelength view
-   applies the λ Jacobian, which blue-shifts a broad marginal), a **log/linear**
+   toggle (default frequency; wavelength uses the corresponding density Jacobian), a **log/linear**
    marginal toggle (default linear,
    peak-normalised) and the **3rd-order** `(λ/µm)^exp` efficiency correction. Its
    **Auto** button picks the exponent whose corrected-marginal centroid matches the
    prediction ({func}`~croak.marginal_checks.auto_third_order_exponent`). The
-   **SHG marginal correction** also lives here (it moved from Preprocess): it
+   **SHG marginal correction** is available here: it
    scales the trace's frequency rows onto the predicted SHG autoconvolution
    ({func}`~croak.marginal_checks.apply_marginal_correction`), is enabled only for
    an SHG trace with an independent spectrum, and previews the snap onto the
    prediction live (the correction itself is applied during Preprocess). All three
    entry paths (experimental, simulated, synthetic) pass through this stage; see
-   [Marginal consistency checks](marginal_checks.md). The trace and the marginal
-   comparison share a draggable divider, so either plot can be given the height.
+   [Marginal consistency checks](marginal_checks.md). Use the draggable divider to adjust the two plot heights.
 6. **Preprocess** — fringe/DC/low-pass filtering, windowing and regridding
    ({func}`~croak.preprocess.load_and_clean`), with a live before/after preview.
    The controls always show the settings that were actually applied: re-entering
@@ -167,17 +133,15 @@ and hand the trace straight to the marginal-check stage.
    parameters survive a round trip back to the loader as long as the trace is
    unchanged (see [Preprocessing](preprocessing.md#settings-across-a-re-load)).
    With **Baseline (arPLS)** on, the **Auto** button beside *τ exclude (fs)* sets the
-   hold-out to twice the loaded trace's delay-marginal FWHM. Use it on measured
-   traces: without a hold-out the baseline bows into the τ≈0 peak and eats signal,
-   worst on the rows that constrain the fit least, which appears as a thin stripe at
-   one wavelength (see
+   hold-out to twice the loaded trace's delay-marginal FWHM. Treat this as an initial suggestion and inspect the baseline: a free
+   baseline can remove real signal, particularly where the wings constrain it
+   poorly (see
    [Peak suck-up](preprocessing.md#peak-suck-up-and-the-hold-out)).
 7. **Retrieve** — choose the algorithm (any of the ten, including the global
    [`cma-es`](../explanation/algorithms.md#global-retrieval-cma-es)) and its
-   parameters and run. Retrieval executes in a background thread so the UI stays
-   responsive, driven by the solver `callback`. The result is shown on three
+   parameters and run. The interface remains responsive while retrieval runs. The result is shown on three
    **pages** of panels, as tabs: **Traces** (measured and retrieved trace, log and
-   linear, with their colorbars), **Pulse** (retrieved pulse over the delay marginal, spectrum over the
+   linear, with their colourbars), **Pulse** (retrieved pulse over the delay marginal, spectrum over the
    frequency marginal) and **Diagnostics** (convergence, residuals, spectral
    filter, spectrogram) — the same twelve panels as
    {func}`~croak.plotting.plot_retrieval`, two by two so each has room even on a
@@ -187,31 +151,17 @@ and hand the trace straight to the marginal-check stage.
    `retrieval.pdf` beside `result.h5` and `options.toml`. The **Display** group's
    **Spectrum axis** draws the spectrum panel against **frequency** (PHz, the
    default — the space the retrieval works in) or **wavelength** (nm, the
-   spectrometer's axis, carrying the λ² Jacobian); both are unit-peak densities
+   spectrometer's axis, carrying the $1/\lambda^2$ density Jacobian); both are unit-peak densities
    in their own variable, the choice is remembered, and the exported PDF follows
-   it. By default a **live
-   full-plot preview** redraws the visible page (the others redraw when selected)
-   as the run converges — at most four times a second, and less often on a machine
-   where presenting a preview is slow: the wizard measures what each one costs and
-   keeps that below about a quarter of the wall-clock time, so the preview never
-   starves the solver — so a long Levenberg–Marquardt run shows its progress in
-   full rather than only an error curve; until the first
-   preview arrives, the convergence curve is shown on whichever page is visible,
-   growing at up to ten frames a second however fast the solver iterates. A page
-   is drawn once per run and later snapshots are pushed onto its existing curves,
-   images and labels, so a preview costs no layout pass and nothing shifts
-   between frames (legends sit in fixed corners for the same reason); the page is
-   redrawn from scratch only when the result changes shape or the window's text
-   density changes. The spectrogram, the costliest panel, is computed only while
-   the Diagnostics page is showing.
+   it. By default **Live full-plot preview** updates the visible page during
+   retrieval. Other pages update when selected. Until a full preview is
+   available, the convergence curve shows progress.
    Pressing **Stop** halts the run at that point and leaves the latest full plot
    on screen as a (non-converged) result you can inspect, save or post-filter.
    Untick **Live full-plot preview** to fall back to the cheaper
    trace-error-vs-iteration curve (the full plot is still drawn once the run
-   finishes). Every solver supports it, including `copra`/`copra-jax` and the
-   COPRA warm-up stage of `warm-lbfgs` — which matters there, since that warm-up
-   is 300 iterations by default and the preview would otherwise stay blank for
-   most of the run. `warm-lbfgs` plots **both** stages on one convergence curve
+   finishes). Every solver supports progress reporting, including both stages of
+   `warm-lbfgs`. `warm-lbfgs` plots **both** stages on one convergence curve
    with a dashed rule at the handover; read the two sides as different units of
    work (COPRA iterations, then L-BFGS function evaluations). The **Initial
    guess** selector makes automatic, transform-limited, random, perfect-Gaussian,
@@ -263,14 +213,16 @@ and hand the trace straight to the marginal-check stage.
    The two spectral ones need the truth's complex field, so an intensity-only file
    shows `ε(Iₜ)` alone rather than a number derived from something else.
 
-   Two forward-model groups sit alongside the solver options. *Dispersive
+   Forward-model groups sit alongside the solver options. *Dispersive
    propagation* models a slab (material, thickness, Δz/Npoints — see
    [The forward model](../explanation/forward_model.md)). *Geometrical smearing*
    models the tilted-pulse-front temporal blur of a non-collinear BOXCARS setup
    from the mask hole diameter and edge-to-edge spacing, with the resulting delay
    width shown — and editable, which back-computes the spacing. Both groups grey
    out for solvers that cannot use them; smearing needs one of the autodiff
-   solvers. See [Geometric smearing](geometric_smearing.md).
+   solvers. The chromatic focal and collection settings are described in
+   [collection aperture modelling](collection_aperture.md). See also
+   [geometric smearing](geometric_smearing.md) for the reduced model.
 8. **Dispersion** — apply and auto-tune residual dispersion
    ({mod}`croak.dispersion`) to compress the retrieved pulse, including real glass
    (built-in, custom, or [refractiveindex.info](../howto/materials_and_mirrors.md)
@@ -297,7 +249,7 @@ a TOML file via {func}`croak.save.save_options` / {func}`croak.save.load_options
 so you can reload a prior session. Retrievals are saved to HDF5 with
 {func}`croak.save.save_result`. **Load previous retrieval** reloads the saved
 `options.toml`; if a `result.h5` sits beside it, the retrieved result is
-**rehydrated from the file** ({func}`croak.save.result_from_saved`) after the cheap
+**restored from the file** ({func}`croak.save.result_from_saved`) after the cheap
 load + preprocess steps replay — so the solver is **not** re-run (it falls back to
 re-running only if the file is missing or its grid no longer matches). See
 [Saving and loading](saving_and_loading.md).
@@ -315,7 +267,7 @@ lam = fd.load("wavelength") * croak.io.unit_to_si("nm")
 delays = fd.load("delay") * croak.io.unit_to_si("fs")
 trace = fd.load("trace")
 
-td = croak.load_and_clean(trace, lam, delays, "shg", lam_min=380e-9, lam_max=440e-9,
+td = croak.load_and_clean(trace, lam, delays, "shg", lam_min=730e-9, lam_max=900e-9,
                          input_unit="delay")
 result = croak.retrieve_from_tracedata(td, algorithm="lbfgs", maxiters=200)
 pr = croak.process_result(result, measured=td.trace)

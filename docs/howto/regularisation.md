@@ -1,19 +1,17 @@
 # Regularisation
 
-On noisy or under-constrained data the retrieved spectrum can overfit — picking up
-ripples in amplitude or oscillations in phase that fit the noise rather than the
-pulse. Every solver *except* COPRA (the L-BFGS family, the Levenberg–Marquardt
-family and the global {class}`~croak.cmaes.CMAES`) accepts mild penalties that
-suppress this without biasing smooth, physical solutions — and applies the two
-settled ones **by default**: amplitude smoothness (`reg_amp=0.03`) and, when an
-independent spectrum is available, the spectral-match penalty
-(`reg_spectrum=0.01`), each mapped to the LM-family scale on `lm`/`lm-optx`.
-Pass `0` to disable either. The examples below use
-`lbfgs`, but the same arguments apply to the others — see the
-[summary table](#summary) for exactly which option each solver takes.
+Regularisation adds information or preferences to a retrieval when the trace
+alone is weakly constraining. It can suppress noise-driven oscillations, but it
+also biases the solution towards the chosen spectrum, smoothness or time window.
+Assess that bias by varying justified constraints and inspecting the whole field.
+Start with [retrieval theory](../explanation/retrieval_theory.md); the
+[solver guide](solver_selection.md) identifies supported options.
 
-(COPRA and its JAX twin take none of these penalties; their random-order local
-sweep already provides a degree of implicit smoothing.)
+The gradient solvers default to amplitude smoothness `reg_amp=0.03` and spectral
+matching `reg_spectrum=0.01` when a target is supplied. LM-family defaults are
+`3e-5` and `1e-5`, respectively, because they use squared residuals. Set a weight
+to zero to disable that penalty. COPRA and `copra-jax` do not implement these
+explicit penalties. Warm L-BFGS applies them during its L-BFGS stage.
 
 ## Second-difference smoothness
 
@@ -28,39 +26,29 @@ res = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lbfgs",
                     reg_amp=0.01, reg_phase=0.01, maxiters=300)
 ```
 
-Why the *second* difference rather than the first? Because it leaves the physical
-solutions untouched while killing the unphysical ones:
-
-- a constant or **linear** amplitude ramp has zero second difference → not
-  penalised;
-- a **linear chirp** (a quadratic spectral phase, i.e. pure GDD) has zero second
-  difference → not penalised;
-- high-order **ripple/oscillation** has large second difference → suppressed.
+A second difference vanishes for constant or linear values, including a linear
+spectral phase (a time shift). It does **not** vanish for quadratic spectral
+phase: pure GDD has nonzero curvature and is penalised. Smoothness is therefore
+a modelling preference, not a distinction between physical and unphysical phase.
+Rapid oscillations generally incur a larger penalty; its scale also depends on
+sampling and the package's normalisation.
 
 The penalties have closed-form gradients, accumulated into the solver gradient
 (L-BFGS) or appended as extra residual rows (LM).
 
 ## Choosing the weights
 
-croak's defaults, `reg_spectrum=0.01` with `reg_amp=0.03`, are the weights
-settled by the companion paper's joint scan (see
-[Validation](../explanation/validation.md)) and were used for every validation
-retrieval there. Two lessons from that scan are worth knowing before retuning:
+The appropriate weights depend on noise, sampling, model fidelity and confidence
+in the auxiliary measurement. The revised draft uses a spectral weight of 0.03,
+not the package default of 0.01. Neither value is universal. A tighter spectral
+constraint necessarily improves agreement with its target, so that agreement
+alone cannot select the weight. Use simulations with known truth, repeated
+measurements, controlled changes or held-out information where available.
 
-- **The natural diagnostics fail.** The retrieved duration is nearly flat in
-  the weight, and the spectral error is monotone in it *by construction* — a
-  regulariser cannot be tuned on the quantity it regularises toward. On
-  simulated data the weights were located with the complex retrieval error
-  against the known truth; on measured data, prefer the defaults and check the
-  spread over random starts.
-- **The two penalties work together.** Too weak a spectral weight lets the
-  amplitude collapse on chirped traces (a spiky spectrum a fraction of the
-  true bandwidth); the amplitude-smoothness penalty suppresses exactly that
-  collapse mode, which is why the pair beats either penalty alone.
-
-One further cap applies on measured data: the measured spectrum carries its
-own error, and a spectral weight strong enough to impose it exactly imports
-that error into the retrieved pulse.
+Inspect sensitivity to both spectral and amplitude-smoothness weights. Excessive
+smoothing can remove real structure; excessive spectral matching imports errors
+from an incorrectly calibrated or differently collected auxiliary spectrum.
+Solver-start spread is a separate optimisation diagnostic.
 
 ```{admonition} L-BFGS vs LM weight scaling
 :class: note
@@ -110,8 +98,7 @@ res = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lbfgs-ad",
 ```
 
 Unlike the cosmetic post-retrieval [temporal filter](postprocessing.md), this acts
-*during* retrieval and keeps the spectrum and field an exact Fourier pair, so it
-introduces no spectral artefacts. It is available on
+*during* retrieval and keeps the spectrum and field an exact Fourier pair, but it can suppress real satellites if the chosen time window is too narrow. It is available on
 {class}`~croak.lbfgs_ad.LBFGSAD` and {class}`~croak.cmaes.CMAES` (it needs the JAX
 field transform), and works in every parameterisation including the B-spline basis.
 
@@ -129,7 +116,7 @@ res = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lbfgs-ad",
 ```
 
 Because the phase then has only `n_nodes` degrees of freedom and is $C^2$-smooth by
-construction, it cannot ripple at all — a strong regulariser that also makes the
+construction, it cannot represent arbitrary bin-to-bin phase variation — a strong regulariser that also makes the
 problem low-dimensional enough for the derivative-free
 [CMA-ES global search](../explanation/algorithms.md#global-retrieval-cma-es). It
 implies phase-only retrieval. A P-spline roughness term on the control points is
@@ -145,47 +132,18 @@ absorbing an uncalibrated frequency-dependent detection efficiency. It *relaxes*
 a constraint, so it pairs well with a spectral-match penalty that re-adds physical
 structure.
 
-:::{admonition} Rω lowers the reported error while degrading the spectrum
-:class: warning
-Do not use `R_omega=True` on its own. The per-frequency scale factors are exactly
-the information that pins the retrieved **spectral amplitude** — one free factor
-per row *is* the frequency marginal. Give the fit those extra parameters and the
-amplitudes are constrained only through the delay structure of each row, which is
-weakest where the trace is weakest: at the edges of the band.
+Row gains weaken the trace's constraints on spectral amplitude. Delay-dependent
+shape still contains information, but weak edge bins can become poorly determined
+and acquire spurious energy. A lower residual with extra gains is not evidence of
+a more accurate spectrum. The wavelength-density conversion can make a
+short-wavelength artefact appear larger than the same frequency-density error.
 
-Because $|E(\omega)|^2 \ge 0$ and the true value sits *on* that bound, the freed
-bins can only drift upward. The signature is unmistakable — the retrieved spectrum
-rises at both ends of the grid, and because $I_\lambda = I_\omega\,2\pi c/\lambda^2$
-the short-wavelength end looks far worse than its long-wavelength twin (a factor
-$(\lambda_\mathrm{max}/\lambda_\mathrm{min})^2$, easily 5–10×). {func}`croak.processing.edge_energy_fraction`
-puts a number on it and the {func}`~croak.plot_retrieval` spectrum panel reports it.
-
-On a **perfect, noiseless, exactly-modelled** PG trace whose true pulse has
-$10^{-6}$ % of its energy in the outer 10 bins of each end:
-
-| | edge energy | trace error `R` |
-|---|---|---|
-| `R_omega=False` | 0.02 % | 7.9e-5 |
-| `R_omega=True` | **5.4 %** | 4.0e-3 |
-
-Note which column looks better. Rω *usually* reports the lower `R` — it has one
-extra free parameter per frequency row — so the error alone cannot tell you the
-spectrum has gone wrong. On measured data it is routine for Rω to halve `R` while
-tripling the edge energy.
-
-The fix is to put back what Rω removed, from an independent measurement:
-`phase_only=True` (hold the amplitude at the measured spectrum) or a light
-`reg_spectrum`. Widening `lam_min`/`lam_max` helps too, because it moves the
-[edge taper](grids_and_filtering.md#the-edge-taper-and-why-the-band-must-be-generous)
-out onto empty trace. Measured on one DUV TG-FROG dataset, band 180–500 nm →
-140–750 nm, against a truth with 0.01 % edge energy:
-
-| | edge energy |
-|---|---|
-| Rω, tight band | 15.6 % |
-| Rω off, tight band | 6.0 % |
-| Rω off + `reg_spectrum=1e-2`, wide band | **0.01 %** |
-:::
+Inspect {func}`croak.processing.edge_energy_fraction`, the auxiliary spectrum
+and the complete residual. Widening the retained band can move the edge taper
+onto negligible signal, but does not restore a lost spectral constraint by itself.
+Use `phase_only=True` when fixing a trusted amplitude is justified, or a soft
+`reg_spectrum` constraint when the trace should retain freedom to adjust it.
+COPRA supports phase-only retrieval but not a spectral penalty.
 
 ## Summary
 

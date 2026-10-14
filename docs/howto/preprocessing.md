@@ -1,24 +1,24 @@
 # Cleaning and regridding measured data
 
-A raw FROG measurement arrives on a **wavelength** axis and a **delay or stage
-position** axis, often with interferometric fringes, a background, detector
-calibration and a non-uniform sampling. Retrieval, by contrast, needs a
-normalised trace on a **uniform angular-frequency / delay grid**. {mod}`croak.preprocess`
-bridges the two. The one call you usually need is
-{func}`~croak.preprocess.load_and_clean`, which returns a
-{class}`~croak.preprocess.TraceData` ready for retrieval. This pipeline —
-generation-response correction, spectrometer Jacobian, Takeda de-fringing,
-arPLS baseline removal, edge taper and sub-sample delay centring, with no
-intensity thresholding anywhere — is the one specified and derived in the
-companion paper; for the few-femtosecond DUV traces validated there, skipping
-any one of these steps changed the retrieved pulse measurably.
+Prepare a measured trace by checking its axes, subtracting a measured
+background where available, and choosing a spectral and delay window that retains
+the signal. Filtering is optional: enable a correction only when the data and
+measurement model justify it. Inspect the trace before and after every step.
+
+{func}`~croak.preprocess.load_and_clean` converts wavelength-domain arrays to a
+{class}`~croak.preprocess.TraceData` on a uniform frequency and delay grid. It
+can also remove fringes or estimate a slowly varying baseline. The revised
+[paper validation](../explanation/validation.md) uses unfiltered simulated
+traces; those results do not establish a mandatory experimental cleaning recipe.
+The [experimental-workflow tutorial](../tutorials/04_experimental_workflow.md)
+introduces the full sequence using synthetic data.
 
 ```python
 import croak
 
 td = croak.load_and_clean(
     Ifrog, lam_frog, scanaxis, "shg",
-    lam_min=380e-9, lam_max=440e-9,     # output retrieval band
+    lam_min=730e-9, lam_max=900e-9,     # fundamental retrieval band
     input_unit="delay",                  # scanaxis is already a delay (s)
 )
 # td.trace        -> normalised (Nomega, Ndelay) on td.grid
@@ -129,8 +129,9 @@ There are two ways to remove them:
 - **`defringe`** ({func}`~croak.preprocess.defringe_carrier`) — *Takeda FTSI*: a
   smooth **low-pass** that keeps only the slow DC band $|f| < \texttt{defringe\_fraction}\times f_c(\lambda)$
   and discards the $\pm f_c$ sidebands, leaving a smooth, fringe-free
-  $a(\lambda,\tau)$. Because it uses smooth (Planck-taper) windows it does **not**
-  ring, and because the carrier is computed it needs **no per-row fitting**. Unlike
+  $a(\lambda,\tau)$. Smooth (Planck-taper) windows reduce ringing compared with abrupt cuts;
+  they do not guarantee that filtering leaves the pulse information unchanged.
+  The carrier is computed, so no per-row carrier fit is needed. Unlike
   DC removal it *keeps* the slow signal content, including the zero-frequency mean
   and low-frequency wings.
 
@@ -154,9 +155,9 @@ baseline fit robust, since fringe troughs would otherwise dip below the backgrou
 
 After de-fringing, the smooth $a(\lambda,\tau) = |E_s|^2 + |E_b|^2$ still carries the
 broad, slowly varying leakage background $|E_b|^2$. {func}`~croak.preprocess.arpls_baseline`
-removes it per wavelength row, **without touching the compact $\tau\approx0$ signal** —
-replacing a crude DC subtraction (which subtracts a constant and so guts the signal's
-low-frequency content).
+estimates it per wavelength row. A smooth baseline can overlap the real signal,
+so subtraction can remove pulse information. Compare the inferred baseline with
+the retained signal and test sensitivity to the fitting window and smoothness.
 
 It uses *asymmetrically reweighted penalised least squares* (arPLS, Baek et al. 2015):
 for each row $y$ it fits a smooth baseline $z$ minimising
@@ -175,8 +176,8 @@ together via `load_and_clean(..., defringe=True, baseline=True)`.
 :::{tip}
 Two runnable examples build a synthetic DUV TG-FROG trace with known fringes and
 a known asymmetric background, then report the *actual* recovery error:
-`examples/example_defringe.py` for the de-fringe step alone, and
-`examples/example_arpls_baseline.py` for the full chain. Both share the trace
+[Fringe removal](../examples/defringe.md) treats the de-fringing step alone;
+[baseline removal](../examples/baseline.md) covers the full chain. Both share the trace
 generator in `examples/synthetic_duv_trace.py`, which is a compact worked model
 of where the fringes and the background come from — a useful starting point for
 sanity-checking the settings before applying them to a measurement.
@@ -190,13 +191,11 @@ sanity-checking the settings before applying them to a measurement.
   noisy measured background like the DUV TG-FROG case. A **clean or simulated trace, a
   narrow delay window, or a small `Ndelay`** makes the effective penalty much softer
   and needs a substantially higher value (`~1e4`+). A clean simulation has **no
-  leakage background** to remove at all — leave `baseline` off and let de-fringing do
-  the cleaning. Tune it live on the preprocess page.
+  leakage background** to remove: leave `baseline` off. Leave de-fringing off too
+  unless fringes are present. Inspect any filtering on the preprocess page.
 - **`baseline_tau_exclude`** (s) — hold out $|\tau| < \texttt{baseline\_tau\_exclude}$
   from the fit, so the tall $\tau\approx0$ peak cannot pull the baseline up into it.
-  See [Peak suck-up](#peak-suck-up-and-the-hold-out) below: on measured traces this is
-  the difference between keeping and losing a third of the signal, and it is off
-  (`0`) by default.
+  See [Peak suck-up](#peak-suck-up-and-the-hold-out) below. The hold-out is off (`0`) by default.
 - **`baseline_downsample`** / **`baseline_skip_below`** — speed controls. Because the
   baseline is smooth, `baseline_downsample=q` solves it on every $q$-th delay and
   interpolates back (≈$q\times$ faster at a percent-level difference), and
@@ -226,12 +225,10 @@ loss is **not** a uniform dimming — it concentrates on the rows whose peak sit
 against their background and shows up as a **thin stripe at one wavelength that appears
 only when baseline removal is on**.
 
-On a measured DUV TG-FROG trace the two worst rows kept 36–39 % of their peak while
-their immediate neighbours kept ~70 %, and thirteen rows in the signal band fell below
-80 %. Setting `baseline_tau_exclude` to **twice the delay-marginal FWHM** took the worst
-row from 23 % to 87 % and left no row below 87 % — and it converged *faster*, because
-the fit settles sooner. Once the marginal FWHM is too narrow to help; three times
-leaves too little wing to fit and is worse again.
+A hold-out around the signal peak can reduce this loss, provided enough
+background-only samples remain to constrain the baseline. The appropriate width
+depends on the pulse and leakage; compare several widths rather than assuming a
+fixed multiple of the marginal width is universally suitable.
 
 {func}`~croak.preprocess.suggested_tau_exclude` computes that width for you:
 
@@ -244,9 +241,9 @@ td = croak.load_and_clean(..., baseline=True, baseline_tau_exclude=tau_exclude)
 
 It measures the delay marginal above its own pedestal and caps the result at 40 % of
 the delay half-span, so the hold-out can never approach the whole axis (which
-`arpls_baseline` rejects). The value is insensitive to what you hand it — raw or
-de-fringed, full range or windowed all agree to ~10 %. In the GUI, the **Auto** button
-beside *τ exclude (fs)* does exactly this for the loaded trace.
+`arpls_baseline` rejects). The suggestion is a starting point. Fringes, background and truncation can
+change the marginal width. In the GUI, **Auto** beside *τ exclude (fs)* applies
+this estimate to the loaded trace; inspect its result.
 
 ## Thresholding and the noise model
 
@@ -258,18 +255,18 @@ neutral one.
 
 ```{admonition} Thresholding biases the least-squares estimate
 :class: warning
-Under Gaussian noise the [least-squares objective](../explanation/retrieval_theory.md)
-is the maximum-likelihood estimator only if the noise is left intact. Hard
-thresholding censors the negative half of the noise distribution and introduces a
-small positive bias. The default `threshold=None` therefore keeps the filter's
-small negative values (the strictly MLE-correct choice); COPRA's amplitude
-projection handles negative targets safely. Set a small `threshold` (e.g.
-`1e-5`) only to suppress obvious junk in the dark corners of the trace.
+For independent Gaussian errors with known variances, appropriately weighted
+least squares has a maximum-likelihood interpretation. Clipping negative values
+or thresholding weak pixels censors that noise distribution and can bias the
+fit. The default `threshold=None` retains small negative filtered values; COPRA
+handles them in its amplitude projection. A threshold should be an explicit
+data-selection decision, with its effect checked on the retrieved field.
 ```
 
-The default Gaussian noise model is valid above ~20 photons/pixel; very
-photon-starved data is Poisson and would want signal-dependent weights (currently
-uniform).
+Photon counting, read noise, calibration and filtering can produce different
+variances and correlated errors. There is no universal photon-count threshold
+that validates a Gaussian model. See [uncertainty estimation](uncertainty.md)
+for what the implemented resampling methods assume.
 
 ## Inspecting the result
 
@@ -285,24 +282,10 @@ fig = croak.plot_frog_filter(td)
 
 ## Settings across a re-load
 
-In the [wizard](gui.md) the preprocess controls are bound one way — a widget
-writes its parameter and triggers a recompute — so what the parameters say is
-what gets computed. To keep the two in step, **entering the stage re-seeds every
-widget from the current parameters**. That matters because loading a trace
-re-seeds the parameters themselves from the data (grid extents, window bounds,
-filter defaults), which would otherwise leave the boxes ticked while a different
-set of options was applied.
-
-Whether that reset happens is decided by the *trace signature* — the file,
-dataset/window selection, units, loaded band, orientation and interaction, i.e.
-everything that changes the data-seeded defaults:
-
-* **Same trace** (reloading after tweaking a background, a calibration, the
-  third-order correction, or just walking Back and forward again): your windowing
-  and filter choices are kept; only the slider *bounds* are refreshed and the
-  values clamped into them.
-* **Different trace**: the data-seeded defaults are restored, and — since the
-  widgets are re-seeded — you *see* them reset.
+In the [wizard](gui.md), returning to the same trace retains your filter and
+window choices. Loading a different file, dataset, band, orientation or
+interaction restores defaults based on that data. Review the displayed settings
+after a change; a new synthetic trace also resets them.
 
 The **Reset defaults** button restores the data-seeded defaults for the current
 trace at any time. Generating a new synthetic trace always counts as a new trace,
@@ -329,9 +312,10 @@ delays = -delays                               # mirror the trace about τ = 0
 ```
 
 The delay sign matters for PG and SD, whose kernels fix the direction of time: a
-wrong one there time-reverses the retrieved pulse and flips the sign of every
-phase order, and it is invisible on a symmetric transform-limited pulse, so check
-it against a known chirp. An SHG trace is symmetric in delay for any pulse
+wrong sign changes the inferred time direction in the local interaction
+model. With propagation or other asymmetric instrument effects the consequences
+can be more complicated. Calibrate the sign against a known delay or chirp; a
+symmetric transform-limited pulse cannot establish it. An SHG trace is symmetric in delay for any pulse
 (`Interaction.time_reversal_ambiguous`), so the flip is a no-op for it and
 settles nothing — SHG's direction-of-time ambiguity is resolved after retrieval
 with {func}`~croak.processing.resolve_time_direction`, see

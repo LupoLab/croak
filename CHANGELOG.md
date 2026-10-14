@@ -11,8 +11,14 @@ semantic versioning.
 - Reorganised the manual beneath five navigation sections: Introduction,
   User guide, Examples, Developer's guide, and API. Added chapter introductions,
   a topic-based example catalogue, contributor guidance, and cross-references,
-  while retaining existing page URLs and tutorial content. Expanded the croak
+  while retaining existing page URLs and scientific derivations. Expanded the croak
   acronym prominently on the home page, introduction, and README.
+- Revised the learning sequence and scientific explanations against two
+  unpublished drafts and current package behaviour, including field references,
+  detector densities, objective normalisation, model limits and uncertainty
+  assumptions. Added executed gallery pages using the existing example scripts
+  as their calculation source, and reviewed API prose in its source docstrings.
+  Package behaviour, signatures, defaults and saved-data formats are unchanged.
 
 ### Fixed
 

@@ -1,7 +1,9 @@
 # FFT convention
 
-Subtle factor-of-$2\pi$ and ordering bugs are the bane of pulse-retrieval code.
-croak fixes one convention and applies it everywhere; this page records it.
+Use the same Fourier signs, normalisation and array order when preparing fields,
+applying dispersion and comparing results. This page states the continuous and
+discrete conventions; [the first tutorial](../tutorials/01_first_retrieval.md)
+shows them in a retrieval.
 
 ## The continuous transform
 
@@ -57,7 +59,8 @@ These appear directly in {meth}`ForwardModel.adjoint_single
 - A delay $\tau$ is a spectral phase ramp $e^{+i\omega\tau}$ in the raw domain
   (see {meth}`Grid.tshift <croak.grid.Grid.tshift>`), matching the forward kernel
   sign above.
-- All transforms use {mod}`scipy.fft`.
+- The NumPy model uses {external+scipy:mod}`scipy.fft`; the JAX backend uses the corresponding
+  JAX transforms with matching signs and normalisation.
 
 ## See also
 

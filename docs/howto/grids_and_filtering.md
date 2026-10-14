@@ -13,14 +13,14 @@ Keep three things distinct:
    FFT, so an unevenly sampled delay axis is handled correctly without first
    resampling it.
 2. **The retrieval grid** — a uniform, centred angular-frequency / time grid
-   ({class}`croak.Grid`) that the solvers run on. {func}`~croak.preprocess.load_and_clean`
+   ({class}`croak.grid.Grid`) that the solvers run on. {func}`~croak.preprocess.load_and_clean`
    builds it from `lam_min`/`lam_max`.
 3. **Post-retrieval filtering** — optional windows applied to the *result*
    ({func}`croak.processing.post_filter`), which never change the retrieval itself.
 
 ## Building a grid directly
 
-A {class}`croak.Grid` is fixed by its size `n` and one step (`dt` or `domega`); the
+A {class}`croak.grid.Grid` is fixed by its size `n` and one step (`dt` or `domega`); the
 matched axes follow from $\Delta\omega = 2\pi/(\Delta t\,N)$:
 
 ```python
@@ -42,9 +42,10 @@ g = croak.Grid(n, dt=dt)
 ## The baseband convention
 
 croak works with the **baseband** spectrum on a grid centred at zero — the carrier
-$\omega_0$ is *not* baked into the pulse shape. It enters only:
+$\omega_0$ is *not* baked into the pulse shape. It enters the conversion to absolute optical frequencies, including:
 
-- the **dispersive model**, through `omega0` (which builds $\beta(\omega)$);
+- material dispersion, wavelength-dependent focal fields and collection
+  optics, through `omega0`;
 - the **wavelength axis** of a result, via
   {attr}`RetrievalResult.wavelength <croak.result.RetrievalResult.wavelength>`
   $= 2\pi c/(\omega+\omega_0)$.
@@ -90,11 +91,11 @@ FROG trace carries real information in its wings — that is where the chirp sho
 itself — and they are easy to underestimate: on a linear plot the signal looks
 finished long before it is.
 
-Pick the edges from the wavelength marginal at roughly **1e-4 of its peak**
-(−40 dB), or read them off a dB image of the trace. On the synthetic measurement
-in the [experimental workflow tutorial](../tutorials/04_experimental_workflow.md),
-cutting at a few percent of the marginal instead costs a factor of four in the
-achievable trace error (0.5 % → 2.1 %) for the sake of ~20 fewer grid points:
+Inspect the wavelength marginal and a logarithmic trace image together with
+the noise floor. For a clean synthetic PG/SD trace, a threshold of $10^{-4}$ of
+the peak is one useful illustration; it is not a universal experimental cutoff.
+For SHG, convert the signal band to the fundamental band before setting the
+retrieval grid.
 
 ```python
 marg = trace.sum(axis=1)
@@ -109,20 +110,16 @@ points it adds.
 
 ## The edge taper, and why the band must be generous
 
-`regrid` does not simply crop at `lam_min`/`lam_max`. It applies a Planck taper
-that rolls the trace to **exactly zero** over the outermost
-{data}`croak.preprocess.TAPER_COLLAR_BINS` (10) frequency bins at each end. This
-is not optional: the forward model FFTs the trace on a periodic grid, so a trace
-that does not reach zero at the boundary rings back into the fit.
+`regrid` applies a Planck taper across the outermost
+{data}`croak.preprocess.TAPER_COLLAR_BINS` (10) frequency bins at each end.
+It gradually attenuates these rows to zero at the boundaries. The whole collar
+is not identically zero, but its reduced signal provides weaker constraints.
+Nonlinear mixing still couples field components across frequency, so a trace
+window is not a direct mask of which pulse frequencies can be determined.
 
-The consequence is that the outermost bins carry **no measurement**, whatever you
-choose for the band. That matters more than losing the data itself, because the
-nonlinear mixing still couples the field at those frequencies to the live rows —
-just weakly. A probe spike at the grid edge moves the trace error roughly 100×
-less than the same spike mid-band, so the optimiser can park a great deal of
-energy there for almost no penalty, and since intensity is bounded below by zero
-it can only drift upward. See
-{func}`croak.processing.edge_energy_fraction` for how to detect the result.
+Energy accumulating near a grid edge can indicate inadequate coverage or a
+poorly constrained fit. Use {func}`croak.processing.edge_energy_fraction` as a
+diagnostic and repeat the retrieval with a wider grid.
 
 So the band must be wide enough that the taper lands on trace that has genuinely
 died away. {func}`~croak.preprocess.load_and_clean` measures this for you and
@@ -134,7 +131,7 @@ UserWarning: the retrieval grid's edge taper removed 38.7% of the measured
 trace: lam_min=700.0 nm / lam_max=900.0 nm clip signal that is still present.
 ```
 
-A band picked from the marginal at 1e-4 typically loses well under 0.1 %. Pass
+Check the recorded loss for your data. Pass
 `taper_warn_level=0.0` to silence the check when a tight band is deliberate.
 
 ## Post-retrieval windowing
@@ -155,7 +152,9 @@ carries signal, stored on the `TraceData` as `td.lamm_lims` / `td.tau_lims`. (Th
 full retrieval-grid extent, `td.lam_min`/`td.lam_max`, would taper only the
 outermost few bins and do nothing useful.)
 
-This is distinct from the [spectral-match penalty](regularisation.md), which
+The stored trace and error still describe the original unfiltered fit.
+Recalculate a forward trace if you want to test the filtered field against the
+measurement, and retain both results. This is distinct from the [spectral-match penalty](regularisation.md), which
 constrains the retrieval itself rather than filtering its output.
 
 ## Checklist
@@ -164,5 +163,8 @@ constrains the retrieval itself rather than filtering its output.
 - Make the band a little wider than the visible signal so the taper has room.
 - Set `omega0` on dispersive solvers (or let `retrieve_from_tracedata` take it
   from `td.omega0_pulse`).
-- Use `post_filter` for cosmetic cleanup; use [regularisation](regularisation.md)
-  to constrain the fit.
+- Make the periodic time window wide enough for the pulse, its delayed replicas
+  and its propagation through the whole medium. Refine both the window and
+  sampling to check convergence.
+- Record post-retrieval windowing: it changes the reported field. Use
+  [regularisation](regularisation.md) to constrain the fit itself.

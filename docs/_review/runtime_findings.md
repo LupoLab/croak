@@ -24,3 +24,11 @@ and regression tests if addressed.
   for an edge peak, rather than the actual boundary sample stated by its former
   docstring. The API now describes the behaviour and recommends complete delay
   support. Fixing the boundary rule requires a separate regression-tested change.
+
+- Fresh executions of the thickness-uncertainty example with identical explicit
+  seeds and numerical settings returned central durations near 2.30 and 2.64 fs
+  (generating duration 3.00 fs), with similar trace errors near 0.308 %. The
+  source wording changed between runs, but the calculations did not. The exact
+  cause of this numerical variation was not isolated. Investigate optimiser
+  sensitivity and execution reproducibility separately; the gallery exposes the
+  variation and does not present this example as a stable quantitative benchmark.

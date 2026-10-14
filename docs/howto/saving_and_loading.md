@@ -95,8 +95,9 @@ save_options({"algorithm": "copra", "maxiters": 300, "lam_min": 730e-9}, "sessio
 opts = load_options("session.toml")
 ```
 
-This stores the *recipe*, not the data — handy for reproducing a retrieval or
-seeding the [GUI](gui.md) with known-good settings.
+This example saves a generic options dictionary. For a complete GUI/replay
+recipe, use {class}`~croak.session.options.SessionOptions` and its `to_toml`
+method. Neither form embeds the input datasets or custom optical-data callables.
 
 ### What the options file contains
 
@@ -121,7 +122,7 @@ entry = "simulated"
 live one; the other is written at its defaults. Without it a simulated session
 would be indistinguishable from an experimental one with an empty file path, and
 its provenance (which scansave file, which trace window, which thickness slice,
-which loaded band) would be lost. {func}`croak.run_session`, `croak replay` and
+which loaded band) would be lost. {func}`croak.session.engine.run_session`, `croak replay` and
 `croak script` all dispatch on it, so a simulated session replays headlessly like
 a measured one. Files written before `options_version = 2` have no `entry` and
 read back as experimental.
@@ -143,4 +144,21 @@ the `None` default.
   profiles and measured trace.
 - **The options `.toml`** records *how* you got there, so the run is reproducible.
 
-Together they make a retrieval fully portable.
+Also retain the original input files, dataset selections and units, calibration
+curves, custom material/mirror data, software version and the script or command
+used. Record random seeds in a script when exact repeatability matters; the
+session options do not currently record a retrieval RNG seed.
+
+For a saved experimental or simulated session:
+
+```console
+croak replay session.toml --help
+croak script session.toml --help
+```
+
+`replay` runs the session without the GUI; `script` exports the workflow as
+Python. Check their options for output paths and overwrite behaviour. See the
+[workflow example](../examples/workflow.md) and {mod}`croak.scripting` for the
+corresponding library interface. A saved result supports inspection without
+re-running a solver; reproducing its calculation also needs its inputs and
+settings.

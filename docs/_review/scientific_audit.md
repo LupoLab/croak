@@ -1,9 +1,9 @@
-# Scientific consistency audit — phase 1
+# Scientific consistency audit
 
-This is an editorial working record, excluded from the published manual.
-It records discrepancies and checks required before the scientific editing pass
-can be considered complete. No new retrieval campaign has been run and no
-package behaviour has been changed at this checkpoint.
+This record is excluded from the published manual. The initial discrepancies
+below were used to guide the completed editorial and scientific pass. Their
+resolution is recorded at the end. Notebook examples were executed, but the
+manuscript's full research campaign was not rerun. Package behaviour is unchanged.
 
 ## Evidence and precedence
 
@@ -22,7 +22,7 @@ not silently replace package defaults. Manuscript corrections establish what
 the revised drafts claim, not a fresh independent validation by this task.
 Private source paths must not become dependencies of documentation builds.
 
-## Confirmed discrepancies
+## Initial discrepancies
 
 | ID | Affected material | Evidence and required correction | Planned phase |
 |---|---|---|---|
@@ -39,10 +39,10 @@ Private source paths must not become dependencies of documentation builds.
 | S11 | `explanation/forward_model.md`, solver-support note; home-page legacy highlights | The note's “autodiff solvers only” list omits `warm-lbfgs`, although the wrapper/default routes through the AD solver. The former home page also described all three interactions as thin or dispersive; `ForwardModel` rejects dispersive SHG. Reconcile support tables against the current interfaces. The new home page avoids these overbroad summaries. | 3–4 |
 | S12 | Package-default prose versus paper settings | `croak.solver.REG_DEFAULTS` uses gradient weights (0.01, 0.03), while the revised main paper protocol uses spectral weight 0.03. Preserve current defaults and name the paper's settings explicitly. No runtime default change is part of this documentation task. | 3–4 |
 
-## Checks required during the scientific pass
+## Scientific checks used during the pass
 
-These are targeted checks prompted by the manuscript audit, not yet confirmed
-errors in every corresponding croak page.
+These checks were prompted by the manuscript audit and applied to the corresponding
+guide and API descriptions.
 
 | ID | Topic and material | Required check |
 |---|---|---|
@@ -73,14 +73,77 @@ Do not overwrite a figure with superficially similar paper artwork. Match its
 data and convention first, then regenerate or replace it with a caption that
 states what it establishes. Retain uncertain substantive material for review.
 
-## Editorial work kept separate from scientific findings
+## Resolution
 
-The page map records navigation ownership and planned splits. The later prose
-pass will replace implementation chronology with reader-oriented explanations,
-define terms before use, make notation and British spelling consistent, remove
-duplicate explanations, and supply context and next steps. Mathematical and
-physical detail remains in the relevant user-guide chapter.
+- **S01–S05:** citations, simulated provenance, protocol, field planes and all
+  validation captions updated against the revised drafts. Six revised figures
+  replace the older quantitative evidence. Negative-GDD failures, the distinct
+  TOD protocol and the case where the extended model has a lower profile error
+  remain visible. Bundled scripts are explicitly illustrative legacy-data cases.
+- **S06–S08, S11–S12:** objective families, solver support, adjoints, AD and
+  package-versus-paper defaults reconciled in guide, examples and source
+  docstrings. SciPy's `LM` class defaults to TRF; Optimistix options are not
+  identical to the NLopt interface. Warm-stage approximations are explicit.
+- **S09–S10:** detector factors, density Jacobians, field-plane conversion and
+  auxiliary-spectrum interpretation separated; solver-start spread is identified
+  as a convergence diagnostic.
+- **C01–C06:** checked Fourier signs, conjugations, split-gate adjoints, Gaussian
+  temporal-phase versus spectral GDD, timing symbols, coherent collection,
+  phase restoration, absolute-frequency aperture mapping, quadrature versus
+  physical transmission, finite-beam assumptions, weighted gains and centring.
+- **C07–C09:** distinguished fixed-field checks from inverse retrievals, global
+  versus row gains, rms/peak versus relative L2, solver objectives, non-convex
+  endpoints, conditional precision and empirical coverage. Documented unsupported
+  covariance models and delay-bootstrap combinations; see `runtime_findings.md`.
+- **C10:** checked primary publication records, corrected the Wang et al. page
+  range to 2400–2405 and added DOI links. Retained the supplied software DOI;
+  the external resolver could not be verified in this session. No publication
+  metadata was invented for the private drafts.
 
-The layout checkpoint introduces conservative summaries without rewriting the
-legacy scientific pages. Those pages and their existing figures still need the
-checks above; the prototype must not be represented as the completed manual.
+## Retained questions and evidence limits
+
+The old fixed 10 µm collection crossover, edge-energy/regularisation benchmark
+numbers and historical timing claims are not substantiated by the revised
+protocol. They are retained in `legacy_collection_aperture.md`,
+`legacy_regularisation.md`, `legacy_algorithms.md` and `api_legacy_claims.md` for
+provenance review, rather than republished as current evidence. Original figure
+files and old page URLs remain available. These values should only be reinstated
+with their exact generating fields, model settings, metrics and archived runs.
+
+The known-field examples establish results for their stated cases, not universal
+identifiability, a Raman ceiling, an experimental validation or a maximum valid
+slab thickness. The thickness-uncertainty example is explicitly biased in its
+central estimate (about 2.30 fs in the final cache for a 3.00 fs generator); its narrow conditional
+statistical interval does not certify accuracy. Finite bootstrap populations
+illustrate interfaces rather than establish coverage.
+
+Repeated local executions of that example with the same explicit seeds and
+calculation settings gave approximately 2.30 and 2.64 fs, with similar residuals
+near 0.308 %. Only source wording changed between these runs. The cause of the
+variation was not isolated; the gallery records it as a numerical reproducibility
+and convergence limitation, rather than promising a stable benchmark.
+
+The copied manuscript figures were inspected against their source descriptions
+and captions. This edit did not independently reproduce the manuscript campaign.
+All six assets are committed locally; the build does not read private paths.
+
+## Editorial archive
+
+The `legacy_*.md` records and `superseded_validation.md` preserve substantive
+older material where provenance or interpretation changed. They are excluded
+from Sphinx and are not alternative user documentation. Current explanations
+have one authoritative home, with contextual links from the introduction,
+chapter landings, gallery and API. `api_review.md` records source-docstring scope.
+
+## Execution checks added during review
+
+The dispersive introduction's original 38.4 fs periodic window was too short for
+its 50 µm propagation example. The revised 153.6 fs window and ±40 fs scan avoid
+that wraparound in the demonstrated case. A fixed-field 20-versus-40 depth-node
+comparison gives a relative trace L2 difference around 1.33e-5, with delay-edge
+signal around 4.68e-5 of peak. The notebook prints both values; this is numerical
+convergence evidence, not an independent physical validation.
+
+The README and Quickstart now use an explicit initial Gaussian and fixed seed,
+matching the paced first tutorial. Their original random start could stop at a
+poor solution. The guide continues to explain non-convexity and multiple starts.

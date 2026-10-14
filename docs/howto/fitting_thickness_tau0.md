@@ -8,10 +8,10 @@ Two quantities are usually *fixed* before a retrieval but only ever *estimated*:
   replicas overlap, set during preprocessing by the delay-marginal peak.
 
 Both can instead be **retrieved** as extra scalar parameters alongside the
-complex pulse, with the autodiff least-squares/gradient solvers `lbfgs-ad`, `lm`
-and `lm-optx`, and with the global `cma-es` search. Because the JAX forward model
-is differentiable in $L$ and $\tau_0$, the gradient/Jacobian comes for free — no
-hand-derived adjoints (and `cma-es` is gradient-free anyway).
+complex pulse, using `lbfgs-ad`, `warm-lbfgs`, `lm`, `lm-optx` or `cma-es`.
+These fits can improve agreement when the calibration is uncertain, but they
+also introduce correlations with the pulse. Start with independently measured
+values and check how strongly the data constrain each fitted parameter.
 
 `lm-optx` is the on-device Optimistix twin of `lm`; it runs an **unconstrained**
 Levenberg–Marquardt, so it cannot hold the fitted thickness non-negative and
@@ -43,30 +43,30 @@ print(res.thickness, res.tau0)   # fitted values (m, s)
 `fit_tau0` adds a single scalar that slides the simulated trace along the delay
 axis: the gate delay phase becomes $e^{i\omega(\tau-\tau_0)}$. It is **not** a
 trivial gauge of the pulse — translating the pulse in time leaves the trace
-invariant, whereas a delay-axis offset genuinely moves it (for SHG, it moves the
+invariant, whereas a delay-axis offset moves it (for SHG, it moves the
 trace's symmetry centre). So a mis-set time zero raises the trace error, and
 fitting $\tau_0$ removes it.
 
 A $\tau_0$ error produces a characteristic **red/blue tilt** in the residual:
 because different colours peak at different delays in a chirped pulse, a delay
 offset leaves an antisymmetric, frequency-correlated residual. If you see that
-signature, fit $\tau_0$. The preprocessing marginal-peak centering is only
-accurate to about one delay pixel; `fit_tau0` refines it to sub-pixel precision.
+signature, fit $\tau_0$. Preprocessing already estimates the marginal peak to sub-sample precision.
+That peak need not coincide with physical gate–probe coincidence; decide which
+delay-origin convention describes the experiment before adding a free offset.
 
 Sign convention: a positive `res.tau0` means the true delay-zero of the measured
 trace lies at $+\tau_0$ (the simulated gate uses $e^{i\omega(\tau-\tau_0)}$).
 
 ### Thickness $L$ — only for the dispersive PG/SD slab
 
-`fit_thickness` is only identifiable — and only allowed — for the **dispersive
-depth-integral slab**, which croak supports for the **PG and SD** interactions.
-There the nonlinear interaction happens throughout the slab (a depth quadrature),
-so $L$ changes the *shape* of the trace, not merely a spectral phase.
+`fit_thickness` is supported for the **dispersive PG/SD slab**. The depth
+integral makes thickness affect the trace beyond a single input spectral phase.
+Support does not guarantee that a particular trace identifies thickness.
 
-For **SHG** a slab reduces to a pure spectral phase on the input pulse, which a
-freely retrieved phase absorbs completely — fitting $L$ would be a flat direction
-that does nothing, so it is **rejected with an error**. (This is the same reason
-croak forbids dispersive SHG propagation in the first place.)
+Dispersive SHG is not implemented: its signal propagates at a different carrier
+and needs a corresponding propagation model. The restriction is a limitation
+of the current model, not a general assertion that SHG cannot contain thickness
+information.
 
 Even within PG/SD, the *bulk-chirp* part of $L$ is partly degenerate with the
 retrieved phase; only the depth-distributed part constrains it. Thickness is
@@ -82,7 +82,7 @@ fit the extras from a **good pulse estimate**, not a cold start. Two ways:
 
 1. **Warm start (default).** Run a normal retrieval first, then re-run with the
    extra flags enabled, seeding from the previous result. In the API pass the
-   first result as `guess=`; in the GUI pick *Reuse previous result* from the
+   first result’s `spectrum` as `guess=`; in the GUI pick *Reuse previous result* from the
    **Initial guess** selector together with the fit options.
 
    A warm start seeds the **extras** as well as the pulse. The extras are
@@ -119,9 +119,11 @@ fit the extras from a **good pulse estimate**, not a cold start. Two ways:
 ## Uncertainty on the fitted parameters
 
 When you fit $L$ or $\tau_0$, the analytic covariance can report their standard
-errors directly — the rigorous alternative to the substrate-thickness
-{func}`~croak.uncertainty.thickness_bootstrap` systematic (use one or the other,
-not both):
+errors under a local linear approximation. This answers a different question
+from {func}`~croak.uncertainty.thickness_bootstrap`, which varies a fixed input
+thickness according to an external calibration uncertainty. Do not count the
+same uncertainty twice. See [uncertainty estimation](uncertainty.md) for the
+assumptions and limitations:
 
 ```python
 from croak.covariance import parameter_covariance
@@ -135,9 +137,10 @@ print(cov.sigma_thickness, cov.sigma_tau0)   # σ in m, s
 ```
 
 The thickness/$\tau_0$ columns are appended to the Jacobian and re-linearised
-about the fitted values, so the pulse FWHM covariance (and
-{func}`~croak.covariance.covariance_uncertainty`) automatically inflates to
-include the extra parameters' uncertainty and their correlation with the pulse.
+about the fitted values, allowing the local covariance to include their
+correlation with the pulse. Weakly constrained directions, bounds and strong
+nonlinearity can make this approximation unreliable; inspect conditioning and
+compare with repeated fits or a suitable bootstrap.
 
 ## In the GUI
 
@@ -146,7 +149,7 @@ thickness*, *Fit τ₀ delay offset*, *Fit smearing width* and *Two-phase polish
 *Fit smearing width* is enabled only when *Enable geometrical smearing* is on
 (see [Geometric smearing](geometric_smearing.md)). *Fit medium thickness*
 is enabled only when *Enable dispersive propagation* is on and the chosen solver
-supports it (`lbfgs-ad` / `lm` / `lm-optx`); the fitted values are shown in the result
+supports it (`lbfgs-ad` / `warm-lbfgs` / `lm` / `lm-optx`); the fitted values are shown in the result
 summary. The thickness fit starts from the *Thickness (µm)* value in the
 *Dispersive propagation* group.
 
@@ -154,27 +157,24 @@ summary. The thickness fit starts from the *Thickness (µm)* value in the
 
 | Option | Solvers | Requirements | Notes |
 |---|---|---|---|
-| `fit_tau0` | `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | any interaction | sub-pixel time-zero; removes red/blue residual tilt |
-| `fit_thickness` | `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | dispersive slab, PG/SD | identifiable only for a genuinely dispersive slab (`lm-optx`/`cma-es` are unconstrained — use a good prior) |
-| `polish` | `lbfgs-ad`, `lm`, `lm-optx` | an extra enabled | fit pulse first, then free the extras (not `cma-es`) |
-| `fit_smearing` | `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | a smearing kernel, PG/SD | one multiplier on the kernel widths; never fit alongside `fit_thickness` — see [Geometric smearing](geometric_smearing.md) |
+| `fit_tau0` | `lbfgs-ad`, `warm-lbfgs`, `lm`, `lm-optx`, `cma-es` | any interaction | sub-pixel time-zero; removes red/blue residual tilt |
+| `fit_thickness` | `lbfgs-ad`, `warm-lbfgs`, `lm`, `lm-optx`, `cma-es` | dispersive slab, PG/SD | identifiable only for a dispersive slab (`lm-optx`/`cma-es` are unconstrained — use a good prior) |
+| `polish` | `lbfgs-ad`, `warm-lbfgs`, `lm`, `lm-optx` | an extra enabled | fit pulse first, then free the extras (not `cma-es`) |
+| `fit_smearing` | `lbfgs-ad`, `warm-lbfgs`, `lm`, `lm-optx`, `cma-es` | a smearing kernel, PG/SD | one multiplier on the kernel widths; joint fits with `fit_thickness` may be poorly constrained — see [Geometric smearing](geometric_smearing.md) |
 
 ## The delay origin without a fitted τ₀: `delay_origin="marginal_peak"`
 
-The preprocessing centres a measured trace on its delay-marginal peak, but the
-forward model puts delay zero at gate–probe coincidence. For a delay-symmetric
-trace those coincide; for a coherently collected single-cycle trace they do not
-(tens of attoseconds, growing with the chirp accumulated in the medium), and a
-retrieval with the origin held at coincidence can only absorb the misalignment
-by broadening the pulse. Rather than fitting `tau0`, which on a chirped pulse
-wanders by hundreds of attoseconds and trades against the chirp,
+Preprocessing centres a measured trace on its delay-marginal peak, whereas the
+forward model defaults to gate–probe coincidence. These origins need not agree
+for an asymmetric trace. An inconsistent origin can bias the retrieved field.
+To compare traces centred by the same rule, use:
 
 ```python
 res = croak.retrieve(trace, omega, delays, "pg", algorithm="lbfgs-ad",
                      delay_origin="marginal_peak", ...)
 ```
 
-re-centres every model trace on its own marginal peak by the same sub-sample
+This re-centres every model trace on its own marginal peak by the same sub-sample
 rule the preprocessing used — one convention on both sides, no free parameter.
 It needs a uniform delay axis (the retrieval grid is). If you do fit `tau0`,
 `tau0_bound` (seconds; `RetrieveParams.tau0_bound_fs`) boxes it.

@@ -1,15 +1,16 @@
 # Modelling geometric time smearing
 
-In a non-collinear BOXCARS geometry the input beams reach the interaction plane
-with tilted pulse fronts, so the relative arrival time between arms varies across
-the focal spot and the spectrometer averages over it. Left out of the model, that
-instrument response is absorbed by the free pulse and comes back as a **retrieved
-duration that is too long**. Put it into the forward model and it becomes a
-modelled response instead of a resolution limit.
+Crossing beams have different local arrival times across a focal spot. A
+spectrometer that collects the isolated signal averages over those positions;
+ignoring this response can bias the inferred pulse. This page shows how to
+construct and use the reduced timing kernel. Start with the
+[model overview](../user_guide/models.md), and use the
+[worked example](../examples/geometric_smearing.md) to compare retrievals.
 
-The physics and the closed forms are in
-[The forward model](../explanation/forward_model.md#geometric-smearing); this page
-is how to use it.
+The kernel assumes achromatic local profiles and full signal collection. For
+finite apertures or strongly chromatic focal fields, use the
+[collection model](collection_aperture.md). The derivation is retained in
+[the forward model](../explanation/forward_model.md#geometric-smearing).
 
 ## The quick version
 
@@ -46,7 +47,9 @@ smeared = croak.maketrace(g.omega, delays, ew, "pg", smearing=kernel)
 gate-splitting parameter `sigma_p`, the rms of the delay offset `sigma_delta`, and
 their correlation `rho`. `sigma_p` changes the *shape* of the nonlinear signal and
 costs an explicit quadrature (`npoints`, default 5); `sigma_delta` is a pure
-translation of the delay axis and is applied exactly as a convolution, for free.
+translation of the delay axis, evaluated by a Fourier-domain convolution on
+a uniform delay grid. For correlated coordinates, the conditional mean and
+variance depend on the gate-splitting node.
 
 Two constructors build one:
 
@@ -63,7 +66,7 @@ Two constructors build one:
   conjugated)` for SD.
 
 The focal length never appears: the crossing angle scales as $1/f$ and the focal
-spot as $f$, so it cancels. The only lever is the mask ratio $d/D$.
+spot as $f$, so it cancels. Within this ideal-hole approximation, the widths depend on $d/D$ and wavelength.
 
 ```{admonition} The three numbers are arrangement-specific
 :class: warning
@@ -78,7 +81,7 @@ the scanned delay**, and they are not interchangeable:
 So the convenient SD relations — $\sigma_p = 2\sigma_\delta$ with the two
 uncorrelated — do **not** carry over to PG: there the pair is correlated and
 $\sigma_\delta$ is 1.58× larger. {func}`~croak.smearing.square_boxcars_kernel`
-selects the right pair from the `interaction` argument, so this only bites if you
+selects the right pair from the `interaction` argument, which matters if you
 are constructing a {class}`~croak.smearing.SmearingKernel` by hand from numbers
 quoted for the other geometry.
 ```
@@ -96,29 +99,25 @@ $E(t)\,|E(t-\tau)|^2$; scanning the probe instead (as in the `ModelPNPS` referen
 simulation, and in TG setups generally) gives $|E(t)|^2 E(t-\tau_{\rm exp})$, which
 is the same operator with $\tau = -\tau_{\rm exp}$.
 
-Retrieving a probe-scanned trace against croak's convention without flipping the
-axis returns $E^*(-t)$: the **spectral amplitude and the duration are unchanged**,
-but the temporal profile is mirrored and the spectral phase is negated, so the sign
-of the retrieved GDD/TOD flips. Whichever convention your delay axis is in, use
-`reverse_delay=True` when it is the probe-scanned one, so $\rho$ matches the trace
-the retrieval actually sees.
+Use the file's documented delay convention. The simulated loader can read its
+`delay_convention` marker; older files may need reversal. Reverse the data axis
+and set the kernel correlation consistently. Do not infer the convention from
+a favourable retrieval or assume that every simulator file uses the same sign.
 ```
 
-```{warning}
-The widths assume the detector collects the **whole** signal beam — that is what
-makes the transverse average incoherent (Parseval). Under aggressive spatial
-filtering the average is partly coherent, the effective blur is narrower, and the
-number here is an **upper bound**. If your signal aperture is much smaller than
-the signal beam, compare against a forward simulation with it opened up.
+```{note}
+Full collection permits an incoherent intensity average by Parseval's identity.
+A finite aperture selects a coherent spatial field and can change delay-dependent
+structure. The reduced kernel is not a general upper bound on blur or duration;
+compare a suitable [collection model](collection_aperture.md).
 ```
 
 ## Fixed or fitted
 
-**Fixed** is the physically honest default: compute the kernel from the mask you
-built and hold it there. It is also what makes the effect *identifiable*, because
-geometric smearing is the only term that responds to the **mask**: its width scales
-with $d/D$, while a dispersion-model deficiency is insensitive to it. Repeating a
-retrieval at two mask spacings therefore separates the two.
+**Fixed geometry** is the natural starting point: calculate the kernel from
+measured mask dimensions. Changing mask spacing provides a useful controlled
+test, but it can also change spatial collection and illumination. Model those
+changes before assigning a difference solely to smearing.
 
 ```{warning}
 The kernel is independent of the medium thickness, but the **duration offset it
@@ -129,9 +128,10 @@ dependence. `examples/example_geometric_smearing.py` runs both sweeps and shows
 the difference.
 ```
 
-**Fitted** gives an empirical upper bound on the effect. `fit_smearing=True` adds a
-single dimensionless multiplier on both widths — equivalently $d/D$, the only
-lever — and the gradient comes free from AD:
+**Fitted width** adds a nuisance parameter. `fit_smearing=True` multiplies both
+widths by one dimensionless scale while retaining their correlation. It tests
+whether that reduced response can explain the trace; the estimate can also
+absorb other model errors:
 
 ```python
 res = croak.retrieve(
@@ -140,17 +140,17 @@ res = croak.retrieve(
     smearing=kernel,
     fit_smearing=True,
 )
-print(res.smear_scale)   # 1.0 means the geometric prediction was right
+print(res.smear_scale)   # compare with the nominal scale of 1.0
 ```
 
-A fitted value near 1 is strong evidence the mechanism is identified; one much
-larger says something else is being absorbed.
+A value near 1 is consistent with the nominal kernel, but does not uniquely
+identify the mechanism. Inspect correlations with the field and other parameters.
 
 ```{warning}
-**Do not fit the smearing width and the slab thickness in the same run.** The
-smearing multiplier is a nuisance parameter that will happily soak up
-dispersion-model error, and the two are not separately identifiable from a single
-trace. Fit one, hold the other.
+Avoid freeing both smearing width and thickness without independent information.
+They can be strongly correlated with each other and with pulse phase. Fix
+calibrated quantities first, then assess parameter covariance and sensitivity;
+identifiability depends on the particular measurement.
 ```
 
 Uncertainty follows the same route as the other extra parameters:
@@ -159,7 +159,8 @@ Uncertainty follows the same route as the other extra parameters:
 
 ### Splitting the two channels
 
-The kernel has two channels: the delay offset $\vartheta$ (a pure blur along
+The kernel has two channels: the delay offset $\vartheta$ (also written
+$\delta$ above and in the reduced-kernel API) (a pure blur along
 the delay axis) and the gate-shape parameter $p$ (a symmetric split of the gate
 pair, which for a chirped gate shears the trace along frequency). The joint
 multiplier scales both together, which is the right physical prior — both
@@ -183,12 +184,40 @@ channel-wise, with the $p$ node positions carrying one factor and the
 conditional delay mean/width the other, at fixed correlation $\rho$.
 
 ```{note}
-The $p$ multiplier is only identifiable when the pulse (and hence the gate) is
-**chirped**: for a transform-limited gate, $p$ merely attenuates the signal —
-absorbed by the intensity scale $\mu$ — and leaves the trace shape unchanged.
-Interpret a split fit on a near-transform-limited measurement accordingly: the
-$\vartheta$ value is meaningful, the $p$ value is not constrained.
+For a transform-limited **Gaussian** field, splitting the gate changes only its
+amplitude, which a fitted intensity scale can absorb. This is not true for every
+transform-limited field: a sum of Gaussians gives a time-dependent gate ratio.
+A split-width estimate must therefore be interpreted using the pulse shape,
+phase and parameter correlations, not simply whether the field is chirped.
 ```
+
+### Temporal phase and spectral dispersion
+
+Write a Gaussian field as $E(u)=\exp[-u^2/(4\sigma^2)]\exp[i b u^2/2]$.
+Its split gate is
+
+```{math}
+E(u+p/2)E^*(u-p/2)
+=\exp[-u^2/(2\sigma^2)]\exp[-p^2/(8\sigma^2)]\exp[i bup].
+```
+
+For $b=0$ this is attenuation only. With the forward Fourier sign
+$\exp(+i\Omega t)$, the gate frequency shift is $-bp$. For a general temporal
+phase $\phi$, it is
+
+```{math}
+\delta\omega_g(u;p)=-[\phi'(u+p/2)-\phi'(u-p/2)]
+=-p\phi''(u)-\frac{p^3}{24}\phi^{(4)}(u)+\cdots.
+```
+
+Temporal-phase derivatives are not the GDD, TOD and FOD, which are derivatives
+of **spectral** phase $\Phi(\Omega)$. In particular, a symmetric spectral
+amplitude with pure odd spectral phase can give a real temporal field with
+phase jumps rather than continuous temporal chirp. For Gaussian intensity of
+rms width $\sigma_t$, a quadratic spectral phase $\Phi_2$ gives
+$b=-\Phi_2/(4\sigma_{t,0}^4+\Phi_2^2)$, where $\sigma_{t,0}$ is the
+transform-limited intensity width. This relation uses the Fourier convention
+above; it is not a general conversion for non-Gaussian fields.
 
 {func}`~croak.covariance.parameter_covariance` accepts `fit_smearing_split`
 and additionally reports `sigma_smear_delta`.
@@ -208,15 +237,14 @@ raise.
 
 | Option | Solvers | Requirements |
 |---|---|---|
-| `smearing` | `lbfgs-ad`, `lm`, `lm-optx`, `lbfgs-optx`, `cma-es` | PG (TG) or SD; uniform delay axis |
-| `fit_smearing` | `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | a `smearing` kernel |
-| `fit_smearing_split` | `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | `fit_smearing` |
+| `smearing` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `lbfgs-optx`, `cma-es` | PG (TG) or SD; uniform delay axis |
+| `fit_smearing` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | a `smearing` kernel |
+| `fit_smearing_split` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | `fit_smearing` |
 
-`copra`, `copra-jax`, `lbfgs` and `lbfgs-hand` **cannot** model it: the incoherent
-sum over quadrature nodes means the measurement is no longer the modulus-squared of
-a single signal field, which breaks COPRA's magnitude-replacement projection, and
-the hand-written adjoints are not extended to it. Asking for smearing with one of
-them raises — it is never dropped silently.
+`copra`, `copra-jax`, `lbfgs` and `lbfgs-hand` do not implement this spatial
+mixture. Their current projection or analytic derivative path is restricted to
+a local signal. Asking for unsupported smearing raises an error. This does not
+exclude other vector or mixed-state projection formulations in principle.
 
 SHG raises too: geometric smearing here is defined for the three-arm PG/SD forms.
 

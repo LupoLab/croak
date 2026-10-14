@@ -9,6 +9,15 @@ retrieval would otherwise absorb. The physics is in
 [FROG trace marginals as consistency checks](../explanation/marginals.md); this
 page is the recipe.
 
+```{important}
+The identities below assume a thin, local interaction with coincident replicas,
+complete delay support, a matching fundamental-spectrum reference plane and a
+calibrated spectral response. Dispersion, split gates, chromatic spatial fields,
+finite collection and cropping can invalidate these ideal-model predictions.
+A mismatch is then evidence to investigate, not proof of a detector fault.
+The transform-limited PG width is a **soft reference**, not a universal upper bound.
+```
+
 ## Predict a marginal from a spectrum
 
 {func}`croak.marginal_checks.predicted_marginal` takes a uniform **absolute
@@ -63,11 +72,10 @@ print("width OK:", sigma_meas > pred.sigma_spectrum)   # rigorous lower bound
 
 Interpreting a mismatch:
 
-- **SHG** — any centroid/width/shape mismatch is a *trace* problem (calibration,
-  spectral response, scatter, detector nonlinearity), never the pulse.
+- **SHG** — within the stated assumptions, centroid/width/shape mismatch indicates inconsistency (calibration,
+  spectral response, scatter, detector nonlinearity), which requires checking both data and model assumptions.
 - **PG / TG** — the centroid is still a hard calibration check; a width below
-  `σ_S` means spectral clipping or detector roll-off, above `σ_TL` means additive
-  broadband artefacts.
+  `σ_S` means spectral clipping or detector roll-off, above `σ_TL` can reflect phase structure as well as broadband artefacts.
 - **SD** — only the width lower bound is rigorous; the centroid holds at TL or for
   a temporally symmetric pulse.
 
@@ -89,8 +97,9 @@ n = mc.auto_third_order_exponent(
 corrected = trace * croak.preprocess.third_order_scale(lam, n)[:, None]
 ```
 
-This is the physically grounded replacement for matching the marginal *shape* to
-the spectrum.
+This estimates one empirical response parameter under the stated model. It
+does not independently identify detector response or correct delay-dependent
+collection effects.
 
 ## In the GUI
 
