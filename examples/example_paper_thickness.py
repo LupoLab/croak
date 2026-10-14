@@ -1,34 +1,20 @@
-"""Retrieve the companion paper's 1 fs DUV trace: dispersion in the medium matters.
+"""Compare slab-and-smearing and thin-medium fits to a bundled simulated scan.
 
-The dataset (``examples/data/tgfrog_sim_1fs_uvfs.h5``) is a reduced cut of the
-first-principles 3D TG-FROG instrument simulation behind the paper's central
-result: a transform-limited 1 fs pulse at 260 nm (1.03 fs after the input
-mask), measured through 4, 9.5 and 40 um of fused silica. Nothing in the trace
-is synthetic to croak — the dispersion, phase matching, geometric smearing and
-chromatic collection all come out of the propagation physics.
+This illustration uses three thickness slices of a legacy reduced TG-FROG
+instrument dataset. It applies defringing, an empirical fourth-power spectral
+correction, the integrated beamlet spectrum, package regularisation defaults,
+and a fitted delay offset. It is not a reproduction of the revised draft's
+unfiltered, consistently centred, fixed-geometry protocol or on-axis comparison.
 
-At each thickness the trace is retrieved twice:
-
-* with the **extended model** — dispersive propagation through the substrate
-  plus the geometric BOXCARS smearing kernel (the paper protocol), and
-* with the **standard thin-medium model** every conventional FROG code uses.
-
-Both fit the trace well, but only the extended model returns the correct
-pulse: the standard model absorbs the unmodelled substrate dispersion into the
-pulse and broadens with thickness, reaching ~2.4x the true duration at 40 um
-while its trace error stays below 1% — so the trace error alone does not
-certify the retrieval.
-
-Run::
-
-    uv run python examples/example_paper_thickness.py
-
-Takes a couple of minutes (six retrievals). Writes ``paper_thickness.png``.
+Run ``uv run python examples/example_paper_thickness.py`` from the repository
+root. Six seeded retrievals print trace errors and native-field durations and
+write ``paper_thickness.png``. See the gallery for interpretation and limitations.
 """
 
 from __future__ import annotations
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 
@@ -49,7 +35,7 @@ DATA = "examples/data/tgfrog_sim_1fs_uvfs.h5"
 THICKNESSES_UM = [4.0, 9.5, 40.0]
 TRUE_FWHM_FS = 1.03  # the mask-vignetted gate beamlet (see the data README)
 
-# The retrieval band and delay window of the paper's validation study. The
+# The retained band and delay window for this illustrative legacy protocol. The
 # scan's delay axis has a uniform 0.25 fs core to +-25 fs and coarser wing
 # points beyond; the crop keeps the core, which the smearing kernel's
 # delay-axis convolution needs.
@@ -80,7 +66,7 @@ def load(z_um: float):
         z_thickness_um=z_um,
         lam_min_nm=131.0,
         third_order=True,
-        third_order_exp=4.0,  # the marginal-check Auto refines this per trace
+        third_order_exp=4.0,  # fixed empirical correction for this illustration
         use_spectrum=True,
         spectrum_source="beamlet",
     )
@@ -89,7 +75,7 @@ def load(z_um: float):
 
 
 def retrieve(td, z_um: float, extended: bool):
-    """One retrieval with the paper protocol (or the thin-medium baseline)."""
+    """Run one seeded retrieval with the selected illustrative model."""
     rp = RetrieveParams(
         solver="warm-lbfgs",
         maxiters=300,
@@ -104,7 +90,7 @@ def retrieve(td, z_um: float, extended: bool):
         smear_hole_spacing_mm=1.0,
         fit_tau0=True,
     )
-    return run_retrieval(rp, td)
+    return run_retrieval(rp, td, rng=np.random.default_rng(0))
 
 
 def main() -> None:
@@ -132,14 +118,16 @@ def main() -> None:
         zs = [z for z, _, _ in results[label]]
         fw = [pr.fwhm_retr * 1e15 for _, _, pr in results[label]]
         ax1.plot(zs, fw, marker + "-", label=f"{label} model")
-    ax1.axhline(TRUE_FWHM_FS, color="k", ls=":", label="true pulse")
+    ax1.axhline(TRUE_FWHM_FS, color="k", ls=":", label="stored beamlet reference")
     ax1.set_xlabel("substrate thickness (um)")
     ax1.set_ylabel("retrieved FWHM (fs)")
     ax1.legend()
 
     # Temporal intensity at the thickest substrate, over the truth.
     assert truth is not None
-    ax2.fill_between(truth.t * 1e15, truth.It, color="0.8", label="true pulse")
+    ax2.fill_between(
+        truth.t * 1e15, truth.It, color="0.8", label="stored beamlet reference"
+    )
     for label, style in (("extended", "-"), ("standard", "--")):
         _, res, pr = results[label][-1]
         # centre the retrieved peak at t = 0, the truth's convention (a pure

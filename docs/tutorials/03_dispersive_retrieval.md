@@ -11,10 +11,16 @@ kernelspec:
 
 # Dispersive retrieval
 
-This is croak's headline capability: retrieving a pulse measured through a
-**dispersive nonlinear medium**, where classic thin-medium FROG misjudges the
-pulse. We simulate an ultraviolet pulse gated in a thin fused-silica slab and
-recover it with the [dispersive forward model](../explanation/forward_model.md).
+Propagation inside a nonlinear medium can change a FROG trace substantially.
+This tutorial predicts a trace for an ultraviolet pulse in fused silica, then
+compares retrievals with and without the slab's propagation. It follows
+[your first retrieval](01_first_retrieval.md).
+
+The recovered pulse is defined at the slab entrance in this one-dimensional
+model. Generation and retrieval use the same model, so this is a controlled
+consistency demonstration. It does not validate the model against an independent
+instrument simulation or an experiment. The [model guide](../user_guide/models.md)
+and [validation chapter](../explanation/validation.md) discuss those distinctions.
 
 ```{code-cell} ipython3
 %matplotlib inline
@@ -32,29 +38,29 @@ def fwhm_fs(t, intensity):
     tc, ic = center(t, intensity)
     return croak.maths.fwhm(tc, ic) * 1e15
 
-g = croak.Grid(256, dt=0.15e-15)
+g = croak.Grid(512, dt=0.3e-15)
 omega0 = wlfreq(260e-9)                        # 260 nm carrier
 ew = croak.gaussian_pulse(g, 1.5e-15)          # transform-limited, 1.5 fs
-delays = np.linspace(-18e-15, 18e-15, 90)
+delays = np.linspace(-40e-15, 40e-15, 161)
 
 I_true = np.abs(g.ifft(ew)) ** 2
 print(f"true temporal FWHM = {fwhm_fs(g.t, I_true):.2f} fs")
 ```
 
-The pulse is transform-limited, so **every** femtosecond of stretching we see
-later comes from the medium and nothing else. A 1.5 fs pulse at 260 nm is where
+The input pulse is transform-limited. Any broadening inferred by an inadequate
+retrieval model in this noise-free example is therefore a retrieval bias. A 1.5 fs pulse at 260 nm is where
 this matters: its bandwidth is enormous, and fused silica is strongly dispersive
 in the deep ultraviolet.
 
 ## A trace through 50 µm of SiO₂
 
 Passing `material`, `thickness`, `npoints` and the carrier `omega0` to
-{func}`~croak.maketrace` models the propagation of both the input and the signal
+{func}`~croak.forward.maketrace` models the propagation of both the input and the signal
 fields inside the slab. We use the **PG** interaction (the transient-grating
 kernel); dispersive propagation is supported for PG and SD, not SHG.
 
-Fifty micrometres is a *thin* window by any normal standard — a fifth the
-thickness of a microscope coverslip:
+We use a 50 µm slab. Its small physical thickness does not imply negligible
+spectral phase across this pulse's bandwidth:
 
 ```{code-cell} ipython3
 disp = dict(material="SiO2", thickness=50e-6, npoints=20, omega0=omega0)
@@ -65,14 +71,30 @@ trace = croak.maketrace(g.omega, delays, ew, "pg", **disp)
 trace.shape
 ```
 
-Ten femtoseconds squared sounds like very little. Against a 1.5 fs pulse it is
-not.
+The time window is 153.6 fs, wide enough to contain the propagated replicas
+without wrapping them across the periodic boundary. The scan extends to ±40 fs;
+check its edge signal when adapting the pulse or slab. A successful same-model
+retrieval cannot diagnose a window that is too short in both generation and fitting.
+
+The printed GDD is the quadratic spectral-phase coefficient at the carrier.
+The forward model uses the full material dispersion across the sampled band,
+not only this coefficient.
+
+Check the depth integral while holding the pulse fixed. Doubling its quadrature
+is a numerical convergence check, separate from retrieval or physical validation:
+
+```{code-cell} ipython3
+trace_finer = croak.maketrace(g.omega, delays, ew, "pg", **(disp | {"npoints": 40}))
+relative_difference = np.linalg.norm(trace - trace_finer) / np.linalg.norm(trace_finer)
+print(f"20 vs 40 depth nodes: relative trace L2 difference = {relative_difference:.2e}")
+print(f"delay-edge signal / peak = {trace[:, [0, -1]].max() / trace.max():.2e}")
+```
 
 ## Dispersion-aware retrieval
 
 The retrieval must use the *same* dispersive model — pass the slab parameters to
-{func}`~croak.retrieve` as well. This is the paper's "D-COPRA" (COPRA with a
-material set).
+{func}`~croak.retrieve` as well. We use COPRA here; these tutorial settings are
+not the retrieval protocol of either associated draft paper.
 
 ```{code-cell} ipython3
 near = croak.gaussian_pulse(g, 2.0e-15)
@@ -97,20 +119,12 @@ fig.set_size_inches(11, 8)
 fig                                # return the Figure so the notebook displays it
 ```
 
-Look at the two halves of this figure together, because the contrast between them
-*is* the dispersive forward model.
-
-The **trace** is strongly distorted. It is not the symmetric bowtie of a
-thin-medium PG-FROG measurement: it leans, and it trails off toward negative
-delay. That asymmetry is the slab — the input replicas and the generated signal
-each accumulating phase as they propagate through 50 µm of glass.
-
-The **pulse**, meanwhile, comes back clean. The retrieved, transform-limited and
-true curves all read 1.50 fs and lie on top of one another, and the fitted GDD and
-TOD are zero to the digits shown: a flat spectral phase. Every bit of the
-distortion visible on the left has been attributed to the medium, where it
-belongs, instead of to the pulse. The residual is at $10^{-14}$, so the model
-accounts for the measurement completely.
+Compare the asymmetric trace with the recovered pulse. Propagation changes the
+input replicas and the generated signal throughout the slab. The inverse model
+can attribute that distortion to the known material instead of assigning it to
+the entrance pulse. Check the duration, spectral phase and residual together.
+A small residual is expected for this matched, noise-free model; the comparison
+with the known field is the additional evidence for accuracy in this example.
 
 ## What a thin-medium model does
 
@@ -142,15 +156,10 @@ ax.set_title("dispersive vs thin-medium retrieval")
 fig.tight_layout()
 ```
 
-The thin model returns a pulse **more than twice as long as the truth** — 50 µm
-of glass, and a 1.5 fs measurement becomes a 3 fs one. Its dispersion has been
-misattributed to the pulse, because a thin-medium model has nowhere else to put
-it.
-
-Note the failure mode here. The thin model's trace error
-is around $3\times10^{-3}$ — **0.3 %**. Reported on its own, in a paper or a lab
-notebook, that is the kind of number usually reported as a well-converged FROG
-retrieval — here, against the wrong forward model:
+Compare the thin-model duration and residual with the dispersive result.
+A model that neglects the medium can fit much of the trace while assigning
+propagation-induced changes to the unknown pulse. The following values quantify
+that bias for this particular pulse and slab:
 
 ```{code-cell} ipython3
 print(f"dispersive model:  R = {res.error:.1e}   FWHM = {fwhm_fs(res.t, res.intensity_t):.2f} fs")
@@ -158,25 +167,30 @@ print(f"thin model:        R = {res_thin.error:.1e}   FWHM = {fwhm_fs(res_thin.t
 print(f"truth:                              FWHM = {fwhm_fs(g.t, I_true):.2f} fs")
 ```
 
-A small trace error only means the model reproduces the *measurement*. It says
-nothing about whether the model is the right one — and no amount of iterating, no
-better optimiser and no random restart will fix a missing term in the physics. The
-only defence is to model the medium, which costs one extra keyword.
+A small trace error measures agreement with the supplied trace, conditional on
+the chosen model. It is not a field-error estimate. More iterations or starts
+cannot supply missing physics, although they remain necessary checks on
+convergence. For a real experiment, also examine collection, beam geometry,
+calibration and the reference plane of any comparison spectrum.
 
-The effect grows with shorter pulses and deeper into the ultraviolet: in the
-[companion paper](../explanation/validation.md), a thin-medium model retrieves a
-1 fs pulse at 260 nm as 1.4–2.6 fs depending on the substrate thickness, while
-the dispersive model recovers it at every thickness from 1 to 40 µm.
+The [validation chapter](../explanation/validation.md) discusses the more complete
+spatial models and the successes and failures reported in the unpublished drafts.
+A dispersive slab alone is not a substitute for that full instrument model.
 
 ```{note}
-Dispersion is a *parameter*, not a separate algorithm — `material=`, `thickness=`,
-`npoints=` and `omega0=` work on every solver. If the thickness is not known
-precisely, the autodiff solvers can [fit it from the data
-itself](../howto/fitting_thickness_tau0.md), and its residual uncertainty
-[propagates to the duration](../howto/uncertainty.md).
+The slab parameters are available across the retrieval solvers for PG and SD.
+Selected solvers can [fit thickness and delay zero](../howto/fitting_thickness_tau0.md).
+Such a fit can correlate with pulse phase and does not replace an independent
+thickness calibration. The [uncertainty guide](../user_guide/uncertainty.md)
+explains how uncertainty in the slab propagates to duration.
 ```
 
 ## Next
+
+Continue with [the experimental workflow](04_experimental_workflow.md), or use the
+[instrument examples](../examples/index.md#instrument-effects-and-validation)
+to explore more detailed models.
+
 
 - The physics: [The forward model](../explanation/forward_model.md) and
   [validation](../explanation/validation.md).

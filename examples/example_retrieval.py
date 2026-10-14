@@ -6,8 +6,8 @@ example. Run with::
 
     uv run python examples/example_retrieval.py
 
-Prints the final FROG error and the recovered temporal FWHM for each case. No
-plotting is required; if matplotlib is available a summary figure is saved.
+Prints the final FROG error and the recovered temporal FWHM for each case. This script
+prints a numerical comparison and does not save a figure.
 """
 
 from __future__ import annotations
@@ -68,6 +68,7 @@ def thin_examples() -> None:
                     algorithm=algo,
                     guess=near,
                     maxiters=250,
+                    rng=np.random.default_rng(0),
                 )
                 print(
                     f"{label:22s} {interaction:5s} {algo:6s} {sigma:6.0%} "
@@ -107,6 +108,7 @@ def dispersive_example() -> None:
             algorithm=algorithm,
             guess=near,
             maxiters=300,
+            rng=np.random.default_rng(0),
             material="SiO2",
             thickness=10e-6,
             npoints=20,

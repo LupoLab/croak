@@ -40,10 +40,10 @@ Load, clean, retrieve, plot, and save using a synthetic measurement file.
 
 ::::
 
-The script {download}`example_retrieval.py <../../examples/example_retrieval.py>`
+[Retrieval across shapes and interactions](retrieval.md)
 explores pulse shapes, interactions, noise, and dispersion.
-{download}`example_workflow.py <../../examples/example_workflow.py>` provides a
-standalone load-to-save workflow corresponding to the introductory tutorial.
+[A standalone workflow](workflow.md) provides a runnable load-to-save script
+corresponding to the introductory tutorial.
 
 ```bash
 uv run python examples/example_retrieval.py
@@ -52,9 +52,9 @@ uv run python examples/example_workflow.py
 
 ## Preparing data
 
-- **Fringe removal:** {download}`example_defringe.py <../../examples/example_defringe.py>`
+- **Fringe removal:** [worked fringe removal](defringe.md)
   applies delay-domain filtering to a synthetic DUV trace and plots the result.
-- **Baseline removal:** {download}`example_arpls_baseline.py <../../examples/example_arpls_baseline.py>`
+- **Baseline removal:** [worked baseline removal](baseline.md)
   combines fringe removal with an asymmetric baseline estimate.
 
 Both use {download}`synthetic_duv_trace.py <../../examples/synthetic_duv_trace.py>`
@@ -78,9 +78,9 @@ as the optimisation method.
 
 | Example | What it explores | Background |
 |---|---|---|
-| {download}`Geometric smearing <../../examples/example_geometric_smearing.py>` | Arrival-time differences in a crossed-beam geometry and their effect on retrieval | [Geometric smearing](../howto/geometric_smearing.md) |
-| {download}`Substrate thickness <../../examples/example_paper_thickness.py>` | Retrievals from reduced 3D instrument simulations at several substrate thicknesses | [The forward model](../explanation/forward_model.md) |
-| {download}`Simulated RDW pulse <../../examples/example_paper_rdw.py>` | A structured pulse from a simulated resonant-dispersive-wave source | [Loading simulated traces](../howto/loading_simulated.md) |
+| [Geometric smearing](geometric_smearing.md) | Arrival-time differences in a crossed-beam geometry and their effect on retrieval | [Geometric smearing](../howto/geometric_smearing.md) |
+| [Substrate thickness](thickness_series.md) | Retrievals from reduced 3D instrument simulations at several substrate thicknesses | [The forward model](../explanation/forward_model.md) |
+| [Simulated RDW pulse](rdw.md) | A structured pulse from a simulated resonant-dispersive-wave source | [Loading simulated traces](../howto/loading_simulated.md) |
 
 The two simulation scripts use datasets in `examples/data/`; their
 {download}`dataset descriptions <../../examples/data/README.md>` explain the
@@ -105,7 +105,7 @@ these operations to a retrieved field at a particular reference plane.
 
 ### Thickness uncertainty
 
-{download}`example_thickness_uncertainty.py <../../examples/example_thickness_uncertainty.py>`
+[Thickness uncertainty](thickness_uncertainty.md)
 propagates a measured substrate-thickness uncertainty to the retrieved duration
 and compares it with a statistical estimate. The example generates its own data.
 The [uncertainty chapter](../user_guide/uncertainty.md) explains how to choose and
@@ -119,6 +119,14 @@ uv run python examples/example_thickness_uncertainty.py
 :hidden:
 :maxdepth: 1
 
+retrieval
+workflow
+defringe
+baseline
 Comparing algorithms <../tutorials/02_choosing_an_algorithm>
+geometric_smearing
+thickness_series
+rdw
+thickness_uncertainty
 Dispersion tuning <../tutorials/05_dispersion_tuning>
 ```

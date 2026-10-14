@@ -11,10 +11,14 @@ kernelspec:
 
 # The experimental workflow
 
-Real data does not arrive on a uniform retrieval grid. This tutorial runs the full
-library pipeline — **load → clean → retrieve → post-process → plot → save** — on a
-synthetic "experimental" file, exactly as the [GUI](../howto/gui.md) does but in a
-script. It mirrors `examples/example_workflow.py`.
+Measured data usually arrives on the instrument's wavelength and delay axes.
+This tutorial follows **load → clean → retrieve → post-process → plot → save**
+using a synthetic file in that format. It introduces the same stages as the
+[GUI](../howto/gui.md) and the gallery's workflow example. No experimental data
+are used here; the known pulse lets us check the effects of preparation and
+calibration. Start after [the first retrieval](01_first_retrieval.md), and consult
+[preparing and checking data](../user_guide/data.md) as you adapt this sequence to
+your instrument.
 
 ```{code-cell} ipython3
 %matplotlib inline
@@ -62,8 +66,9 @@ def make_experiment_file(path):
         f["trace"] = trace_lam
 
     # A real setup also records the fundamental spectrum on its own spectrometer.
-    # That is an independent measurement — the retrieval never sees it — so it is
-    # the best consistency check available. It is a *wavelength* density, hence
+    # We simulate that additional channel too. The pipeline uses it for the
+    # starting guess and, where enabled, spectral regularisation. It is a
+    # wavelength density, hence
     # the |dw/dl| = 2*pi*c/lambda^2 Jacobian.
     lam_spec = lam[order]
     Ilam_spec = np.abs(ew[band][order]) ** 2 * 2 * np.pi * croak.constants.C / lam_spec**2
@@ -79,11 +84,12 @@ def make_experiment_file(path):
     marg = trace_lam.sum(axis=1)
     sig = np.where(marg > 1e-4 * marg.max())[0]
     lam_nm = lam[order] / 1e-9
-    # The generating pulse, kept so the tutorial can mark its own homework.
+    # The generating pulse, retained for comparison with the retrieved field.
     truth = croak.TruthPulse.from_spectrum(g, ew, omega0)
     return lam_nm[sig[0]] * 1e-9, lam_nm[sig[-1]] * 1e-9, truth
 
-h5_path = str(Path(tempfile.gettempdir()) / "croak_tutorial.h5")
+workspace = tempfile.TemporaryDirectory(prefix="croak-workflow-")
+h5_path = str(Path(workspace.name) / "measurement.h5")
 lam_min, lam_max, truth = make_experiment_file(h5_path)
 true_fwhm = truth.fwhm
 print(f"signal band: {lam_min*1e9:.0f}-{lam_max*1e9:.0f} nm")
@@ -107,7 +113,7 @@ Ilam_spec = fd.load("spectrum_intensity")
 trace.shape, lam_spec.shape
 ```
 
-This is what came off the instrument: counts on a **wavelength** axis, which is
+This simulated file represents detector counts: counts on a **wavelength** axis, which is
 not uniform in frequency, against delay.
 
 ```{code-cell} ipython3
@@ -133,20 +139,13 @@ to judge them against**. On the linear scale the band looks generous; on the log
 scale you can see how far the trace really extends, and any signal outside the
 lines is about to be tapered away for good.
 
-This is the single easiest way to lose accuracy in the whole workflow. Choosing
-the band at a few percent of the marginal peak — which looks perfectly reasonable
-on a linear plot — clips the wings and costs a **factor of four** in the
-achievable trace error:
-
-| band chosen at | window | trace error $R$ | FWHM error |
-|---|---|---|---|
-| 3 % of the marginal peak | 635–1045 nm | 2.1 % | +1.3 % |
-| 1 % | 609–1082 nm | 1.2 % | +1.0 % |
-| **0.01 % (−40 dB)** | **554–1313 nm** | **0.030 %** | **+0.1 %** |
-
-The FROG trace carries information in its wings — that is where the chirp shows
-itself — so cut the band from the **log** view, well below where the signal looks
-like it has ended. Widening costs only a few more frequency points.
+Choosing a band from the linear view can discard weak but informative wings.
+Use the log view together with the measured noise floor; the threshold of
+$10^{-4}$ here is a choice for this noise-free simulation, not a universal
+experimental cutoff. Check `td.taper_loss` after loading, and repeat a retrieval
+with a wider band when edge loss is material. A wider band also changes the
+retrieval grid and computation cost. See
+[grids and filtering](../howto/grids_and_filtering.md) for the sampling constraints.
 
 ## Clean and regrid
 
@@ -158,7 +157,7 @@ Note what is *not* in this call. Every filter — the fringe notch, the DC remov
 the delay low-pass, the baseline, the noise threshold — is **off by default**,
 because each removes real signal along with whatever it targets. Switch one on
 when your data needs it, not before. The only thing running here is `prefilter`,
-the anti-alias low-pass that resampling genuinely requires.
+the anti-alias low-pass that resampling requires.
 
 ```{code-cell} ipython3
 td = croak.load_and_clean(
@@ -191,10 +190,9 @@ Note how little the *filtered* panel differs from the *measured* one: with every
 filter off, the only thing between them is the spectral window. That is what you
 want on clean data. Each panel also carries a second, white→red colourbar for
 **negative** values — croak keeps them rather than clamping to zero, so that a
-filter which has removed too much is visible instead of silently hidden. Here
-they are at the $10^{-12}$ level, which is numerical noise. Turn `filter_dc` back
-on and they grow to around 20 % of the peak, which is exactly the kind of thing
-that colourbar exists to show you.
+filter which has removed too much is visible instead of silently hidden. Inspect their magnitude relative to the positive signal. Background and filter
+choices can produce substantial negative values; their presence is a diagnostic,
+not a reason to clip them silently.
 
 Judge this figure on whether the regridded panel still contains everything the
 measured one did. Signal clipped at the edges of the band is gone for good — see
@@ -226,37 +224,26 @@ ax.grid(alpha=0.3)
 fig.tight_layout()
 ```
 
-A curve still descending at the last iteration means `maxiters` was the binding
-constraint and there is more to gain; one that flattened long ago means the solver
-found what it could.
+A decreasing curve at the iteration limit suggests further iterations may help.
+A plateau can reflect convergence, a local minimum, noise, interpolation error or
+a missing model term. It is not proof that the best possible field was found.
+Here regridding changes a trace generated on one grid into samples on another;
+the interpolated array need not be exactly representable by the retrieval model.
 
-This one flattens at a few parts in $10^4$, not at $10^{-16}$ as on the raw
-synthetic grid in the earlier tutorials. That floor is the regridding:
-`load_and_clean` interpolates the measurement onto a new, uniform grid, so the
-result is no longer *exactly* a FROG trace of any pulse, and a few parts in
-$10^4$ is what that leaves. It is a floor, not a convergence failure — more
-iterations, random restarts, an LM polish and a four-times finer grid all leave
-it where it is.
+(the-production-default)=
+### The default retrieval
 
-This is the single most useful thing to internalise about $R$ on real data. It
-does **not** translate into an error of that size on the answer — the next section
-checks the recovered duration against the truth. A small residual floor after
-regridding is what a good measured retrieval looks like;
-what matters is whether the residual is *structured*.
-
-### The production default
-
-The call above chose COPRA to keep the convergence story simple. Dropping the
-`algorithm=` argument uses the production default, `warm-lbfgs` — and because
-`td` carries the independently measured spectrum, the settled regularisation
-weights bind automatically: the retrieved amplitude is pulled gently towards
-the measured spectrum (`reg_spectrum=0.01`) and kept smooth (`reg_amp=0.03`).
-This is the recommended call on real data; pass `reg_amp=0, reg_spectrum=0`
-for an unregularised fit.
+The call above explicitly chose COPRA. Omitting `algorithm` uses `warm-lbfgs`.
+Since `td` includes a fundamental spectrum, the default spectral penalty uses it
+alongside amplitude smoothness (`reg_spectrum=0.01`, `reg_amp=0.03` for this
+solver). These are package defaults, not weights established for every instrument
+or the settings of the revised paper protocol. Compare their influence using
+[regularisation](../howto/regularisation.md); pass both weights as zero for an
+unregularised fit.
 
 ```{code-cell} ipython3
 default = croak.retrieve_from_tracedata(td, rng=np.random.default_rng(0))
-print(f"warm-lbfgs (settled regularisation): R = {default.error:.4%}")
+print(f"warm-lbfgs (default regularisation): R = {default.error:.4%}")
 ```
 
 ## Post-process
@@ -274,14 +261,11 @@ print(f"fitted GDD = {pr.gdd_fs2:.0f} fs²,  TOD = {pr.tod_fs3:.0f} fs³"
       f"   (25 fs² went in)")
 ```
 
-The duration comes back within about a tenth of a percent of
-the truth and the fitted GDD reproduces the 25 fs² we put in — the dispersion fit
-is a polynomial through a phase sampled at 54 frequency points, so a few fs² of
-scatter is expected.
-
-On a real measurement you would not have that middle line to check against. That
-is exactly why the residual panel, the marginals and an [uncertainty
-estimate](../howto/uncertainty.md) matter.
+Compare the printed duration and fitted GDD with the known values. Polynomial
+phase coefficients depend on the phase-fitting band and sampling; inspect the
+phase curve before interpreting a coefficient. On measured data the generating
+pulse is unavailable, so [result diagnostics](../user_guide/results.md) and
+[uncertainty analysis](../user_guide/uncertainty.md) become especially important.
 
 ## Plot
 
@@ -297,31 +281,17 @@ fig.set_size_inches(11, 8)
 fig                                # return the Figure so the notebook displays it
 ```
 
-Two extras are worth passing here. `Iomega_meas=td.Iomega` overlays the
-**independently measured spectrum** `M` on the retrieved one `R` — the most
-valuable check available on real data, because it comes from a measurement the
-retrieval never saw; if `R` and `M` disagree, something is wrong regardless of how
-small the trace error is. `truth=` overlays the generating pulse, which only a
-synthetic study has. Passing the `processed=` result we already computed saves
-deriving it twice.
+`Iomega_meas=td.Iomega` overlays the separately recorded fundamental spectrum.
+In this tutorial it is also used to prepare the initial guess, and the default
+retrieval above uses it as a spectral constraint. Agreement with that spectrum is
+therefore a consistency check, not independent validation of the retrieval.
+`truth` is available only because this is a simulation. Passing `processed=pr`
+reuses the profiles already calculated.
 
-Now the residual panel, and it is worth dwelling on. It is **clearly structured** —
-a red-and-blue dipole running along the trace, not speckle. Structure like that
-means the model cannot reproduce the data, and the usual suspects are physical: an
-unmodelled dispersive medium, a missing geometric-smearing term, a mis-calibrated
-axis.
-
-Here we know none of those apply — the trace was generated by exactly this
-forward model. What is left is the **regridding**: the retrieval sees an
-interpolation of the measurement onto 54 frequency points, and that interpolation
-is not exactly a FROG trace of any pulse. It is the same floor that limited
-the convergence curve, and it is why the residual has shape.
-
-The lesson is the useful one for real data: a structured residual tells you
-something the model cannot fit, but "the model" includes everything upstream of
-it — preprocessing choices as much as physics. Before concluding that the physics
-is wrong, check whether a finer retrieval grid or a wider spectral window makes
-the structure shrink.
+A structured residual can arise from preprocessing as well as missing physics.
+This trace was generated with the same thin-medium model but interpolated onto
+a different grid. Before interpreting its residual as evidence for dispersion
+or spatial effects, test sampling, the selected band, calibration and convergence.
 
 ## Reading the residual
 
@@ -350,11 +320,12 @@ def residual_diagnostics(result, processed, tracedata):
 residual_diagnostics(result, pr, td)
 ```
 
-All three are small, so this retrieval has no systematic displacement left in it —
-what remains is the regridding floor. Keep the magnitudes in mind for comparison:
-a real shift shows up an order of magnitude larger, as we are about to see.
+These correlations test three particular shapes. Small values rule out neither
+all calibration errors nor missing physics: residual structure orthogonal to
+these templates remains undetected. Compare them with the deliberate delay
+shift below.
 
-That is not automatic. Time zero is not known a priori on a measured scan;
+Time zero is not known a priori on a measured scan;
 `load_and_clean` takes it to be where the delay marginal peaks. Reading that off
 as the largest *sample* would quantise it to the delay step and leave up to half a
 step behind, so croak interpolates the peak instead
@@ -377,10 +348,9 @@ print(f"R, offset by half a step = {bad.error:.2e}")
 residual_diagnostics(bad, pr_bad, shifted)
 ```
 
-The trace error jumps by more than an order of magnitude and the delay
-correlation goes from nothing to about $-0.53$ — the dipole is back. A
-sub-sample calibration error, invisible in any of the preprocessing plots, is
-worth a factor of seventeen here. Side by side, on a shared colour scale:
+Compare the error and delay-derivative correlation before and after the injected
+shift. A positive/negative pair of residual lobes is characteristic of a small
+displacement. Plot both cases on a shared scale:
 
 ```{code-cell} ipython3
 fig, axes = plt.subplots(1, 2, figsize=(10, 3.6), sharey=True)
@@ -402,8 +372,8 @@ other. That antisymmetry across the ridge is what "displaced in delay" looks
 like, and it is why the correlation test picks out $\partial T/\partial\tau$.
 
 The autodiff solvers can fit the offset as a free parameter
-([`fit_tau0`](../howto/fitting_thickness_tau0.md)), which works for every
-geometry and recovers it exactly:
+([`fit_tau0`](../howto/fitting_thickness_tau0.md)). This example tests whether
+fitting an offset accounts for the deliberate displacement:
 
 ```{code-cell} ipython3
 fixed = croak.retrieve_from_tracedata(shifted, algorithm="lm", fit_tau0=True,
@@ -413,11 +383,11 @@ print(f"fitted τ₀ = {fixed.tau0 / 1e-15:+.3f} fs   (we injected {0.5 * step /
 print(f"R         = {fixed.error:.2e}   (back to the centred value)")
 ```
 
-**Reading the residual, not only the error, is what located this.** A
-structured residual points to its cause, and no amount of extra iterations would
-have touched this one. On real data `fit_tau0` is worth turning on as a matter of
-course: a measured delay stage has its own zero-point uncertainty, usually larger
-than the sub-sample residue left by the centring.
+Fitting an offset can account for uncertainty in the delay-stage zero, but it
+adds a parameter that can correlate with the pulse and model geometry. Choose it
+based on calibration and diagnostic evidence, and inspect the fitted value and
+its uncertainty. A residual pattern suggests a hypothesis; it does not uniquely
+identify its cause.
 
 ## Save
 
@@ -425,10 +395,16 @@ Persist the result (and its processed form) to a portable HDF5 file. See
 [Saving and loading](../howto/saving_and_loading.md).
 
 ```{code-cell} ipython3
-out = str(Path(tempfile.gettempdir()) / "croak_tutorial_result.h5")
+out = str(Path(workspace.name) / "retrieval.h5")
 croak.save_result(result, out, processed=pr, force=True)
 print("wrote", out)
 ```
 
-That is the entire workflow — and every step is a plain library call, so you can
-wire it into your own scripts or batch jobs.
+Choose a permanent output path when analysing your own measurements: this
+tutorial uses a temporary directory. Save the preparation and retrieval settings
+as well as the result; [sessions](../howto/saving_and_loading.md) support replay
+and script export.
+
+Continue through the [user guide](../user_guide/index.md) for the assumptions
+behind each step, or explore [data preparation examples](../examples/index.md#preparing-data)
+for fringe and baseline removal.

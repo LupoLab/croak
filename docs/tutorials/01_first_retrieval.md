@@ -11,10 +11,16 @@ kernelspec:
 
 # Your first retrieval
 
-This tutorial synthesises an SHG-FROG trace from a known pulse and retrieves the
-pulse back from it — the round trip that underpins everything else. Every cell
-below is executed when the documentation is built, so the numbers and figures are
-real.
+Retrieve the amplitude and phase of a pulse from a simulated SHG-FROG trace.
+You will define a pulse, predict its measurement, retrieve it, and interpret the
+result. A FROG trace is an intensity image indexed by frequency and delay;
+retrieval infers the complex field that could have produced it.
+
+Start after [installation](../introduction/install.md) and the
+[Quickstart](../getting_started/quickstart.md). The code is executed locally and
+its outputs are cached with the documentation. These are simulated data with a
+known answer, not experimental measurements. For the physical background, see
+[measurement fundamentals](../user_guide/fundamentals.md).
 
 ```{code-cell} ipython3
 %matplotlib inline
@@ -25,7 +31,7 @@ import croak
 
 ## A grid and a test pulse
 
-A {class}`croak.Grid` carries matched, centred time and angular-frequency axes. We
+A {class}`croak.grid.Grid` carries matched, centred time and angular-frequency axes. We
 build a 2.5 fs Gaussian pulse with a little group-delay dispersion (GDD), so its
 spectral phase is non-trivial and worth retrieving.
 
@@ -45,12 +51,12 @@ The `2.5e-15` sets the *transform-limited* width; the 4 fs² of GDD chirps the p
 and stretches it to the number printed above. Recovering both — the duration and
 the chirp that caused it — is the point of the exercise.
 
-The carrier `omega0` does not enter a thin-medium retrieval at all; it only fixes
-the wavelength axis $\lambda = 2\pi c/(\omega+\omega_0)$ used for plotting later.
+For this thin, local model, the carrier `omega0` fixes the plotting
+wavelength axis $\lambda = 2\pi c/(\omega+\omega_0)$ used for plotting later.
 
 ## Synthesise a trace
 
-{func}`~croak.maketrace` runs the [forward model](../explanation/forward_model.md)
+{func}`~croak.forward.maketrace` runs the [forward model](../explanation/forward_model.md)
 to produce the `(Nomega, Ndelay)` SHG-FROG trace.
 
 ```{code-cell} ipython3
@@ -65,7 +71,7 @@ ax.imshow(trace, aspect="auto", origin="lower",
           extent=[delays[0] * 1e15, delays[-1] * 1e15,
                   g.omega[0] / 1e15, g.omega[-1] / 1e15])
 ax.set_xlabel("delay (fs)")
-ax.set_ylabel(r"$\omega$ (rad/fs)")
+ax.set_ylabel(r"$\Omega$ (rad/fs)")
 ax.set_title("SHG-FROG trace")
 fig.tight_layout()
 ```
@@ -73,7 +79,7 @@ fig.tight_layout()
 ## Retrieve
 
 The [`retrieve`](../getting_started/quickstart.md) call has a uniform signature
-across [algorithms](../explanation/algorithms.md). We use the default COPRA,
+across [algorithms](../explanation/algorithms.md). We explicitly choose COPRA,
 seeded from a slightly-too-short Gaussian and a fixed random seed so the result is
 reproducible. (Passing `guess=None` instead starts from a random spectrum; on real
 data you would run several such [random restarts](../howto/solver_selection.md).)
@@ -81,13 +87,15 @@ data you would run several such [random restarts](../howto/solver_selection.md).
 ```{code-cell} ipython3
 res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="copra",
                     guess=croak.gaussian_pulse(g, 1.8e-15), omega0=omega0,
-                    maxiters=300, rng=np.random.default_rng(0))
+                    maxiters=300, rng=np.random.default_rng(0), progress=False)
 print(f"final trace error R = {res.error:.2e}")
 print(f"iterations          = {len(res.errors)}")
 ```
 
-A trace error of $R \lesssim 10^{-3}$ on clean synthetic data is an excellent fit
-(see [the trace error](../explanation/retrieval_theory.md)).
+The [trace error](../explanation/retrieval_theory.md) measures agreement with the
+supplied intensity trace after fitting its scale. Its interpretation depends on
+noise, sampling and the forward model; there is no universal threshold that
+certifies field accuracy. Here we can also compare with the known pulse.
 
 ## Compare retrieved and true pulse
 
@@ -125,7 +133,7 @@ ax.plot(g.omega / 1e15, res.intensity_omega / res.intensity_omega.max(),
 ax2 = ax.twinx()
 mask = res.intensity_omega > 0.02 * res.intensity_omega.max()
 ax2.plot(g.omega[mask] / 1e15, res.phase_omega[mask], "C1", label="phase")
-ax.set_xlabel(r"$\omega$ (rad/fs)")
+ax.set_xlabel(r"$\Omega$ (rad/fs)")
 ax.set_ylabel("intensity (norm.)")
 ax2.set_ylabel("spectral phase (rad)")
 ax.set_title("retrieved spectrum and phase")
@@ -134,16 +142,18 @@ fig.tight_layout()
 
 ## The standard summary figure
 
-Everything above — and rather more — comes from one call to
-{func}`~croak.plotting.plot_retrieval`. This is the figure the GUI shows after a
-run, and the one to reach for when judging a retrieval.
+{func}`~croak.plotting.plot_retrieval` collects these comparisons and further
+diagnostics in one figure. The GUI presents the same types of panels over three
+pages. See [post-processing](../howto/postprocessing.md) for their definitions.
 
 Because this is **SHG**, one thing has to be settled first. An SHG trace is
 exactly unchanged by $E(t) \to E^*(-t)$, so a pulse and its mirror image fit it
-equally well and the solver returns whichever it happened to find. When the true
-pulse is known, {func}`~croak.resolve_time_direction` picks the matching branch —
-without it a perfect retrieval can appear mirrored against the truth, and the sign
-of the reported GDD is a coin toss. It is a no-op for PG and SD.
+equally well and the solver returns whichever it happened to find. When a known
+temporal intensity is asymmetric, {func}`~croak.processing.resolve_time_direction` can
+choose its matching branch. This Gaussian has a symmetric intensity, so that
+comparison cannot establish the sign of GDD; the known spectral phase provides
+the additional check here. On experimental data an independent time-direction
+measurement is needed. The helper is a no-op for PG and SD.
 
 ```{code-cell} ipython3
 truth = croak.TruthPulse.from_spectrum(g, ew, omega0)
@@ -161,31 +171,29 @@ fig      # croak builds Figures without pyplot, so return it to display it
 
 Read it in four groups.
 
-**The traces (left block).** *Measured* and *Retrieved* in log and linear scale.
-These should be indistinguishable — that is what a converged retrieval looks like.
-The linear retrieved panel is annotated with the trace error and the grid size.
-The log pair is the more revealing one: it stretches the weak wings, where a
-mismatch shows up long before it is visible on a linear scale.
+**The traces (left block).** The supplied and predicted traces appear in linear
+and logarithmic scales. The log view reveals weak wings that are difficult to
+see on the linear view. Close agreement shows that the model fits this dataset;
+it does not by itself establish that the inferred field is correct.
 
-**The residual (bottom middle).** Measured − retrieved, on a symmetric
-blue–white–red scale. This is the panel that tells you whether the fit is *done*.
-Here it is white everywhere and its colourbar reads $10^{-15}$ — pure numerical
-noise. Structure in this panel is the thing to worry about: coherent diagonal or
-lobed patterns mean the model cannot reproduce the data, which usually means the
-forward model is wrong (an unmodelled dispersive medium, say) rather than the
-optimiser having failed.
+**The residual (bottom middle).** This is the measured trace minus the scaled
+prediction, on a symmetric colour scale. Read the colourbar as well as the
+pattern: a visible structure at numerical round-off is immaterial. At larger
+amplitudes, structure can indicate calibration, preprocessing, model or
+convergence problems. The [experimental workflow](04_experimental_workflow.md)
+examines an example of a delay-calibration error.
 
-**The pulse and spectrum (right block).** The retrieved temporal profile with its
-transform-limited counterpart `TL`, and the retrieved spectrum with its phase and
-a fitted polynomial giving GDD and TOD. Two numbers to check here: the retrieved
-FWHM against `TL` — their ratio is how far from compressed the pulse is — and the
-fitted GDD, which should come back as the 4 fs² we put in. The `truth` overlay is
-present because we passed one.
+**The pulse and spectrum (right block).** Compare the retrieved duration with
+the transform-limited duration for the same spectrum. The fitted GDD has magnitude close to the input 4 fs²; either sign is
+compatible with this SHG trace. The seeded example shown here reaches the
+positive-GDD branch, which can be checked against the known spectral phase. Polynomial phase fits depend on the spectral fitting window;
+inspect the phase itself as well as its coefficients.
 
-**Convergence and marginals.** The error history on a log axis, plus the frequency
-and delay marginals of measured and retrieved traces. The marginals are a fast
-sanity check that survives even when the retrieval has gone wrong: they are
-projections of the trace, so they must agree even if the phase is badly wrong.
+**Convergence and marginals.** The error history shows how the search progressed.
+Frequency and delay marginals summarise the supplied and predicted traces.
+Agreement is necessary for a good trace fit but does not establish the phase:
+different two-dimensional traces can have similar marginals. See
+[marginal checks](../howto/marginal_checks.md).
 
 ## Next
 

@@ -14,13 +14,13 @@ This example, for an example deep-UV mask (1 mm holes, 0.5 mm edge to edge, at
 * synthesises a trace from a known 1 fs pulse *with* the kernel,
 * retrieves it three ways — kernel modelled, kernel ignored, kernel strength
   fitted — and reports the duration inflation,
-* sweeps the mask ratio d/D, the diagnostic that distinguishes geometric smearing
-  from a dispersion-model deficiency (only the former responds to the mask),
+* sweeps the mask ratio d/D, a controlled change in this reduced model; a real
+  instrument can also change its illumination and collection when mask spacing changes,
 * sweeps the slab thickness, and
 * saves the comparison figure.
 
 Every offset below is quoted as *smeared minus clean* at the same settings, so the
-retrieval's own residual convergence error cancels out of the comparison.
+retrievals can still have different residual optimisation errors.
 
 Run::
 
@@ -94,7 +94,15 @@ def main() -> None:
     delays = np.linspace(-DELAY_SPAN, DELAY_SPAN, DELAY_POINTS)
     omega0 = wlfreq(WAVELENGTH)
     guess = croak.gaussian_pulse(grid, 1.6e-15)
-    common = dict(algorithm="lbfgs-ad", maxiters=MAXITERS, omega0=omega0, guess=guess)
+    common = dict(
+        algorithm="lbfgs-ad",
+        maxiters=MAXITERS,
+        omega0=omega0,
+        guess=guess,
+        rng=np.random.default_rng(0),
+        reg_amp=0,
+        reg_spectrum=0,
+    )
 
     def fwhm_of(trace, **slab) -> float:
         """Retrieve and return the temporal-intensity FWHM (s)."""
@@ -140,12 +148,10 @@ def main() -> None:
         )
 
     # --- the mask discriminator ----------------------------------------------
-    # Geometric smearing is the *only* term that responds to the mask, so a
-    # duration offset that grows when the holes are moved apart is its signature;
-    # a dispersion-model deficiency is completely insensitive to it. The growth is
-    # monotonic but not a simple power law — how much duration the free pulse must
-    # absorb depends on the whole trace, not just the kernel width.
-    banner("Mask sweep: the offset grows with d/D (a dispersion error would not)")
+    # In this reduced synthetic model, only the timing kernel changes with mask
+    # spacing. A real instrument can also change focal profiles and collection.
+    # Duration bias depends on the whole trace, not only the kernel width.
+    banner("Mask sweep: duration bias versus d/D")
     reference = fwhm_of(croak.maketrace(grid.omega, delays, ew, INTERACTION))
     ratios, mask_offsets = [], []
     for spacing in SPACINGS:
@@ -228,7 +234,7 @@ def main() -> None:
     axes[1].set(
         xlabel="mask ratio $d/D$",
         ylabel="FWHM offset (fs)",
-        title="Mask sweep (the discriminator)",
+        title="Mask sweep",
     )
     axes[1].grid(alpha=0.3)
 

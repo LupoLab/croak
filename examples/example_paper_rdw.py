@@ -1,34 +1,22 @@
-"""Retrieve a simulated single-cycle pulse: the companion paper's final test case.
+"""Compare two retrieval models for a bundled simulated RDW trace.
 
-The dataset (``examples/data/tgfrog_sim_rdw_duv.h5``) is the paper's
-end-to-end validation: the resonant-dispersive-wave (RDW) emission of a
-hollow-capillary-fibre source — a 1.06 fs single-cycle deep-UV pulse with a
-structured spectrum and trailing satellites — simulated at the generation
-stage, injected into the first-principles 3D instrument simulation, and
-recorded exactly as a measurement would be (here through the open 2.0 mm
-collection hole, after 9.5 um of fused silica).
+Both the hollow-capillary source and TG-FROG instrument are simulated. The
+legacy reduced dataset contains a 2 mm collection window; this example selects
+9.5 micrometres of fused silica. It uses defringing, an empirical spectral
+correction and the integrated beamlet reference. The extended fit also frees
+the delay offset and smearing scale. These choices differ from the revised
+draft protocol; the plotted native fields are not its common on-axis comparison.
 
-Two retrievals of the same trace:
-
-* the **extended model** with the smearing-kernel scale and the delay zero
-  fitted from the data — the paper's route for this case;
-* the **standard thin-medium model**.
-
-The standard model fits the trace to a low trace error and returns a smooth
-pulse about 2.4x too long. The extended
-model recovers the pulse — main peak, satellites and structured spectrum.
-
-Run::
-
-    uv run python examples/example_paper_rdw.py
-
-Takes a few minutes (two retrievals on a 400-point grid). Writes
-``paper_rdw.png``.
+Run ``uv run python examples/example_paper_rdw.py`` from the repository root.
+The seeded calculations print residuals and durations and write ``paper_rdw.png``.
+Inspect pulse shape and spectrum together: a small residual does not certify
+field accuracy, and a fitted kernel can absorb other discrepancies.
 """
 
 from __future__ import annotations
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 
@@ -48,7 +36,7 @@ DATA = "examples/data/tgfrog_sim_rdw_duv.h5"
 Z_UM = 9.5
 TRUE_FWHM_FS = 1.06
 
-# The paper's band for this scan (the RDW spectrum reaches further to the red
+# The illustrative band for this scan (the RDW spectrum reaches further to the red
 # than the Gaussian test pulse), with the delay crop at the scan's uniform core.
 PREPROC = PreprocParams(
     lam_min_nm=148.0,
@@ -103,7 +91,7 @@ def main() -> None:
 
     out = {}
     for label, rp in (("extended (fitted kernel)", extended), ("standard", standard)):
-        res = run_retrieval(rp, td)
+        res = run_retrieval(rp, td, rng=np.random.default_rng(0))
         pr = croak.process_result(res, measured=td.trace)
         out[label] = pr
         print(
@@ -113,7 +101,9 @@ def main() -> None:
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 3.6), layout="constrained")
 
-    ax1.fill_between(truth.t * 1e15, truth.It, color="0.8", label="true pulse")
+    ax1.fill_between(
+        truth.t * 1e15, truth.It, color="0.8", label="stored beamlet reference"
+    )
     for label, style in zip(out, ("-", "--"), strict=True):
         pr = out[label]
         t0 = pr.t_over[pr.It_retr.argmax()]
