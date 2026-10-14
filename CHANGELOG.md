@@ -8,17 +8,21 @@ semantic versioning.
 
 ### Changed
 
-- Reorganised the manual beneath five navigation sections: Introduction,
-  User guide, Examples, Developer's guide, and API. Added chapter introductions,
-  a topic-based example catalogue, contributor guidance, and cross-references,
-  while retaining existing page URLs and scientific derivations. Expanded the croak
-  acronym prominently on the home page, introduction, and README.
-- Revised the learning sequence and scientific explanations against two
-  unpublished drafts and current package behaviour, including field references,
-  detector densities, objective normalisation, model limits and uncertainty
-  assumptions. Added executed gallery pages using the existing example scripts
-  as their calculation source, and reviewed API prose in its source docstrings.
-  Package behaviour, signatures, defaults and saved-data formats are unchanged.
+- Reorganised the manual into five sections: Introduction, User guide, Examples,
+  Developer's guide and API. Each User guide chapter opens with an orientation
+  page, the Examples gallery executes the example scripts, and contributor
+  material has moved to the Developer's guide. Existing page URLs are kept.
+- Updated the validation chapter, README and figures to the results of the two
+  companion papers in preparation, cited in the bibliography and
+  `CITATION.cff`. Corrected the stated definition of the trace error R (the
+  peak-normalised error) and of `RetrievalResult.trace` (already scaled by
+  `mu`), and reviewed the API docstrings against current behaviour.
+- `examples/example_thickness_uncertainty.py` now supplies the fundamental
+  spectrum as a target and uses `lbfgs-ad`. Without a target its noisy trace was
+  fitted with noise in the grid-edge bins and returned durations from about
+  1.9 to 3.2 fs for a 3 fs pulse. `examples/example_geometric_smearing.py` now runs every fit to
+  convergence from two starts and reports the trace error and rms width as well
+  as the FWHM.
 
 ### Fixed
 
