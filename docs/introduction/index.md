@@ -1,22 +1,34 @@
 # Introduction
 
-**croak — Complete Retrieval by Optimisation and Adjoint Kernels** — helps you
-recover the spectral amplitude and phase of an ultrashort pulse from a FROG
-measurement. A retrieval finds a pulse whose predicted trace agrees with the
-data. Interpreting that pulse also requires understanding the measurement and
-the assumptions in its model.
+**croak (Complete Retrieval by Optimisation and Adjoint Kernels)** recovers the
+spectral amplitude and phase of an ultrashort pulse from a FROG measurement. A
+retrieval finds the pulse whose predicted trace best matches the data; what that
+pulse means depends on how faithfully the forward model describes the
+instrument, which is why croak offers models of the measurement beyond the
+usual thin, non-dispersive nonlinear medium.
 
-This introduction follows a learning sequence. Install croak, explore its
-capabilities, and choose the graphical or script interface. The Quickstart gives
-you a short first calculation; the three tutorials then explain a synthetic
-retrieval, propagation through a dispersive medium, and a measurement workflow.
-The experimental-workflow tutorial uses synthetic data so you can follow it
-without providing your own measurement.
+This introduction is a learning sequence. Install croak, see what it can do,
+choose between the graphical and the script interface, then work through the
+Quickstart and three tutorials: a synthetic retrieval, propagation through a
+dispersive medium, and a complete measurement workflow. The workflow tutorial
+uses synthetic data, so you can follow it without a measurement of your own.
+
+## Install croak
+
+Both routes install the same library and need Python 3.14 or later; uv can
+provide that Python for you.
+
+- **Graphical interface only:** follow [Installing the GUI](../getting_started/gui.md).
+  It installs a `croak-gui` command and needs no Python knowledge.
+- **Python library:** follow [Installation](../getting_started/installation.md)
+  for project environments, optional extras, supported platforms, GPUs and
+  installation from a source checkout (needed for the bundled example scripts).
 
 ```{toctree}
 :maxdepth: 1
 
-Get and install croak <install>
+Installing the GUI <../getting_started/gui>
+Installation <../getting_started/installation>
 Functionality and capabilities <../reference/features>
 GUI or script interface <interfaces>
 Quickstart <../getting_started/quickstart>
@@ -28,5 +40,8 @@ Where to go next <next_steps>
 
 The [user guide](../user_guide/index.md) develops the practical and scientific
 background for each step. Use the [examples](../examples/index.md) to explore a
-particular problem, or the [API](../reference/api/index.md) to look up a Python
-argument while you work.
+particular problem, the [API](../reference/api/index.md) to look up a Python
+argument, the [glossary](../reference/glossary.md) for terminology and the
+[references](../reference/bibliography.md) for the papers behind the methods.
+Contributors will find the development checks in the
+[developer's guide](../developer_guide/index.md).

@@ -2,15 +2,14 @@
 
 **croak** stands for *Complete Retrieval by Optimisation and Adjoint Kernels*.
 
-The name describes the aim of recovering spectral amplitude and phase using a
-physical measurement model and optimisation. It is not a guarantee of unique
-retrieval or complete knowledge of the instrument. The field reference,
-unobservable phase and time origin, and any interaction-specific ambiguities
-still need to be stated.
-
-The [adjoint derivation](../explanation/gradients.md) gives analytic derivatives
-for the core kernels; automatic differentiation supplies derivatives for the
-implemented JAX models, including spatial and fitted-parameter extensions.
+*Complete* refers to what is retrieved and what is modelled: the full complex
+field, amplitude *and* phase, through a forward model that includes the
+measurement physics (propagation in the nonlinear medium, beam geometry and
+collection) rather than a thin-medium idealisation of it. *Adjoint kernels*
+names the machinery: each interaction (SHG, SD, PG) contributes a kernel to the
+forward map, and each carries a matching hand-derived
+[Wirtinger adjoint](../explanation/gradients.md) that yields exact gradients for
+the cost of one extra forward pass.
 
 ## Why it used to be called toad
 
@@ -24,9 +23,15 @@ The name could not be kept for the public release, because `toad` was already
 taken on the Python Package Index. Rather than decorate it — `toad-frog`,
 `pytoad`, and similar — the package was renamed outright.
 
-The public package uses both analytic adjoints and automatic differentiation.
-These are complementary ways to evaluate derivatives and check numerical
-implementations.
+Automatic differentiation is, if anything, more central now than when it named
+the package: geometric smearing, the focal and collection models, the fitted
+medium thickness and delay-zero, the B-spline phase basis and the Laplace
+covariance all depend on it. What changed is that it no longer covers the whole
+package, which grew a hand-derived Wirtinger adjoint for the core model, a
+complete measurement-to-result workflow and uncertainty quantification.
+*Adjoint kernels* covers both routes: each interaction contributes a kernel to
+the forward map, and its derivative is available either in closed form or
+through AD.
 
 ## The mascot
 

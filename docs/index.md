@@ -15,12 +15,13 @@ result, and estimate uncertainty.
 (highlights)=
 ## What croak can do
 
-The measurement model can include propagation through a dispersive nonlinear
-medium, the different arrival times of crossing beams, and the collection of the
-generated signal. These effects can matter when the pulse is short enough for
-the instrument to change the trace appreciably. Start with the
-[capabilities overview](reference/features.md) to see which models and
-interactions are supported.
+Beyond the standard thin-medium FROG model, croak's measurement model can
+include propagation through a dispersive nonlinear medium, the different arrival
+times of crossing beams, and chromatic focusing and collection of the generated
+signal. For few-femtosecond pulses these effects change the trace enough that a
+thin-medium fit reproduces it closely yet returns the wrong pulse. The
+[capabilities overview](reference/features.md) lists the supported models,
+interactions and solvers.
 
 ```{image} _static/hero.png
 :alt: A retrieval summary showing the data and model traces, residual, and temporal and spectral pulse profiles.
@@ -75,6 +76,8 @@ New to pulse retrieval? Begin with the [introduction](introduction/index.md).
 If you already have a trace, follow [preparing and checking
 data](user_guide/data.md). To understand a result, see [interpreting
 results](user_guide/results.md) and [uncertainty](user_guide/uncertainty.md).
+Terms are defined in the [glossary](reference/glossary.md); the papers and
+methods behind croak are in the [references](reference/bibliography.md).
 
 ```{toctree}
 :hidden:

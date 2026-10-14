@@ -16,17 +16,18 @@ and the [gallery](../examples/index.md) provides worked applications.
 
 ## What a retrieval can tell you
 
-A retrieval estimates a field **within a specified model and reference plane**.
-A small trace residual is evidence for agreement with the supplied trace, not a
-guarantee of field accuracy. Finite bandwidth, noise, calibration, model mismatch
-and optimisation can all affect the answer. Absolute phase and time origin are
-not determined; SHG also has a time-direction ambiguity. An energy measurement
-is needed to assign absolute power. See [conventions](conventions.md) and
-[interpreting results](../user_guide/results.md).
+A retrieval returns the field **as defined by the forward model**, at the
+reference plane that model sets. A small trace error shows agreement with the
+model, not that the model describes the instrument: on simulated deep-UV TG-FROG
+scans the thin-medium model fits to below 0.54 % yet returns a pulse up to 2.3
+times too long ([validation](../explanation/validation.md)). Absolute phase and
+time origin are not determined, and SHG also cannot tell the direction of time.
+An energy measurement is needed to assign absolute power. See
+[conventions](conventions.md) and [interpreting results](../user_guide/results.md).
 
-croak implements SHG, SD and PG FROG, including a three-arm TG description using
-the PG interaction. The general PNPS formalism also describes d-scan and related
-methods, but those measurement operators are not bundled implementations.
+croak implements SHG, SD and PG FROG, with transient-grating (TG) FROG retrieved
+through the PG interaction. The PNPS formalism also describes d-scan and related
+methods; their measurement operators are not implemented.
 
 ## Retrieval
 
@@ -37,13 +38,13 @@ on-device reimplementations:
 | `algorithm` | Class | Gradient | Notes |
 |---|---|---|---|
 | `"warm-lbfgs"` | {class}`~croak.warm_lbfgs.WarmLBFGS` | JAX autodiff | the default; `lbfgs-ad` seeded from a COPRA local sweep |
-| `"copra"` | {class}`~croak.copra.COPRA` | analytic adjoint | projection and gradient stages |
+| `"copra"` | {class}`~croak.copra.COPRA` | analytic adjoint | robust from poor guesses |
 | `"copra-jax"` | {class}`~croak.copra_jax.COPRAJax` | analytic adjoint | COPRA on-device |
-| `"lbfgs"` | {class}`~croak.lbfgs.LBFGS` | analytic adjoint | NumPy gradient-based retrieval |
-| `"lbfgs-hand"` | {class}`~croak.lbfgs_hand.LBFGSHand` | analytic adjoint | JAX-compiled analytic gradient |
+| `"lbfgs"` | {class}`~croak.lbfgs.LBFGS` | analytic adjoint | most flexible objective in pure NumPy |
+| `"lbfgs-hand"` | {class}`~croak.lbfgs_hand.LBFGSHand` | analytic adjoint | jitted and vectorised; typically the fastest L-BFGS |
 | `"lbfgs-ad"` | {class}`~croak.lbfgs_ad.LBFGSAD` | JAX autodiff | widest model coverage — see below |
 | `"lbfgs-optx"` | {class}`~croak.optimistix_lbfgs.OptxLBFGS` | JAX autodiff | whole loop on-device |
-| `"lm"` | {class}`~croak.lm.LM` | JAX Jacobian | residual-Jacobian refinement |
+| `"lm"` | {class}`~croak.lm.LM` | JAX Jacobian | polishes to the lowest error |
 | `"lm-optx"` | {class}`~croak.optimistix_lm.OptxLM` | JAX Jacobian | on-device Levenberg–Marquardt |
 | `"cma-es"` | {class}`~croak.cmaes.CMAES` | none (global) | population search; needs `croak[evo]` |
 
@@ -52,9 +53,9 @@ per-frequency `R_omega` intensity scaling, second-difference smoothness penaltie
 on spectral amplitude (`reg_amp`) and phase (`reg_phase`), a spectral-match
 penalty against an independent measurement (`reg_spectrum`), and a temporal
 energy penalty outside a window (`reg_time`, on `lbfgs-ad` and `cma-es`). The
-amplitude and spectral penalties default to the package weights
-(0.03 and 0.01 for gradient solvers; 3e-5 and 1e-5 for LM); pass `0` to disable. See
-[Regularisation](../howto/regularisation.md).
+amplitude and spectral penalties default to 0.03 and 0.01 for the gradient
+solvers (3e-5 and 1e-5 for LM); pass `0` to disable. The papers' validation
+retrievals use 0.03 for both. See [Regularisation](../howto/regularisation.md).
 
 A cubic B-spline phase basis (`phase_basis="bspline"`) acts as a structural
 regulariser and is what makes the global search tractable. Warm starts, random
@@ -82,9 +83,8 @@ For the core model — all three thin-medium interactions, plus dispersive PG an
 parameterisation, standard penalties — croak also carries a hand-derived
 **Wirtinger adjoint**, so {class}`~croak.copra.COPRA` and
 {class}`~croak.lbfgs.LBFGS` run in pure NumPy with no JAX on the hot path. The
-two routes are checked on the interactions and options they share, including
-complex-field perturbations and regularised objectives. These derivative checks
-are separate from validation of the physical measurement model.
+two routes are tested against each other on every interaction and option they
+share, with complex-field perturbations and regularised objectives.
 
 Further reading: [Gradients](../explanation/gradients.md).
 
@@ -97,7 +97,8 @@ Further reading: [Gradients](../explanation/gradients.md).
   on every solver, for PG and SD (the SHG signal is not at the fundamental
   frequency). The thin medium is the same code path with zero thickness and one
   quadrature node.
-- **Geometric time smearing** — {mod}`croak.smearing` represents an achromatic, fully collected focal average using two timing coordinates: a
+- **Geometric time smearing** — {mod}`croak.smearing` represents an
+  achromatic, fully collected focal average using two timing coordinates: a
   gate-splitting parameter that changes the signal shape, and a delay offset that
   is a pure convolution along τ. {func}`~croak.smearing.square_boxcars_kernel`
   builds the kernel for a folded square BOXCARS mask,
@@ -107,8 +108,7 @@ Further reading: [Gradients](../explanation/gradients.md).
   the frequency dependence of local beamlet fields. The collection model adds
   their complex signal fields through a finite aperture before squaring. Optional
   depth evolution accounts for beam profiles changing within the slab. These
-  models require measured or otherwise justified geometry; additional model
-  detail does not guarantee a better field estimate.
+  models take the instrument geometry (mask, focus, aperture) as input.
 
 Further reading: [The forward model](../explanation/forward_model.md),
 [Interactions](../explanation/interactions.md),
@@ -138,9 +138,9 @@ Further reading: [Materials and mirrors](../howto/materials_and_mirrors.md),
 
 ## Loading and preprocessing
 
-- **Formats** — HDF5, NumPy `.npz` and delimited text, with dataset
-  auto-detection by name, unit handling and position→delay conversion
-  ({mod}`croak.io`).
+- **Formats** — traces from HDF5 and NumPy `.npz` files; independent spectra and
+  calibration curves also from delimited text (CSV). Dataset auto-detection by
+  name, unit handling and position→delay conversion ({mod}`croak.io`).
 - **Axis conventions** — the trace orientation (`transpose`) and the delay sign
   (`reverse_trace`, mirroring the trace about τ = 0) are per-load switches on
   both the measured and the simulated loader.
@@ -156,16 +156,16 @@ Further reading: [Materials and mirrors](../howto/materials_and_mirrors.md),
   is *computed from the wavelength axis rather than fitted*, with a Nyquist guard.
 - **Baseline removal** — {func}`~croak.preprocess.arpls_baseline` fits a smooth
   asymmetric lower envelope per wavelength row, handling a background that is
-  asymmetric about τ = 0, with peak protection to reduce signal subtraction. Inspect broad wings
-  and compare with a measured background when available.
+  asymmetric about τ = 0, with a τ ≈ 0 hold-out that stops it bowing into the
+  signal peak.
 - **Regridding** — wavelength to a uniform angular-frequency grid with the
   correct Jacobian and anti-aliasing; the SHG carrier doubling is handled
   automatically, and τ = 0 is centred on the delay marginal to sub-sample
   precision.
-- **Band diagnostics** — the grid's edge taper gradually suppresses frequency
-  rows near its boundaries. A narrow `lam_min`/`lam_max` can remove real signal
-  and weaken constraints near the edge. `TraceData.taper_loss` reports how much of the
-  trace the taper removed, and the loader warns above 1 %.
+- **Band diagnostics** — the grid's edge taper rolls the outermost frequency rows
+  to zero, so a narrow `lam_min`/`lam_max` removes real signal.
+  `TraceData.taper_loss` reports how much of the trace the taper removed, and the
+  loader warns above 1 %.
 
 Further reading: [Preprocessing](../howto/preprocessing.md),
 [Grids and filtering](../howto/grids_and_filtering.md),
@@ -179,23 +179,21 @@ Further reading: [Preprocessing](../howto/preprocessing.md),
   centroid matching.
 - **Ambiguity resolution** — an SHG trace cannot distinguish a pulse from its
   mirror image, and the flip also inverts the sign of the retrieved spectral
-  phase. With a known asymmetric temporal intensity,
-  {func}`croak.processing.resolve_time_direction` can select the matching branch.
-  A symmetric intensity cannot distinguish it; a separate measurement or known
-  spectral phase is then needed to establish the sign of spectral phase.
+  phase. When the true pulse is known,
+  {func}`croak.processing.resolve_time_direction` picks the matching branch from
+  the temporal intensity (a time-symmetric intensity leaves it undecided).
 - **Post-processing** — {func}`croak.processing.process_result` returns oversampled temporal
   intensity and phase with the linear ramp removed, the transform-limited
   reference, fitted GDD/TOD/FOD, marginals, weighted residuals, and absolute peak
   power when a pulse energy is supplied.
 - **Edge-energy quality flag** — {func}`croak.processing.edge_energy_fraction` reports how
-  much spectral energy sits near the grid boundaries. It flags results for
-  a wider-grid check; it does not measure identifiability or certify accuracy.
-  Compare the auxiliary spectrum and residual as well, particularly when fitting
-  a free row response with `R_omega`.
+  much spectral energy sits in the unmeasured grid-edge bins: under 0.1 % is
+  sound, a few percent means part of the spectrum and duration is an artefact,
+  usually from `R_omega` without a spectral constraint.
 - **Plotting** — a twelve-panel retrieval summary built from twelve independent
   panels (also laid out as three 2×2 pages), a six-panel filter before/after
   view, spectrograms, uncertainty and thickness-sensitivity plots. Every
-  composite is built from single-axis functions, so the GUI embeds the same plotting functions.
+  composite is built from single-axis functions, which the GUI embeds directly.
 
 Further reading: [Marginal checks](../howto/marginal_checks.md),
 [Post-processing](../howto/postprocessing.md).
@@ -208,15 +206,17 @@ resampling-based estimators by name:
 | `method` | Kind |
 |---|---|
 | `"parametric"` | Monte-Carlo over a detector noise model, re-retrieving each replicate |
-| `"delay"` / `"frequency"` | resampling (block) bootstraps, using empirical resampling assumptions |
+| `"delay"` / `"frequency"` | resampling (block) bootstraps of delay columns or frequency rows |
 | `"thickness"` | systematic — propagates a measured substrate-thickness prior |
 
 Two more estimators are their own functions rather than dispatcher methods:
 
 - {func}`croak.covariance.covariance_uncertainty` — a local Gaussian
-  covariance approximation from the JAX residual Jacobian. Its pseudo-inverse
-  drops weak directions, which can include physical uncertainty as well as gauges. It needs **no re-retrieval** and can analyse results from NumPy solvers when
-  their model and parameterisation can be reconstructed by the covariance path.
+  covariance approximation from the JAX residual Jacobian. It needs **no
+  re-retrieval** and also analyses NumPy-solver results whose model the JAX path
+  implements. Its
+  pseudo-inverse drops the unobservable gauge directions, and with them any
+  equally weak physical direction.
 - {func}`croak.uncertainty.combine_uncertainties` — convolves the centred sample
   distributions of *independent* contributions, preserving skew (and reducing to
   quadrature in the Gaussian limit).
@@ -236,9 +236,8 @@ Further reading: [Estimating FWHM uncertainty](../howto/uncertainty.md),
   read-out of retrieved, measured, transform-limited and (for synthetic
   sessions) true pulse parameters. Laid out for 1366×768 displays and up.
   Importing `croak` does not import Qt.
-- **Sessions** — the session engine replays a saved TOML session end to end, so the
-  interfaces use shared stage operations. Retain external inputs, calibrations,
-  software version and random seeds to reproduce a result.
+- **Sessions** — the session engine replays a saved TOML session end to end
+  through the same stage operations the GUI uses.
 - **CLI** — `croak replay` reruns a session headlessly, including batch
   retargeting across datasets; `croak script` generates a standalone, editable
   Python script from it.

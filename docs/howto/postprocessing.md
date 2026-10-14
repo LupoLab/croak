@@ -1,11 +1,12 @@
 # Post-processing and plotting results
 
-Interpret a retrieval by comparing the fitted trace with the data, inspecting
-the pulse and its spectrum, and testing sensitivity to modelling choices.
-{mod}`croak.processing` derives profiles, dispersion coefficients, marginals
-and residuals from a {class}`~croak.result.RetrievalResult`. These diagnostics
-complement the [trace error](../explanation/retrieval_theory.md); none alone
-certifies the field.
+A {class}`~croak.result.RetrievalResult` already exposes the retrieved field,
+spectrum and their intensities and phases. {mod}`croak.processing` goes further:
+it turns a result into a display-ready {class}`~croak.processing.ProcessedResult`
+with oversampled profiles, fitted dispersion coefficients, marginals, residuals
+and a spectral-edge quality flag, everything the figures need. Read these
+alongside the [trace error](../explanation/retrieval_theory.md), which measures
+agreement with the model rather than with the pulse.
 
 ```python
 pr = croak.process_result(result, measured=td.trace, Iomega_meas=td.Iomega)
@@ -48,11 +49,10 @@ pr.peak_power       # retrieved-pulse peak power (W)
 pr.peak_power_tl    # transform-limited peak power (W) at the same energy
 ```
 
-For a fixed spectral amplitude and energy, constant spectral phase gives the
-maximum peak power. It need not minimise every duration measure, including FWHM
-for a structured pulse. Supply energy measured at the same reference plane and
-for the same spatially integrated pulse; a local on-axis temporal profile need
-not describe the total beam power. Energy is conserved under the dispersion-stage (phase-only)
+For a fixed spectral amplitude and energy, a flat spectral phase gives the
+maximum peak power, so the transform-limited pulse sets the ceiling. Supply the
+energy of the same beam the retrieval describes (an on-axis field describes the
+centre of the beam, not its total power). Energy is conserved under the dispersion-stage (phase-only)
 compensation, so compressing the pulse raises its peak power towards `peak_power_tl`
 at fixed `E`. With `energy` unset (the default), `peak_power`/`peak_power_tl` are
 `None` and every plot stays in normalised units.
@@ -95,11 +95,13 @@ Helpers are also exposed individually: {func}`~croak.processing.marginals`,
 
 ## Is the spectrum real
 
-A low trace error does not by itself establish spectral accuracy. The
+A low trace error does not by itself mean the retrieved spectrum is
+trustworthy. The outermost {data}`~croak.preprocess.TAPER_COLLAR_BINS` (10)
+frequency bins at each end of the grid carry almost no measurement, because the
 [edge taper](grids_and_filtering.md#the-edge-taper-and-why-the-band-must-be-generous)
-reduces information in the outer frequency rows, and a fit can place energy near
-the boundaries. A wider measurement or an independently calibrated spectrum can
-help constrain that behaviour.
+takes them to zero. The field there is nearly free, and because intensity cannot
+go below zero it drifts upward: spectral energy appears at the band edges that
+was never in the trace.
 
 {func}`~croak.processing.edge_energy_fraction` measures it, and
 {attr}`ProcessedResult.edge_energy <croak.processing.ProcessedResult.edge_energy>`
@@ -112,15 +114,24 @@ if pr.edge_energy > 0.01:
     print(f"{pr.edge_energy:.1%} of the pulse energy is off the measured band")
 ```
 
-The 1 % plotting threshold is a diagnostic convention, not an accuracy bound.
-High edge energy can indicate truncation or an unstable spectrum; low edge
-energy does not establish correctness. Inspect the pulse after widening the
-grid and varying the regularisation.
+Rules of thumb from our deep-UV TG-FROG measurements: **under 0.1 %** is a sound
+retrieval; **a few percent** means part of the reported spectrum, and therefore
+of the reported duration, is an artefact. On one dataset, 15.6 % edge energy
+inflated the reported FWHM by 14 % against the same retrieval with the edge bins
+removed. A low value rules out this failure only; it does not certify the rest of
+the field.
 
-Two common contributors are a tight measurement band and unconstrained
-[per-frequency scaling](regularisation.md#per-frequency-scaling). Supplying a
-measured spectrum or using `phase_only` can constrain amplitude, provided that
-spectrum has the appropriate response correction and field reference.
+The causes, in order of importance:
+
+1. `R_omega=True` used without `reg_spectrum` or `phase_only`: by far the
+   biggest contributor, and it *lowers* the reported error while doing it. See
+   [per-frequency scaling](regularisation.md#per-frequency-scaling).
+2. A `lam_min`/`lam_max` band tight enough that the taper cuts live signal;
+   `load_and_clean` warns about this at load time.
+3. Noise fitted into signal-free bins on a noisy trace when no measured spectrum
+   is supplied as a target. The COPRA warm-up of `warm-lbfgs` has no spectral
+   penalty even when one is; see the
+   [thickness-uncertainty example](../examples/thickness_uncertainty.md).
 
 Note the metric counts bins, so it is only meaningful on a grid with room for two
 non-overlapping collars (≥ 21 points); it returns `0.0` below that.
@@ -166,10 +177,8 @@ its mirror image fit the measurement equally well and the solver returns whichev
 branch it happened to land in. Overlay a truth without accounting for that and a
 perfect retrieval can look like a failure — the two curves mirrored about $t=0$.
 
-When the true pulse has a sufficiently asymmetric intensity profile,
-{func}`~croak.processing.resolve_time_direction` can select the branch that
-better matches that profile. It cannot resolve the phase sign of a symmetric
-chirped Gaussian from intensity alone. Apply it to the `RetrievalResult` *before* anything
+When the true pulse is known, {func}`~croak.processing.resolve_time_direction`
+picks the matching branch. Apply it to the `RetrievalResult` *before* anything
 derives from it, so the plot, any `ProcessedResult` and the reported dispersion
 all describe the same pulse:
 
@@ -180,10 +189,11 @@ pr = croak.process_result(result, measured=trace)
 
 It compares **temporal intensity** profiles by their best normalised
 cross-correlation over all lags, which keeps the decision independent of the
-absolute phase and the time origin (both ambiguous too). An imperfect or nearly
-symmetric retrieved intensity can make this comparison inconclusive. It is a
-no-op when the two branches score alike and for PG and SD, which do not have the
-general SHG time-reversal symmetry.
+absolute phase and the time origin (both ambiguous too), and reliable on an
+imperfect retrieval: only the relative ranking of the two branches has to be
+right. A time-symmetric intensity, such as a chirped Gaussian's, scores alike on
+both branches and is left unchanged. It is a no-op for PG and SD, which fix the
+direction of time.
 
 Reversal is applied by conjugating the spectrum, which is exact: the stored trace,
 `mu` and `error` remain valid. Note that the **spectral phase changes sign**, so
@@ -272,16 +282,14 @@ own figures.
 For custom interactive applications, see the [live-view contracts in the
 developer’s guide](../developer_guide/gui_sessions.md#live-views-gui-support).
 
-(cosmetic-windowing)=
 ## Windowing the retrieved field
 
 To trim ringing or out-of-band energy from the *result* before plotting (without
 re-running the retrieval), apply {func}`croak.processing.post_filter` — a
 reversible temporal/spectral Planck taper that returns a new result. Pass the
 measurement windows `td.lamm_lims` / `td.tau_lims` (λm/τm) as `lam_lims` /
-`tau_lims`. This changes the field but leaves the stored fitted trace and error
-unchanged; those diagnostics still belong to the unfiltered retrieval. Compare
-a newly calculated trace before interpreting the filtered field. See
+`tau_lims`. The stored trace and error still describe the unfiltered retrieval.
+See
 [Grids and filtering](grids_and_filtering.md).
 
 ## Residual dispersion

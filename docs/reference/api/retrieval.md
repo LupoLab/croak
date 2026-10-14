@@ -73,7 +73,6 @@ driven by Optimistix's on-device L-BFGS instead of NLopt.
    :members:
 ```
 
-(choice-of-method)=
 ## Levenberg–Marquardt
 
 ```{eval-rst}
@@ -108,9 +107,8 @@ optional `croak[evo]` extra.
 
 The default `warm-lbfgs` retriever: {class}`~croak.lbfgs_ad.LBFGSAD` on the full
 extended model, started from a COPRA local-projection sweep rather than from the
-raw initial guess. The final stage uses the `lbfgs-ad` objective. Warm starting can improve
-convergence, but neither a common minimum nor independence from the initial
-guess is guaranteed.
+raw initial guess. The final stage uses the `lbfgs-ad` objective; the COPRA
+start makes it much less sensitive to the initial guess than `lbfgs-ad` alone.
 
 ```{eval-rst}
 .. automodule:: croak.warm_lbfgs

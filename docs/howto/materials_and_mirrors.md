@@ -7,10 +7,17 @@ operations have different roles: the [forward model](../explanation/forward_mode
 fits a measurement, while [dispersion tuning](../tutorials/05_dispersion_tuning.md)
 explores the pulse after retrieval.
 
-Available optical data include built-in Sellmeier materials, custom refractive
-indices, the optional refractiveindex.info database, gases, chirped mirrors and
-beam-path coatings. Check the wavelength range, polarisation and conditions of
-each dataset before using it.
+The optical data come from five sources:
+
+- **built-in Sellmeier materials** (fused silica, CaF₂, …);
+- **custom materials** you register yourself, including pages from the
+  [refractiveindex.info](https://refractiveindex.info) database;
+- **gases** (helium, air) at a chosen pressure and path length;
+- **chirped mirrors**, from bundled data or your own measurement;
+- **beam-path coating mirrors** (Si, MgF₂/Al) to back-propagate out of the pulse.
+
+Each dataset has a valid wavelength range, and mirror data are given for a
+polarisation and angle of incidence.
 
 ## Built-in materials
 
@@ -53,11 +60,6 @@ def n_sapphire(lam_m):                       # ordinary-ray Sellmeier, λ in met
 
 croak.materials.register_material("Sapphire", n_sapphire)
 ```
-
-The formula above illustrates registration; supply the validity limits from
-your material reference and return `nan` outside them before using it on a broad
-spectrum. An index formula alone does not describe absorption or nonlinear
-response.
 
 A registered material is then usable **everywhere a built-in name is** — including
 `material="Sapphire"` in {func}`croak.retrieve`. Registered names take precedence
@@ -118,14 +120,13 @@ ew = croak.apply_dispersion(g.omega, res.omega0, res.spectrum,
 Because a gas is registered as an ordinary material, it works **everywhere a
 material name does** — including the dispersion auto-compressor, which sweeps the
 path length at the set pressure. The available gases are in
-{data}`croak.gases.GASES` (`('Helium', 'Air')`). The ideal-gas scaling is an approximation. Its accuracy depends on the gas,
-pressure, temperature and wavelength; a pressure control's range is not a
-validated range of the equation of state.
+{data}`croak.gases.GASES` (`('Helium', 'Air')`). The ideal-gas scaling is accurate
+to about 0.1 % for these gases up to a few bar; at tens of bar a real-gas equation
+of state would differ.
 
 The GUI's **Gases** group selects the gas, pressure and path length. Pressure
 ranges from 0–10 bar in 1 mbar steps; path length ranges to ±999 cm. Negative
 length removes the modelled phase, and **Auto** optimises over the allowed range.
-Check the optical-data validity and gas conditions independently.
 
 ## Chirped mirrors
 
@@ -161,8 +162,8 @@ compressed = croak.apply_dispersion(g.omega, res.omega0, res.spectrum,
                                    mirror_bounces={"PC70": 6})
 ```
 
-Pass only `phase_fn` to `register_mirror` when a phase-only calculation is
-intended. Include `amp_fn` when loss or spectral reshaping matters.
+For good compressor mirrors `R ≳ 99 %` in band, so the loss is small; pass only
+`phase_fn` to `register_mirror` for a phase-only calculation.
 
 `mirror_bounces` can be combined with `gdd`/`tod`/`fod` and `material_thicknesses`
 in a single {func}`~croak.dispersion.apply_dispersion` call, and is one of the knobs
@@ -197,23 +198,26 @@ polarisation, and the valid range:
 ```python
 phase_fn, amp_fn, valid_range = mirrors.load_coating("MgF2/Al @ 0°", "s")
 croak.dispersion.register_mirror("MgF2Al", phase_fn, amp_fn)   # phase + amplitude
+
+phase_fn, amp_fn, _ = mirrors.load_coating("Si @ 45°", "s")
+croak.dispersion.register_mirror("Si45", phase_fn, amp_fn)
 ```
 
 A **negative** bounce count removes the mirror: `apply_dispersion` then applies
 `exp(-iNφ)` *and* divides the spectrum by `r(λ)^N` (the net amplitude gain is
-clamped so a small reflectivity cannot blow it up). Several mirrors back-propagate
-in one call:
+clamped so a small reflectivity cannot blow it up). Several registered coatings
+back-propagate in one call:
 
 ```python
 upstream = croak.apply_dispersion(
     g.omega, res.omega0, res.spectrum,
-    mirror_bounces={"MgF2Al": -6},
+    mirror_bounces={"MgF2Al": -6, "Si45": -2},
 )
 ```
 
-Back-propagation estimates the upstream field under the assumed transfer
-function; it cannot recover information lost where reflectivity is small or
-zero. Check the valid wavelength range and amplification of noise.
+Back-propagation cannot recover spectral content where the reflectivity is
+close to zero; the clamp limits the noise it amplifies there. Keep the spectrum
+inside the coating's valid wavelength range.
 
 At normal incidence the `s` and `p` data coincide; at oblique incidence they
 differ, so pick the polarisation that matches your beam.

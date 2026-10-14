@@ -52,9 +52,8 @@ a small trace error does not imply a correct pulse. See
 Pre-retrieval consistency checks from the frequency marginal: the marginal predicted from
 the independent spectrum (exact for SHG, transform-limited for PG/TG/SD), its
 centroid/width diagnostics, and the centroid-matching efficiency-exponent
-picker. Apply the thin-local-model assumptions before interpreting these
-comparisons; propagation and collection can change the marginal. The
-background is in [FROG trace marginals as consistency checks](../../explanation/marginals.md).
+picker. The predictions assume the thin local model; propagation and
+collection change the marginal. The background is in [FROG trace marginals as consistency checks](../../explanation/marginals.md).
 
 ```{eval-rst}
 .. automodule:: croak.marginal_checks

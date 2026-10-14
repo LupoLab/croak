@@ -91,11 +91,10 @@ FROG trace carries real information in its wings — that is where the chirp sho
 itself — and they are easy to underestimate: on a linear plot the signal looks
 finished long before it is.
 
-Inspect the wavelength marginal and a logarithmic trace image together with
-the noise floor. For a clean synthetic PG/SD trace, a threshold of $10^{-4}$ of
-the peak is one useful illustration; it is not a universal experimental cutoff.
-For SHG, convert the signal band to the fundamental band before setting the
-retrieval grid.
+Pick the edges from the wavelength marginal at roughly **1e-4 of its peak**
+(−40 dB), or read them off a dB image of the trace, and stop at the noise floor
+if it comes first. For SHG, convert the signal band to the fundamental band
+before setting the retrieval grid.
 
 ```python
 marg = trace.sum(axis=1)
@@ -110,16 +109,19 @@ points it adds.
 
 ## The edge taper, and why the band must be generous
 
-`regrid` applies a Planck taper across the outermost
-{data}`croak.preprocess.TAPER_COLLAR_BINS` (10) frequency bins at each end.
-It gradually attenuates these rows to zero at the boundaries. The whole collar
-is not identically zero, but its reduced signal provides weaker constraints.
-Nonlinear mixing still couples field components across frequency, so a trace
-window is not a direct mask of which pulse frequencies can be determined.
+`regrid` does not simply crop at `lam_min`/`lam_max`. It applies a Planck taper
+that rolls the trace to zero across the outermost
+{data}`croak.preprocess.TAPER_COLLAR_BINS` (10) frequency bins at each end. This
+is not optional: the forward model FFTs the trace on a periodic grid, so a trace
+that does not reach zero at the boundary rings back into the fit.
 
-Energy accumulating near a grid edge can indicate inadequate coverage or a
-poorly constrained fit. Use {func}`croak.processing.edge_energy_fraction` as a
-diagnostic and repeat the retrieval with a wider grid.
+The consequence is that the outermost bins carry almost **no measurement**,
+whatever band you choose. The nonlinear mixing still couples the field at those
+frequencies to the live rows, but only weakly: a probe spike at the grid edge
+moves the trace error roughly 100× less than the same spike mid-band. The
+optimiser can therefore park energy there for almost no penalty, and since
+intensity is bounded below by zero it can only drift upward.
+{func}`croak.processing.edge_energy_fraction` detects the result.
 
 So the band must be wide enough that the taper lands on trace that has genuinely
 died away. {func}`~croak.preprocess.load_and_clean` measures this for you and
@@ -131,7 +133,7 @@ UserWarning: the retrieval grid's edge taper removed 38.7% of the measured
 trace: lam_min=700.0 nm / lam_max=900.0 nm clip signal that is still present.
 ```
 
-Check the recorded loss for your data. Pass
+A band picked from the marginal at 1e-4 typically loses well under 0.1 %. Pass
 `taper_warn_level=0.0` to silence the check when a tight band is deliberate.
 
 ## Post-retrieval windowing
@@ -152,9 +154,8 @@ carries signal, stored on the `TraceData` as `td.lamm_lims` / `td.tau_lims`. (Th
 full retrieval-grid extent, `td.lam_min`/`td.lam_max`, would taper only the
 outermost few bins and do nothing useful.)
 
-The stored trace and error still describe the original unfiltered fit.
-Recalculate a forward trace if you want to test the filtered field against the
-measurement, and retain both results. This is distinct from the [spectral-match penalty](regularisation.md), which
+The stored trace and error still describe the original unfiltered fit. This is
+distinct from the [spectral-match penalty](regularisation.md), which
 constrains the retrieval itself rather than filtering its output.
 
 ## Checklist
@@ -164,7 +165,6 @@ constrains the retrieval itself rather than filtering its output.
 - Set `omega0` on dispersive solvers (or let `retrieve_from_tracedata` take it
   from `td.omega0_pulse`).
 - Make the periodic time window wide enough for the pulse, its delayed replicas
-  and its propagation through the whole medium. Refine both the window and
-  sampling to check convergence.
-- Record post-retrieval windowing: it changes the reported field. Use
-  [regularisation](regularisation.md) to constrain the fit itself.
+  and its propagation through the whole medium.
+- Use `post_filter` for cosmetic clean-up, and record it, since it changes the
+  reported field; use [regularisation](regularisation.md) to constrain the fit.

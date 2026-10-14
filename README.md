@@ -15,26 +15,45 @@
 **Retrieval of ultrashort laser pulses from FROG traces — spectral amplitude
 and phase.**
 
-croak retrieves the spectral amplitude and phase of an ultrashort laser pulse
-from a frequency-resolved optical gating (FROG) trace. It supports SHG, SD and
-PG/transient-grating local interactions, dispersive PG/SD models, geometric
-delay smearing, and chromatic focal and collection models. The Python library
-and optional graphical wizard cover loading, checking and preparing data,
-retrieval, interpreting results, dispersion tuning, uncertainty and saving.
+> **Just want the graphical FROG retrieval program?**
+> See [Installing the GUI](https://croak.readthedocs.io/en/latest/getting_started/gui.html)
+> for install instructions that need no Python knowledge.
 
-The model describes what the instrument records. For broadband pulses,
-propagation and collection can change the trace enough that a thin-medium fit
-has a small residual but an inaccurate field. croak provides a hierarchy of
-models to investigate those effects. State the model, field reference and
-assumptions when reporting a retrieval; trace agreement alone is not validation.
-See the [capabilities overview](https://croak.readthedocs.io/en/latest/reference/features.html)
-and the [scientific validation](https://croak.readthedocs.io/en/latest/explanation/validation.html),
-which includes successful and failed cases from two unpublished drafts.
+croak reconstructs the complex electric field of an ultrashort pulse from a
+frequency-resolved optical gating (FROG) trace. It is a retrieval package for
+the PNPS (parameterised nonlinear process spectra) class of measurements,
+currently focused on FROG: the SHG, SD and PG/transient-grating geometries, ten
+solvers over a single physical forward model, and the workflow around them
+(loading, cleaning, retrieval, post-processing, dispersion tuning, uncertainty,
+plotting and saving). The library is headless (NumPy/SciPy/JAX); a PyQt6 GUI is
+optional.
 
-Start with the [Introduction](https://croak.readthedocs.io/en/latest/introduction/index.html).
-For the graphical application, follow
-[Installing the GUI](https://croak.readthedocs.io/en/latest/getting_started/gui.html);
-no previous Python experience is needed.
+What distinguishes croak from a classic FROG code is the forward model.
+Standard retrieval assumes an infinitely thin, non-dispersive nonlinear medium,
+an ideal beam geometry and perfect signal collection. Those assumptions fail for
+few-femtosecond pulses in the deep ultraviolet. On simulated deep-UV TG-FROG
+scans of a complete instrument, the standard thin-medium model fits the trace to
+a residual below 0.54 % yet returns 1.35–2.41 fs for a 1.05 fs pulse over 1–40 µm
+of fused silica. A small trace error alone does not certify a retrieval. croak
+instead models the measurement physics directly:
+
+- **dispersive propagation** of the input fields and the generated signal
+  through the nonlinear medium;
+- **geometric delay smearing** of the crossed-beam (BOXCARS) geometry, with a
+  closed-form kernel set by the mask geometry, or fitted from the data;
+- **chromatic focusing and the collection aperture**, as a coherent chromatic
+  filter on the signal (the full focal model).
+
+With the full model croak retrieves 1.047–1.079 fs against the 1.053 fs truth at
+all fifteen thicknesses from 1 to 40 µm. Because the model is a differentiable
+JAX program, retrieval is ordinary regularised least squares: measured spectra,
+per-frequency response factors and fitted physical parameters (medium thickness,
+delay zero, smearing strength) enter by adding them to the objective. The
+methods and the validation are described in two papers in preparation (see
+[Citation](#citation)) and summarised in the
+[validation chapter](https://croak.readthedocs.io/en/latest/explanation/validation.html);
+the [capabilities overview](https://croak.readthedocs.io/en/latest/reference/features.html)
+lists everything the package does.
 
 ![The wizard after a retrieval: measured and retrieved traces, residuals, the retrieved pulse and spectrum, and a numeric read-out.](docs/_static/gui_retrieve.png)
 
@@ -48,7 +67,8 @@ installs the right Python for you:
 uv add croak                 # into a uv project
 ```
 
-For the GUI as a standalone command, without a project:
+or into any environment of your own (`uv pip install croak`, or plain
+`pip install croak`). For the GUI as a standalone command, without a project:
 
 ```bash
 uv tool install --python 3.14 "croak[gui]"
@@ -72,10 +92,43 @@ uv run python my_retrieval.py
 uv run croak-gui
 ```
 
-For supported platforms, system libraries and JAX CPU/GPU setup, see the
-[installation guide](https://croak.readthedocs.io/en/latest/getting_started/installation.html).
-The core models can run on a CPU; spatial quadrature increases cost and can
-benefit from a supported GPU. Performance depends on the problem and hardware.
+<details>
+<summary><b>Platform notes</b>: read this if the install fails</summary>
+
+The binary dependencies (`jax`, `nlopt`, `finufft`, `pyqt6`) do not publish
+wheels for every platform. Where a wheel is missing, pip/uv falls back to
+building from source, which needs CMake and a C++ toolchain.
+
+| Platform | Status |
+|---|---|
+| **Linux x86_64** (glibc ≥ 2.34, i.e. Ubuntu 22.04+/RHEL 9+) | supported |
+| **macOS, Apple Silicon**, macOS ≥ 14 | supported |
+| **Windows x86_64** | supported |
+| **macOS, Intel** | not supported: there is no current `jaxlib` wheel |
+| **Linux aarch64** | `nlopt` and `finufft` build from source |
+
+**Linux also needs Qt's system libraries** for the GUI (neither uv nor pip
+provides these):
+
+```bash
+sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
+  libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+  libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-cursor0
+```
+
+**Python 3.14 is a hard floor**, not a preference: the source uses 3.14 syntax
+and does not parse on 3.13. `uv python install 3.14` is the simplest fix.
+
+**JAX installs CPU-only by default**, which suits the standard and extended
+models. For the full focal model, install `jax[cuda12]` and use a GPU; see
+[Performance](#performance).
+
+Prefer plain pip? `python3.14 -m venv .venv && . .venv/bin/activate && pip install -e .`
+
+</details>
+
+The [installation guide](https://croak.readthedocs.io/en/latest/getting_started/installation.html)
+covers all of this in more detail.
 
 Optional extras: `croak[gui]` (the wizard), `croak[ridb]` (browse
 refractiveindex.info materials — a few hundred MB downloaded on first use) and
@@ -126,42 +179,57 @@ croak.save_result(result, "retrieval.h5", processed=pr)
 
 ## Solvers
 
-Select a solver with `algorithm=`. Supported model options and objectives
-differ, so use the [solver guide](https://croak.readthedocs.io/en/latest/howto/solver_selection.html)
-when changing algorithms.
+Ten solvers in four algorithm families sit behind one `algorithm=` argument
+over a single forward model. The
+[solver guide](https://croak.readthedocs.io/en/latest/howto/solver_selection.html)
+explains which model options each supports.
 
-| Family | Algorithms | Role |
+| `algorithm` | Gradient | Use it for |
 |---|---|---|
-| COPRA | `copra`, `copra-jax` | Local projection sweeps followed by global updates |
-| L-BFGS | `lbfgs`, `lbfgs-hand`, `lbfgs-ad`, `lbfgs-optx` | Gradient optimisation with analytic or automatic derivatives |
-| Warm-started L-BFGS | `warm-lbfgs` (default) | COPRA initialisation followed by the AD solver |
-| Nonlinear least squares | `lm`, `lm-optx` | Residual/Jacobian methods; SciPy TRF by default for `lm`, Optimistix LM for `lm-optx` |
-| Population search | `cma-es` | Evolution strategies, often followed by local refinement |
+| `"warm-lbfgs"` | JAX autodiff | **the default**: `lbfgs-ad` started from a COPRA sweep, much less sensitive to the initial guess |
+| `"lbfgs-ad"` | JAX autodiff | the complete model: smearing, fitted thickness/τ₀, B-spline basis, penalties |
+| `"copra"` | analytic adjoint | fast and robust from poor guesses (thin or dispersive medium) |
+| `"lbfgs"` | analytic adjoint | phase-only, or custom regularisation, in pure NumPy |
+| `"lm"` | JAX Jacobian | Levenberg–Marquardt polish to the lowest trace error |
+| `"cma-es"` | none (global) | escaping a poor local minimum with no good guess |
+| `"copra-jax"`, `"lbfgs-hand"`, `"lbfgs-optx"`, `"lm-optx"` | | on-device variants of the above |
 
-The core model has analytic Wirtinger adjoints. JAX supplies automatic
-derivatives for implemented spatial models and fitted scalar parameters. The
-manual retains [adjoint derivations](https://croak.readthedocs.io/en/latest/explanation/gradients.html),
-[objective definitions](https://croak.readthedocs.io/en/latest/explanation/retrieval_theory.html)
+For the core model (all three interactions, thin or dispersive medium) croak
+also carries a hand-derived Wirtinger adjoint: exact closed-form gradients that
+verify the automatic differentiation. The AD route carries everything else,
+including the physics the projection-based algorithms cannot (the smearing
+mixture and the collection model), so a new model feature needs no new
+derivation. The manual gives the
+[adjoint derivations](https://croak.readthedocs.io/en/latest/explanation/gradients.html),
+[objective](https://croak.readthedocs.io/en/latest/explanation/retrieval_theory.html)
 and [model equations](https://croak.readthedocs.io/en/latest/explanation/forward_model.html).
 
 ## Performance
 
-NumPy and JAX routes have different compilation and execution costs. Compare
-matched models, grids, quadratures and stopping rules, and separate first-call
-compilation from repeated runs. See the
-[installation guide](https://croak.readthedocs.io/en/latest/getting_started/installation.html#jax-and-gpus)
-for accelerator setup.
+The forward model is JAX throughout, so the same code runs on CPU or GPU. The
+standard and extended models retrieve in seconds on a laptop CPU. The full focal
+model (the chromatic focal mixture with the modelled collection aperture) is
+where the GPU matters. In our timings it ran about **60× faster on an NVIDIA
+H200 than on an Intel Xeon Gold 6240** (all cores) and **6.4× faster than on an
+Apple M5 Max** with full threading, which is itself about 10× the Xeon. Install
+commands for CUDA-enabled JAX (project, checkout and GUI tool installation) are
+in the
+[installation guide](https://croak.readthedocs.io/en/latest/getting_started/installation.html#jax-and-gpus).
 
 ## Scope
 
-The PNPS formalism also describes techniques such as d-scan and XFROG, but these
-are not implemented retrieval workflows in croak. New measurement techniques
-can require changes to the scan, forward model and derivative paths; adding a
-local interaction alone is not sufficient.
+croak is built on the PNPS formalism: the same mathematics describes
+frequency-resolved optical gating, time-domain ptychography, cross-correlation
+FROG and dispersion scan, differing in the signal operator and the scan
+parameter. croak ships the three FROG interactions, with delay as the scan
+parameter throughout. XFROG, TDP and d-scan are natural extensions, but each
+needs its own scan and forward-model support, not only a new interaction; see
+[Interactions](https://croak.readthedocs.io/en/latest/explanation/interactions.html).
 
-The bundled instrument datasets were generated with
-[ModelPNPS.jl](https://github.com/LupoLab/ModelPNPS.jl), a separate Julia
-simulation package. They are simulated measurements, not experimental data.
+The instrument simulations behind the validation, and the bundled example
+datasets, were produced with [ModelPNPS.jl](https://github.com/LupoLab/ModelPNPS.jl),
+a separate Julia package that simulates PNPS measurements in three dimensions
+from the underlying propagation physics.
 
 ## GUI
 
@@ -184,7 +252,7 @@ Sessions save to TOML, and `croak replay` reruns one headlessly — or
 ```bash
 uv run python examples/example_retrieval.py              # shapes, geometries, noise, dispersion
 uv run python examples/example_workflow.py               # load → retrieve → save
-uv run python examples/example_paper_thickness.py        # bundled DUV simulation, three models
+uv run python examples/example_paper_thickness.py        # a simulated 1 fs DUV trace, extended vs standard model
 uv run python examples/example_paper_rdw.py              # a simulated single-cycle RDW pulse
 uv run python examples/example_geometric_smearing.py     # BOXCARS time smearing
 uv run python examples/example_defringe.py               # interferometric fringe removal
@@ -193,11 +261,13 @@ uv run python examples/example_thickness_uncertainty.py  # fitted thickness & er
 ```
 
 The first examples synthesise their own data. The two `example_paper_*`
-scripts retrieve from reduced 3D instrument-simulation datasets, shipped in [`examples/data/`](examples/data/README.md). The
-examples and their data live in the repository, not in the PyPI package, so
-run them from a clone. The [worked gallery](https://croak.readthedocs.io/en/latest/examples/index.html)
-explains their inputs, outputs and limitations. The bundled legacy examples
-illustrate workflows; their settings do not reproduce the revised paper protocol.
+scripts retrieve from the bundled reduced simulation datasets in
+[`examples/data/`](examples/data/README.md). The examples and their data live in
+the repository, not in the PyPI package, so run them from a clone. The
+[example gallery](https://croak.readthedocs.io/en/latest/examples/index.html)
+explains their inputs and outputs. The examples use a general workflow
+(`warm-lbfgs`, de-fringing on), not the protocol of the papers' validation
+retrievals, so their durations differ from the published numbers.
 
 ## Documentation
 
@@ -229,15 +299,21 @@ was already taken on PyPI — hence the unchanged amphibian on the icon. See
 
 ## Citation
 
-Cite the software via [doi:10.5281/zenodo.22182305](https://doi.org/10.5281/zenodo.22182305)
-(all versions), or use [CITATION.cff](CITATION.cff). The scientific documentation
-also draws on two **unpublished drafts** by J. C. Travers and C. Brahms:
+If you use croak in published work, please cite the paper describing it:
 
-- *Differentiable physical models for ultrashort-pulse retrieval*.
-- *A dispersive and spatial model of transient-grating frequency-resolved optical gating*.
+> J. C. Travers and C. Brahms, "Differentiable physical models for
+> ultrashort-pulse retrieval", in preparation.
 
-See the [references](https://croak.readthedocs.io/en/latest/reference/bibliography.html)
-for the scope of each draft and the published sources underlying the methods.
+The dispersive and spatial TG-FROG model is described in
+
+> J. C. Travers and C. Brahms, "A dispersive and spatial model of
+> transient-grating frequency-resolved optical gating", in preparation.
+
+Publication details will be added when available. Cite the software itself via
+[doi:10.5281/zenodo.22182305](https://doi.org/10.5281/zenodo.22182305) (all
+versions) or [CITATION.cff](CITATION.cff). The
+[references](https://croak.readthedocs.io/en/latest/reference/bibliography.html)
+list the published work croak's methods build on.
 
 ## Authors and licence
 

@@ -12,7 +12,7 @@ import numpy as np
 import croak
 
 g = croak.Grid(128, dt=0.3e-15)
-ew = croak.gaussian_pulse(g, 2.5e-15, phases=[4e-30])
+ew = croak.gaussian_pulse(g, 2.5e-15, phases=[4e-30])   # phases = [GDD, TOD, ...]
 delays = np.linspace(-18e-15, 18e-15, 87)
 trace = croak.maketrace(g.omega, delays, ew, "shg")
 res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="copra",
@@ -28,9 +28,10 @@ at each frequency and delay in an SHG-FROG measurement. `retrieve` searches for 
 complex pulse that reproduces that trace. The seed makes this demonstration
 repeatable.
 
-The trace is simulated, so its generating pulse is known. In an experiment,
-agreement with a trace is only one check on the retrieved field: calibration,
-measurement modelling and available independent measurements also matter.
+The trace is simulated, so its generating pulse is known. On measured data a
+small trace error shows that the model reproduces the trace, not that the model
+is the right one; the [measurement modelling guide](../user_guide/models.md)
+explains when that distinction matters.
 
 ## Choose an algorithm
 
@@ -39,8 +40,7 @@ This example explicitly selects COPRA. Omitting `algorithm` selects
 supports all solvers, but their model support and options differ. Use the
 [solver selection guide](../howto/solver_selection.md) for practical choices and
 the executed [algorithm comparison](../tutorials/02_choosing_an_algorithm.md)
-for a worked example. A small residual alone does not identify the most accurate
-field.
+for a worked example.
 
 `retrieve` displays progress by default. Set `progress=False` for quiet batch
 runs, or supply a callback for your own monitoring. You can also instantiate a
@@ -70,8 +70,8 @@ spatial geometry and collection must also be included.
 
 `guess` accepts `None` for a random Gaussian-spectrum start, a complex spectral
 array on the retrieval grid, or a {class}`croak.pulses.Pulse`. Guesses are normalised
-internally. Since the objective is non-convex, compare several starts when
-analysing data. Keep their settings and diagnostics; agreement between starts
+internally. The objective is non-convex, so on measured data retrieve from
+several random starts and keep the lowest-error result. Agreement between starts
 is a convergence check, not a measurement uncertainty.
 
 ## The result object
@@ -85,11 +85,12 @@ res.spectrum       # complex baseband spectrum, centred order
 res.field          # complex temporal field envelope
 res.intensity_t    # temporal intensity |E(t)|²
 res.phase_omega    # unwrapped spectral phase
-res.trace          # predicted trace, before fitted intensity scaling
+res.wavelength     # absolute wavelength axis (m), using omega0
+res.trace          # predicted trace, already scaled by the fitted factor res.mu
 ```
 
-Use `res.mu` to scale the prediction when comparing it with the supplied data.
-Absolute wavelength coordinates require the correct fundamental `omega0`.
+`res.trace` can be compared directly with the supplied data. The absolute
+wavelength axis is correct only when `omega0` is the true fundamental carrier.
 See [interpreting results](../user_guide/results.md) for plotting, ambiguity
 resolution, duration and spectral-phase interpretation.
 

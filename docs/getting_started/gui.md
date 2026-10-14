@@ -55,8 +55,8 @@ configuration. If the window fails to appear on Windows, run
 `uvx --python 3.14 --from "croak[gui]" python -m croak.gui` to display diagnostic
 output in the terminal.
 
-The window remembers its size between sessions. The controls and plots are
-arranged for laptop and desktop displays; enlarge the window if a panel is cramped.
+The window opens maximised and is laid out for displays of 1366×768 and up;
+un-maximised, it returns to the size you last left it.
 
 ```{image} ../_static/gui_retrieve.png
 :alt: The wizard after a retrieval — the Traces page (measured and retrieved traces, log and linear) with the Pulse and Diagnostics tabs beside it, and the numeric read-out beneath.
@@ -66,12 +66,13 @@ arranged for laptop and desktop displays; enlarge the window if a panel is cramp
 
 ## 4. Use it
 
-The wizard walks through the retrieval in stages: **Load** (your measured
-trace, in HDF5, `.npz` or delimited text — or a simulated scan), **Marginal
-check**, **Preprocess** (filtering, background removal, regridding),
+The wizard walks through the retrieval in stages: **Load** (your measured trace
+from an HDF5 or `.npz` file, with an optional independent spectrum from HDF5,
+`.npz` or CSV and calibration curves from CSV; or a simulated scan),
+**Marginal check**, **Preprocess** (filtering, background removal, regridding),
 **Retrieve**, **Dispersion** (tuning with materials and chirped mirrors) and
-**Uncertainty** (error bars on the retrieved duration). Hover over controls for help with individual settings, and use the stage help
-buttons for guidance.
+**Uncertainty** (error bars on the retrieved duration). Hover over a control for
+help with that setting, and use each stage's **? Help** button for guidance.
 
 The [GUI guide](../howto/gui.md) documents each stage in detail. Sessions save
 to a TOML file that records every setting, so a retrieval can be re-run later

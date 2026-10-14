@@ -1,51 +1,58 @@
 # Choosing a solver
 
-Choose a solver first by the model and constraints it supports, then by its
-convergence and cost on your data. The ten named solvers belong to four families.
-Their [objectives](../explanation/retrieval_theory.md) and stopping rules can differ;
-non-convex optimisation does not guarantee the same answer. This page gives
-practical starting choices; the [gallery](../tutorials/02_choosing_an_algorithm.md)
-shows an executed comparison.
+croak has ten solvers in four families: COPRA, L-BFGS, Levenberg–Marquardt and
+the global CMA-ES, several with on-device JAX or Optimistix twins. Choose first by
+the model and constraints a solver supports, then by its speed and final
+accuracy on your data. The local solvers minimise the same
+[least-squares objective](../explanation/retrieval_theory.md) but differ in
+penalty scaling and stopping rules. This page is the short version; the
+[algorithm tutorial](../tutorials/02_choosing_an_algorithm.md) runs an executed
+comparison.
+
+croak's default, `warm-lbfgs` with `reg_spectrum=0.01` and `reg_amp=0.03`, is a
+general-purpose starting point. The validation retrievals in the
+[papers](../reference/bibliography.md) instead use `lbfgs-ad` from a
+transform-limited start for 400 iterations with `reg_spectrum=0.03` and
+`reg_amp=0.03`; use those settings to reproduce them.
 
 ## At a glance
 
-Start with the models and objectives supported by these six solvers:
+Start here; these six cover almost every case:
 
 | Solver | Gradient | Best for | Notes |
 |--------|----------|----------|-------|
-| {class}`~croak.warm_lbfgs.WarmLBFGS` | JAX autodiff | the **default**; a general starting workflow | `lbfgs-ad` seeded from a COPRA local sweep: refines a projected initial estimate under the chosen model |
-| {class}`~croak.copra.COPRA` | analytic adjoint | full amplitude + phase in the core model | local projection followed by global descent; useful for initialisation |
-| {class}`~croak.lbfgs.LBFGS` | analytic adjoint | phase-only; smoothness **regularisation** | analytic gradients for the core model |
+| {class}`~croak.warm_lbfgs.WarmLBFGS` | JAX autodiff | the **default**; when you do not want to think about the initial guess | `lbfgs-ad` seeded from a COPRA local sweep: same model, far less sensitive to where it starts |
+| {class}`~croak.copra.COPRA` | analytic adjoint | full amplitude + phase in the core model | fast initial descent, robust from poor guesses |
+| {class}`~croak.lbfgs.LBFGS` | analytic adjoint | phase-only; custom **regularisation** | steady descent; analytic gradients for the core model |
 | {class}`~croak.lbfgs_ad.LBFGSAD` | JAX autodiff | anything the core model does not cover | the solver with the **widest model coverage**: smearing, fitted thickness/τ₀/smearing, B-spline basis, temporal penalty |
-| {class}`~croak.lm.LM` | JAX Jacobian | local least-squares refinement | can refine an existing estimate; uses a different penalty scaling from L-BFGS |
-| {class}`~croak.cmaes.CMAES` | none (population search) | exploring beyond one local initialisation | pair with `phase_basis="bspline"`; needs `croak[evo]`; no guarantee of a global minimum |
+| {class}`~croak.lm.LM` | JAX Jacobian | **polishing** to the lowest error | superlinear; use after COPRA/L-BFGS; its penalty weights are scaled differently from L-BFGS |
+| {class}`~croak.cmaes.CMAES` | none (population search) | escaping a poor local minimum with no good guess | population search; pair with `phase_basis="bspline"`; needs `croak[evo]` |
 
 Reach for `lbfgs-ad` (or `lm`/`lm-optx`) whenever you need something the analytic
 adjoint does not carry — see [Gradients](../explanation/gradients.md) for exactly
-where the boundary lies. Gradient validation compares derivatives directly;
-agreement between final solver results is a separate consistency check.
+where the boundary lies.
 
-The remaining four are on-device reimplementations — different execution and optimisation details:
+The remaining four are on-device reimplementations of the same algorithms:
 
 | Solver | Twin of | Why reach for it |
 |--------|---------|------------------|
 | {class}`~croak.copra_jax.COPRAJax` | `copra` | same COPRA, on-device JAX numerics |
-| {class}`~croak.lbfgs_hand.LBFGSHand` | `lbfgs` | analytic gradient, jitted/vectorised in JAX (no AD) |
+| {class}`~croak.lbfgs_hand.LBFGSHand` | `lbfgs` | analytic gradient, jitted/vectorised in JAX (no AD); typically the fastest L-BFGS |
 | {class}`~croak.optimistix_lbfgs.OptxLBFGS` | `lbfgs-ad` | the L-BFGS loop runs entirely on-device |
 | {class}`~croak.optimistix_lm.OptxLM` | `lm` | an on-device JAX-Jacobian LM |
 
 ## By task
 
-- **General amplitude-and-phase retrieval in the core model** → try `copra` as
-  an initial retrieval, then inspect the fit and compare several starts.
+- **General amplitude-and-phase retrieval, clean to moderately noisy data** →
+  `copra`. It converges fast and tolerates a rough initial guess.
 - **Phase-only retrieval** (amplitude fixed to a measured spectrum) → `lbfgs`
-  with `phase_only=True`, optionally `reg_phase`. Check sensitivity to the phase constraint.
+  with `phase_only=True`, optionally `reg_phase`.
 - **Noisy experimental data** → `lbfgs` with mild
   [smoothness regularisation](regularisation.md) (`reg_amp`/`reg_phase`).
 - **Uncalibrated spectral response** → `R_omega=True` fits a gain for each
-  frequency row. Use an appropriate amplitude constraint such as
-  `phase_only=True` or `reg_spectrum` when a suitable independent spectrum is
-  available: otherwise spurious band-edge energy can grow while $R$ falls. See
+  frequency row, but never on its own: add `phase_only=True` or `reg_spectrum`
+  with a measured spectrum, or the retrieved spectrum grows spurious energy at
+  the band edges while $R$ falls. See
   [per-frequency scaling](regularisation.md#per-frequency-scaling).
 - **Squeezing out the last factor in $R$** → run `copra` or `lbfgs`, then a short
   `lm` polish (20–50 iterations).
@@ -55,16 +62,15 @@ The remaining four are on-device reimplementations — different execution and o
 - **Spurious satellite pulses or a temporal pedestal** → `lbfgs-ad` (or `cma-es`)
   with the temporal penalty `reg_time`/`time_window` (see
   [Regularisation](regularisation.md#temporal-regularisation)).
-- **Keeping calculations on a JAX device** → consider `copra-jax`, `lbfgs-hand`,
-  `lbfgs-optx` or `lm-optx`. Check the solver's supported options and stopping
-  rules; benchmark compilation and repeated evaluation separately.
+- **Keeping the loop on a JAX device** → the twins `copra-jax`, `lbfgs-hand`,
+  `lbfgs-optx` and `lm-optx`. Their options and stopping rules follow their own
+  optimisers; time the first (compiling) call separately from repeated runs.
 - **Checking a hand-derived gradient or a new interaction** → compare the
-  derivative with finite differences and autodiff on complex test fields. See
-  [numerical validation](../developer_guide/validation.md). Solver trajectories
-  need not coincide and do not establish derivative correctness.
+  derivative with finite differences and autodiff on complex test fields; see
+  [numerical validation](../developer_guide/validation.md).
 - **`lm-optx` iterations feel slow on a large grid** → it already defaults to the
   faster normal-equations solve (`linear_solver="normal"`); the remaining cost is
-  the Jacobian and linear solve, whose costs depend on parameter and residual counts, so
+  the Jacobian and linear solve, which grow with the parameter count, so
   `phase_basis="bspline"` is the big lever. Fall back to `linear_solver="qr"` only
   if the solve misbehaves (see
   [Retrieval algorithms](../explanation/algorithms.md)).
@@ -72,9 +78,8 @@ The remaining four are on-device reimplementations — different execution and o
 ## Run from several random restarts
 
 The objective is non-convex, so a single run can land in a poor local minimum.
-The example below compares **eight random initial guesses** using COPRA, whose
-objective here is the trace error. Choose a restart budget appropriate to your
-problem; eight starts do not establish uniqueness or guarantee the best solution.
+The standard practice is to retrieve from **5–10 random initial guesses** and
+keep the result with the lowest `error`:
 
 ```python
 import numpy as np, croak
@@ -89,17 +94,17 @@ for _ in range(8):
 print(best.error)
 ```
 
-`guess=None` draws a random Gaussian-spectrum start; reusing a seeded generator draws successive starts reproducibly. Resetting it
-to the same seed for every run repeats the same draw.
+`guess=None` draws a random Gaussian-spectrum start. Reusing one seeded
+generator draws a different, reproducible start for each run; resetting it to
+the same seed every time would repeat the same start.
 
-For a penalised fit, compare the complete objective as well as the trace error
-and the physical plausibility of the pulse. The lowest unpenalised `error` need
-not identify the best penalised solution. Start-to-start variation is a
-convergence diagnostic, not a measurement-uncertainty estimate.
+For a penalised fit, `error` is only the trace term, so also compare the
+penalised objective and the plausibility of the pulse. Start-to-start variation
+is a convergence diagnostic, not a measurement uncertainty.
 
 ## A two-stage recipe
 
-An existing estimate can seed a local least-squares refinement:
+For the lowest final error, converge cheaply and then polish:
 
 ```python
 # 1. converge with COPRA (or LBFGS)
@@ -115,12 +120,13 @@ res = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lm",
 Solver choice is independent of whether you model a slab: pass
 `material`/`thickness`/`npoints`/`omega0` to *any* solver to retrieve through a
 dispersive medium (PG/SD only — see [Interactions](../explanation/interactions.md)).
-The introductory dispersive tutorial uses COPRA with a material specified.
+"D-COPRA" in the literature is exactly `COPRA` with a `material` set.
 
 Geometric smearing is the exception: pass `smearing` to one of the **autodiff**
-solvers (`warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `lbfgs-optx`, `cma-es`) only. The spatial mixture is not implemented by croak's ordinary single-field COPRA
-update or its current analytic adjoints, so those solvers raise instead of silently
-ignoring the kernel. See [Geometric smearing](geometric_smearing.md).
+solvers (`warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `lbfgs-optx`, `cma-es`) only.
+The incoherent sum over quadrature nodes breaks COPRA's magnitude-replacement
+projection and is not covered by the analytic adjoints, so those solvers raise
+instead of silently ignoring the kernel. See [Geometric smearing](geometric_smearing.md).
 
 ## Convergence and stopping
 
@@ -131,11 +137,14 @@ ignoring the kernel. See [Geometric smearing](geometric_smearing.md).
   {class}`~croak.lm.LM` these become SciPy's `ftol` and `xtol`/`gtol`.
 
 ```{tip}
-**Refining with LM: inspect the stopping reason.** For the SciPy route, `abstol`
-sets both step and gradient tolerances. Reducing it can improve a locally converged fit,
-at additional cost; the gain
-is problem-dependent and does not establish better field accuracy. See
-[Choosing an algorithm](../tutorials/02_choosing_an_algorithm.md#why-lm-stops-early).
+**Polishing with LM: tighten `abstol`, not `reltol`.** For the SciPy route,
+`abstol` sets both the step (`xtol`) and gradient (`gtol`) tolerances, and its
+`1e-8` default is a step-size floor: it is what stops an LM polish, usually while
+the error is still falling steeply. On the clean PG trace of the
+[algorithm tutorial](../tutorials/02_choosing_an_algorithm.md#why-lm-stops-early),
+tightening it to `1e-12` lowers the final error by about three orders of
+magnitude for about 1.4× the evaluations, while tightening `reltol` changes
+nothing.
 ```
 
 By default {func}`croak.retrieve` shows a **live progress bar** and prints a short

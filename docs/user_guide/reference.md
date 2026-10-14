@@ -1,8 +1,10 @@
 # Glossary and references
 
-Use the glossary to check terminology and symbols while reading the guide. The
-references connect the measurement models, retrieval methods, and uncertainty
-estimators to their scientific sources.
+The glossary defines the terms and symbols used throughout the manual, from the
+trace error and the interactions to the dispersive slab, `R_omega` and the
+B-spline phase basis.
+The references list the two papers describing croak's models and validation and
+the published work its algorithms and uncertainty estimators build on.
 
 ```{toctree}
 :maxdepth: 1
@@ -11,6 +13,6 @@ estimators to their scientific sources.
 ../reference/bibliography
 ```
 
-For units and transform signs, see [conventions](../reference/conventions.md)
-and [the Fourier convention](../reference/fft_convention.md). For Python names
-and call signatures, use the [API](../reference/api/index.md).
+For units and sign conventions, see [conventions](../reference/conventions.md)
+and [the FFT convention](../reference/fft_convention.md). For Python names and
+call signatures, use the [API](../reference/api/index.md).

@@ -8,7 +8,8 @@ closest to the intended behaviour, and state unsupported combinations explicitly
 
 Define the signal, carrier relation and derivative convention together. Test the
 local derivative with complex perturbations before checking a full trace. The
-[user guide](../explanation/interactions.md) gives the implemented physical kernels.
+[interaction physics](../explanation/interactions.md) page gives the implemented
+kernels.
 
 ### Define a local kernel
 

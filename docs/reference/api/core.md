@@ -57,10 +57,6 @@ identical for every field.
    :members:
 ```
 
-(the-phase-the-incoherent-sum-throws-away)=
-(where-the-aperture-sits)=
-(validity)=
-(regime)=
 ## Collection aperture
 
 The focal mixture without its full-beam-collection assumption. See

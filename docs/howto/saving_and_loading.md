@@ -95,9 +95,10 @@ save_options({"algorithm": "copra", "maxiters": 300, "lam_min": 730e-9}, "sessio
 opts = load_options("session.toml")
 ```
 
-This example saves a generic options dictionary. For a complete GUI/replay
-recipe, use {class}`~croak.session.options.SessionOptions` and its `to_toml`
-method. Neither form embeds the input datasets or custom optical-data callables.
+This stores the *recipe*, not the data: handy for reproducing a retrieval or
+seeding the [GUI](gui.md) with known-good settings. A complete session that the
+GUI and `croak replay` can run is a {class}`~croak.session.options.SessionOptions`,
+written with its `to_toml` method.
 
 ### What the options file contains
 
@@ -144,21 +145,19 @@ the `None` default.
   profiles and measured trace.
 - **The options `.toml`** records *how* you got there, so the run is reproducible.
 
-Also retain the original input files, dataset selections and units, calibration
-curves, custom material/mirror data, software version and the script or command
-used. Record random seeds in a script when exact repeatability matters; the
-session options do not currently record a retrieval RNG seed.
+- **The input files** the options point to (trace, spectrum, backgrounds,
+  calibration curves) and any custom material or mirror data: the options file
+  references them by path and does not embed them.
 
-For a saved experimental or simulated session:
+A saved experimental or simulated session reruns headlessly, or exports as an
+editable Python script:
 
 ```console
-croak replay session.toml --help
-croak script session.toml --help
+croak replay options.toml --seed 0             # writes result.h5
+croak script options.toml -o retrieval.py --seed 0
 ```
 
-`replay` runs the session without the GUI; `script` exports the workflow as
-Python. Check their options for output paths and overwrite behaviour. See the
-[workflow example](../examples/workflow.md) and {mod}`croak.scripting` for the
-corresponding library interface. A saved result supports inspection without
-re-running a solver; reproducing its calculation also needs its inputs and
-settings.
+The session file does not record a random seed, so pass `--seed` when the run
+must repeat exactly. `croak replay --base-dir DIR` reruns the same settings
+against another dataset folder. See the [workflow example](../examples/workflow.md)
+and {mod}`croak.scripting` for the library interface.
