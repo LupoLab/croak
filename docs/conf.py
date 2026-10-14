@@ -35,8 +35,6 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = [
     "_build",
-    # Editorial inventories and audit notes are review records, not manual pages.
-    "_review",
     "_static/paper/README.md",
     # The committed execution cache holds .ipynb files Sphinx must not treat
     # as source documents.
