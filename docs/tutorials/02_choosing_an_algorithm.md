@@ -13,7 +13,7 @@ kernelspec:
 
 croak has ten [solvers](../explanation/algorithms.md) behind a single API, grouped
 into four algorithm families (COPRA, L-BFGS, Levenberg–Marquardt and the global
-CMA-ES). Different algorithms and starts can reach different stationary points. This tutorial runs three of them on one trace and compares
+CMA-ES). This tutorial runs three of them on one trace and compares
 convergence.
 
 ```{code-cell} ipython3
@@ -38,7 +38,7 @@ The gradient and LM solvers apply croak's default
 takes no penalties. This comparison passes `reg_amp=0` so that all three
 seek minima of the bare trace discrepancy, using either $R$ or $R^2$.
 Those objectives have the same minimisers without penalties but different
-local geometry. On a measurement assess suitable constraints and their influence.
+local geometry.
 ```
 
 ```{code-cell} ipython3
@@ -49,15 +49,15 @@ for algo in ("copra", "lbfgs", "lm"):
     kw = {} if algo == "copra" else {"reg_amp": 0}   # COPRA takes no penalties
     results[algo] = croak.retrieve(trace, g.omega, delays, "pg",
                                   algorithm=algo, guess=guess, maxiters=200,
-                                  rng=np.random.default_rng(0), **kw)
+                                  rng=np.random.default_rng(0), progress=False,
+                                  **kw)
 
 for algo, res in results.items():
     print(f"{algo:6s}  R = {res.error:.2e}  ({len(res.errors)} evaluations)")
 ```
 
-Compare the printed residuals and histories. In a matched, noise-free problem,
-tolerances and objective shape can dominate the final residual. The following
-calculations explore those effects; their ranking is specific to this example.
+Compare the printed residuals and histories; the next sections explain the
+differences.
 
 ## Convergence trajectories
 
@@ -77,34 +77,48 @@ so compare shapes rather than absolute counts.)
 
 ## Why LM stops early
 
-Stopping depends on tolerances as well as iteration budget. `LM` uses SciPy's
-trust-region reflective method by default, with a JAX Jacobian. `reltol` maps to
-`ftol`, while `abstol` maps to `xtol` and `gtol`. Vary them separately:
+LM stopped after about 20 evaluations at $R \approx 10^{-6}$, well short of its
+200-evaluation budget, so the budget is not what ended it: a convergence
+tolerance did. `LM` uses SciPy's trust-region reflective method by default, with
+a JAX Jacobian, and stops as soon as *any* of its tests passes. croak's `reltol`
+maps to SciPy's `ftol` (relative change of the cost), while `abstol` maps to both
+`xtol` (relative step size) and `gtol` (gradient). Vary them separately to see
+which one fires:
 
 ```{code-cell} ipython3
 def lm_run(**tol):
-    r = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lm",
-                      guess=guess, maxiters=400, reg_amp=0, **tol)
+    return croak.retrieve(trace, g.omega, delays, "pg", algorithm="lm",
+                          guess=guess, maxiters=400, reg_amp=0, progress=False,
+                          **tol)
+
+def describe(r):
     return f"R = {r.error:.2e}  ({len(r.errors)} evaluations)"
 
 print("vary reltol (ftol), abstol at its 1e-8 default:")
 for reltol in (1e-4, 1e-8, 1e-12):
-    print(f"   reltol={reltol:.0e}  {lm_run(reltol=reltol, abstol=1e-8)}")
+    print(f"   reltol={reltol:.0e}  {describe(lm_run(reltol=reltol, abstol=1e-8))}")
 
 print("vary abstol (xtol and gtol), reltol at its 1e-4 default:")
-for abstol in (1e-8, 1e-12, 1e-15):
-    print(f"   abstol={abstol:.0e}  {lm_run(reltol=1e-4, abstol=abstol)}")
+by_abstol = {abstol: lm_run(reltol=1e-4, abstol=abstol)
+             for abstol in (1e-8, 1e-12, 1e-15)}
+for abstol, r in by_abstol.items():
+    print(f"   abstol={abstol:.0e}  {describe(r)}")
 ```
 
-Reducing a step or gradient tolerance is a stricter stopping requirement.
-Compare the printed results before deciding which tolerance is limiting this
-run. The following plot uses the same unregularised objective for each setting:
+Tightening `reltol` changes nothing: the cost-change test never fires first. The
+step/gradient test set by `abstol` is the one that stops LM here. Tightening it
+from `1e-8` to `1e-12` lowers $R$ by about three orders of magnitude, from
+$1.1 \times 10^{-6}$ to $9.9 \times 10^{-10}$, for roughly 1.4× the evaluations.
+At `1e-15` the test never passes, so LM runs to the 400-evaluation cap for only
+a further factor of about three. **To get more out of LM on a clean trace, tighten
+`abstol`, not `reltol`; around `1e-12` is enough here.** The histories of the
+`abstol` runs above:
 
 ```{code-cell} ipython3
 fig, ax = plt.subplots(figsize=(6, 4))
-for abstol, lw, color in ((1e-15, 1.2, "C2"), (1e-12, 2.2, "C1"), (1e-8, 3.5, "C0")):
-    r = croak.retrieve(trace, g.omega, delays, "pg", algorithm="lm", guess=guess,
-                      maxiters=400, reltol=1e-4, abstol=abstol, reg_amp=0)
+styles = {1e-15: (1.2, "C2"), 1e-12: (2.2, "C1"), 1e-8: (3.5, "C0")}
+for abstol, (lw, color) in styles.items():
+    r = by_abstol[abstol]
     n = np.arange(1, len(r.errors) + 1)
     ax.semilogy(n, r.errors, lw=lw, color=color, alpha=0.85,
                 label=f"abstol={abstol:.0e}  →  R={r.error:.1e}")
@@ -116,9 +130,6 @@ ax.legend(fontsize=8, loc="lower left")
 ax.grid(alpha=0.3)
 fig.tight_layout()
 ```
-
-Tighter tolerances can improve a matched synthetic fit, but more digits in the
-residual do not establish more accurate experimental physics.
 
 (why-l-bfgs-stalls-and-why-it-does-not-matter)=
 ## Objective shape near an exact fit
@@ -154,8 +165,8 @@ R = np.array([trace_error(trace, croak.maketrace(g.omega, delays,
 fig, ax = plt.subplots(figsize=(5.5, 4))
 ax.loglog(eps, R, "o-", ms=3, label=r"$R$  — what L-BFGS minimises")
 ax.loglog(eps, R**2, "s-", ms=3, label=r"$R^2$  — what LM minimises")
-ax.loglog(eps, 0.012 * eps, "k--", lw=1, label="slope 1  (a cone)")
-ax.loglog(eps, 1.45e-4 * eps**2, "k:", lw=1, label="slope 2  (a paraboloid)")
+ax.loglog(eps, 0.01 * eps, "k--", lw=1, label="slope 1  (a cone)")
+ax.loglog(eps, 1.0e-4 * eps**2, "k:", lw=1, label="slope 2  (a paraboloid)")
 ax.set_xlabel(r"distance from the solution, $\epsilon$")
 ax.set_ylabel("objective")
 ax.set_title("the shape of the two objectives at the minimum")
@@ -167,17 +178,18 @@ print(f"fitted slopes:  R -> {np.polyfit(np.log(eps), np.log(R), 1)[0]:.3f}"
 ```
 
 $R$ is a norm, $\sqrt{\sum r^2}$, so at a perfect fit it has a $|x|$-shaped cusp —
-a **cone**, not a paraboloid — and its classical gradient is generally undefined at an exact zero. A quasi-Newton line search assumes a smooth local objective. The norm's cusp
-can limit refinement near an exact fit, whereas the squared residual is smooth.
-This is a possible explanation for a noise-free plateau, not a proof that every
-plateau has that cause. Compare analytic and AD routes under matched settings:
+a **cone**, not a paraboloid — and its gradient is undefined at an exact zero.
+A quasi-Newton line search assumes a smooth local objective, so the cusp limits
+refinement near an exact fit, whereas the squared residual is smooth. This is why
+L-BFGS plateaus on a noise-free trace. Compare the analytic and AD routes:
 
 ```{code-cell} ipython3
 fig, ax = plt.subplots(figsize=(5.5, 4))
 for algo, style in (("lbfgs", dict(lw=3.0, alpha=0.45)),
                     ("lbfgs-ad", dict(lw=1.2, ls="--"))):
     r = croak.retrieve(trace, g.omega, delays, "pg", algorithm=algo, guess=guess,
-                      maxiters=400, reltol=1e-12, abstol=1e-15, reg_amp=0)
+                      maxiters=400, reltol=1e-12, abstol=1e-15, reg_amp=0,
+                      progress=False)
     ax.semilogy(np.arange(1, len(r.errors) + 1), r.errors,
                 label=f"{algo}  (R = {r.error:.2e})", **style)
 ax.set_xlabel("objective evaluation")
@@ -188,16 +200,12 @@ ax.grid(alpha=0.3)
 fig.tight_layout()
 ```
 
-Agreement between these runs is consistent with the two gradient routes,
-but direct directional-derivative tests are the stronger check.
-
 (on-real-data-they-agree)=
 ## Add measurement noise
 
 Noise moves the best achievable residual away from an exact zero. The next
 calculation adds seeded Gaussian noise and clips negative samples, then compares
-the same unregularised fits. Clipping changes the noise distribution, so this
-is an illustration rather than a calibrated detector model.
+the same unregularised fits.
 
 ```{code-cell} ipython3
 noise = np.random.default_rng(1).standard_normal(trace.shape)
@@ -214,7 +222,8 @@ ax_pulse.plot(*centre(g.t, np.abs(g.ifft(ew)) ** 2),
 for algo in ("copra", "lbfgs", "lm"):
     kw = dict(reltol=1e-12, abstol=1e-15, reg_amp=0) if algo != "copra" else {}
     r = croak.retrieve(noisy, g.omega, delays, "pg", algorithm=algo, guess=guess,
-                      maxiters=400, rng=np.random.default_rng(0), **kw)
+                      maxiters=400, rng=np.random.default_rng(0), progress=False,
+                      **kw)
     ax_conv.semilogy(np.arange(1, len(r.errors) + 1), r.errors,
                      label=f"{algo}  (R = {r.error:.3e})")
     ax_pulse.plot(*centre(r.t, r.intensity_t), lw=1.4, label=algo)
@@ -245,16 +254,16 @@ measurement, test starts, physical model and constraints, then assess
 differentiation](../explanation/gradients.md) of the forward model — the general
 route, and the one that reaches smearing, the fitted extras and the B-spline
 basis. `lbfgs` is the same optimiser on the hand-derived adjoint, which covers the
-core model. For a model both support, compare their objectives and trajectories.
-Numerical paths may diverge in a non-convex problem; agreement of endpoints
-alone does not establish derivative correctness. The [developer validation
+core model. The [developer validation
 guide](../developer_guide/validation.md) describes direct derivative checks.
 
 ```{code-cell} ipython3
 hand = croak.retrieve(trace, g.omega, delays, "pg",
-                     algorithm="lbfgs", guess=guess, maxiters=120, reg_amp=0)
+                     algorithm="lbfgs", guess=guess, maxiters=120, reg_amp=0,
+                     progress=False)
 auto = croak.retrieve(trace, g.omega, delays, "pg",
-                     algorithm="lbfgs-ad", guess=guess, maxiters=120, reg_amp=0)
+                     algorithm="lbfgs-ad", guess=guess, maxiters=120, reg_amp=0,
+                     progress=False)
 print(f"lbfgs     R = {hand.error:.3e}")
 print(f"lbfgs-ad  R = {auto.error:.3e}")
 ```
@@ -262,7 +271,7 @@ print(f"lbfgs-ad  R = {auto.error:.3e}")
 ## Takeaways
 
 Choose a solver for the required model, constraints and measured convergence.
-Compare like objectives and record stopping settings. Warm starts and multiple
-starts can help, but do not prove a global optimum. Follow
+Compare like objectives and record stopping settings.
+Use warm starts or several starts on non-convex problems. Follow
 [solver selection](../howto/solver_selection.md) for model support and
 [interpreting results](../user_guide/results.md) before reporting a pulse.

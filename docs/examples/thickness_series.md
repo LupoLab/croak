@@ -64,11 +64,16 @@ display(Image(filename="paper_thickness.png"))
 
 ## Interpretation and limits
 
-The plot reports native retrieval fields against the stored integrated-beamlet
-reference. It has no common-plane conversion and no full chromatic collection
-model. It illustrates protocol sensitivity and model comparison; it is **not** a
-reproduction of the revised draft thickness ladder. Its filtering, spectrum frame,
-weights and fitted parameters differ. Use [validation](../explanation/validation.md)
-for the revised common-plane results, and [simulated loading](../howto/loading_simulated.md)
-for the file conventions. A low residual here must not be read as proof of a
-correct entrance-plane pulse.
+The standard thin-medium model absorbs the unmodelled substrate dispersion into
+the pulse and broadens with thickness, while its trace error stays low; the
+extended model, with the slab and the smearing kernel, stays close to the
+reference pulse at every thickness. A low trace error alone does not certify a
+retrieval.
+
+The dotted line and grey fill are the reference pulse (the mask-vignetted gate
+beamlet stored with the dataset), and durations are those of croak's native
+effective field. This example uses de-fringing, a fixed fourth-power spectral
+correction and a fitted delay zero. The papers' thickness series uses a different
+protocol, with the full model's chromatic collection and an on-axis reference;
+see [validation](../explanation/validation.md). The file conventions are described
+in [loading simulated scans](../howto/loading_simulated.md).

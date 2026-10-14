@@ -34,6 +34,8 @@ def banner(title: str) -> None:
 def thin_examples() -> None:
     """Gaussian and sech pulses across all three interactions, clean + noisy."""
     banner("Thin-medium retrieval (Gaussian & sech, PG/SD/SHG)")
+    # A 38.4 fs window: the ±18 fs scan stays inside the half-window, so for these
+    # few-fs pulses the circular delay shift never wraps the gate onto the pulse.
     g = croak.Grid(128, dt=0.3e-15)
     delays = np.linspace(-18e-15, 18e-15, 87)
     rng = np.random.default_rng(0)
@@ -69,6 +71,7 @@ def thin_examples() -> None:
                     guess=near,
                     maxiters=250,
                     rng=np.random.default_rng(0),
+                    progress=False,
                 )
                 print(
                     f"{label:22s} {interaction:5s} {algo:6s} {sigma:6.0%} "
@@ -81,7 +84,7 @@ def dispersive_example() -> None:
     """Few-fs UV pulse through a fused-silica slab: D-COPRA and dispersive L-BFGS."""
     banner("Dispersive retrieval (UV pulse, 10 um SiO2 slab)")
     g = croak.Grid(128, dt=0.5e-15)
-    omega0 = wlfreq(260e-9)  # 260 nm carrier
+    omega0 = float(wlfreq(260e-9))  # 260 nm carrier
     ew = croak.gaussian_pulse(g, 4.0e-15, phases=[6e-30])
     delays = np.linspace(-22e-15, 22e-15, 80)
     trace = croak.maketrace(
@@ -109,6 +112,7 @@ def dispersive_example() -> None:
             guess=near,
             maxiters=300,
             rng=np.random.default_rng(0),
+            progress=False,
             material="SiO2",
             thickness=10e-6,
             npoints=20,

@@ -16,7 +16,7 @@ You will define a pulse, predict its measurement, retrieve it, and interpret the
 result. A FROG trace is an intensity image indexed by frequency and delay;
 retrieval infers the complex field that could have produced it.
 
-Start after [installation](../introduction/install.md) and the
+Start after [installation](../getting_started/installation.md) and the
 [Quickstart](../getting_started/quickstart.md). The code is executed locally and
 its outputs are cached with the documentation. These are simulated data with a
 known answer, not experimental measurements. For the physical background, see
@@ -57,7 +57,11 @@ wavelength axis $\lambda = 2\pi c/(\omega+\omega_0)$ used for plotting later.
 ## Synthesise a trace
 
 {func}`~croak.forward.maketrace` runs the [forward model](../explanation/forward_model.md)
-to produce the `(Nomega, Ndelay)` SHG-FROG trace.
+to produce the `(Nomega, Ndelay)` SHG-FROG trace. The grid is periodic with a
+128 × 0.3 fs = 38.4 fs window, and a delay shifts the gate circularly around it.
+The ±18 fs scan stays within the ±19.2 fs half-window, so for this few-femtosecond
+pulse the shifted gate never wraps round onto the pulse. A longer scan or pulse
+needs a longer window (more points or a larger step).
 
 ```{code-cell} ipython3
 delays = np.linspace(-18e-15, 18e-15, 87)

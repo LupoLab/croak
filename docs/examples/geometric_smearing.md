@@ -17,9 +17,11 @@ and fitting a common scale. Then vary mask spacing and slab thickness.
 ## Inputs and method
 
 The script generates a transform-limited 1 fs PG trace at 260 nm with a reduced
-Gaussian timing kernel. It uses a fixed initial pulse and seed, and disables
-explicit regularisation for this matched synthetic comparison. The two sweeps
-compare smeared and unsmeared traces at otherwise matched settings.
+Gaussian timing kernel. Every retrieval uses `lbfgs-ad` without regularisation,
+since this is a matched, noise-free comparison. It runs to tight stopping
+tolerances from two Gaussian starts (1.0 and 1.6 fs) and keeps the lowest-error
+fit. The two sweeps compare smeared and unsmeared traces at otherwise matched
+settings. The script takes about two minutes.
 
 Run from a [source checkout](../getting_started/installation.md#from-a-clone-development-and-examples):
 
@@ -63,11 +65,29 @@ display(Image(filename="geometric_smearing.png"))
 
 ## Interpretation and limits
 
-A fitted kernel can reduce bias, but its agreement in a matched simulation
-is not independent physical validation. For a transform-limited Gaussian the
-split-gate channel is an amplitude factor; the fitted common scale is mainly
-constrained through the delay channel. In a real instrument, changing mask spacing
-also changes chromatic profiles and collection. The thickness sweep uses a finite
-periodic grid; assess window and quadrature convergence before transferring any
-numerical bias to an experiment. Read [geometric smearing](../howto/geometric_smearing.md)
-and [collection](../howto/collection_aperture.md).
+With the kernel modelled, or with its common scale fitted (which returns 1.0000),
+both starts recover the 1 fs pulse with the trace error at round-off. With the
+kernel ignored, the model cannot reproduce the trace, and the result shows which
+quantities carry the signature of the missing kernel:
+
+- **The residual is robust.** The kernel-ignored trace error stays near
+  $5 \times 10^{-3}$ for the nominal mask and grows steadily with the mask ratio,
+  from $2.4 \times 10^{-3}$ at $d/D = 0.5$ to $1.1 \times 10^{-2}$ at
+  $d/D = 1.25$. Both starts agree on it.
+- **The FWHM is not a reliable measure.** Without a slab, the best fit absorbs
+  the blur into broad, low-level temporal wings: the rms width grows from
+  0.43 fs to 3.8 fs, while the FWHM comes out 0.065 fs *short*. Across the mask
+  sweep the FWHM offset is negative and not monotonic in $d/D$. With a slab the
+  offset turns positive (+0.22 fs at 10 µm, +0.11 fs at 20 µm, +0.08 fs at
+  40 µm), and at 10 µm and 40 µm the two starts reach the same trace error with
+  FWHMs about 0.06–0.08 fs apart. Both fits stop on the tolerances, well short
+  of the iteration cap, so the spread reflects a nearly flat direction of the
+  misspecified objective rather than a fit stopped early. A smeared-minus-clean
+  difference cannot remove it.
+
+Fitting the scale recovers the kernel in this matched simulation; on real data it
+can also absorb other model errors. For a transform-limited Gaussian the
+split-gate channel is an amplitude factor, so the scale is constrained mainly
+through the delay channel. Read
+[geometric smearing](../howto/geometric_smearing.md) and
+[collection](../howto/collection_aperture.md).

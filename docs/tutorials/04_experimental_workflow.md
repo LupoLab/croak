@@ -183,8 +183,11 @@ Two things changed. The **vertical axis** is now angular frequency, uniformly
 sampled — the retrieval works in $\omega$, and resampling from $\lambda$ carries
 the $\lambda^2$ Jacobian with it. And the axis has been **cropped** to the band we
 asked for, so the empty wavelength ranges above and below the signal no longer
-occupy rows of the fit. Compare the frequency counts printed above: this is
-usually a large reduction, and it is the single biggest lever on retrieval time.
+occupy rows of the fit. Compare the frequency counts printed above: here the
+crop removes only 6 of the 60 rows, because this synthetic spectrometer barely
+samples beyond the signal band. Each forward-model evaluation scales with the
+number of rows, so the saving is larger on a spectrometer that records a wide
+empty range around the signal.
 
 Note how little the *filtered* panel differs from the *measured* one: with every
 filter off, the only thing between them is the spectral window. That is what you
@@ -226,7 +229,7 @@ fig.tight_layout()
 
 A decreasing curve at the iteration limit suggests further iterations may help.
 A plateau can reflect convergence, a local minimum, noise, interpolation error or
-a missing model term. It is not proof that the best possible field was found.
+a missing model term.
 Here regridding changes a trace generated on one grid into samples on another;
 the interpolated array need not be exactly representable by the retrieval model.
 
@@ -236,8 +239,7 @@ the interpolated array need not be exactly representable by the retrieval model.
 The call above explicitly chose COPRA. Omitting `algorithm` uses `warm-lbfgs`.
 Since `td` includes a fundamental spectrum, the default spectral penalty uses it
 alongside amplitude smoothness (`reg_spectrum=0.01`, `reg_amp=0.03` for this
-solver). These are package defaults, not weights established for every instrument
-or the settings of the revised paper protocol. Compare their influence using
+solver). Compare their influence using
 [regularisation](../howto/regularisation.md); pass both weights as zero for an
 unregularised fit.
 

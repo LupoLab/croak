@@ -63,10 +63,16 @@ display(Image(filename="paper_rdw.png"))
 
 ## Interpretation and limits
 
-Compare satellites and spectral shape as well as FWHM. The displayed fields
-use their native effective convention and the stored beamlet overlay; they have
-not been converted to the on-axis plane. The auxiliary spectrum constrains the
-retrieval, so its agreement is not independent validation. These legacy data and
-settings do not reproduce the revised draft protocol. See
-[the revised RDW comparison](../explanation/validation.md#a-simulated-single-cycle-pulse)
-and [field conventions](../reference/conventions.md#field-reference-planes).
+Both models fit the trace well, but only the extended model returns the pulse:
+the standard thin-medium model gives a smooth pulse more than twice as long as
+the reference, at a trace error of a fraction of a percent. A low trace error
+alone does not certify a retrieval. Compare the satellites and the spectral
+shape as well as the FWHM.
+
+The grey fill is the reference pulse, the mask-vignetted gate beamlet stored with
+the dataset, and the retrieved fields are shown in croak's native effective-field
+convention. The measured spectrum constrains the retrieval, so agreement of the
+spectrum is not independent evidence. The papers' validation uses a different
+protocol and compares fields at the on-axis entrance plane; see
+[a simulated single-cycle pulse](../explanation/validation.md#a-simulated-single-cycle-pulse)
+and [field reference planes](../reference/conventions.md#field-reference-planes).

@@ -84,8 +84,8 @@ as the optimisation method.
 
 The two simulation scripts use datasets in `examples/data/`; their
 {download}`dataset descriptions <../../examples/data/README.md>` explain the
-stored quantities. These are numerical examples, not experimental measurements.
-Their settings should be inspected when comparing their results with a paper.
+stored quantities. Both use simulated, noise-free scans and simpler settings than
+the papers' [validation](../explanation/validation.md).
 
 ```bash
 uv run python examples/example_geometric_smearing.py
