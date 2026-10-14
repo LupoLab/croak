@@ -143,10 +143,9 @@ def apply_dispersion(
     Notes
     -----
     Negative material lengths and bounce counts invert the supplied transfer
-    function. They do not recover information lost in low-transmission bands.
-    Check optical-data validity and noise amplification before interpreting an
-    upstream field. Phase-only propagation conserves spectral energy; mirror
-    amplitude functions can change it.
+    function (back-propagation to an upstream plane). Phase-only propagation
+    conserves spectral energy; mirror amplitude functions change it, and
+    removing a low-reflectivity mirror amplifies noise in those bands.
     """
     out = np.asarray(ew, dtype=complex)
     phi = dispersion_phase(

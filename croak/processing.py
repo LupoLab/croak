@@ -64,9 +64,9 @@ def _finite_spectrum(
 def peak_wavelength(wavelength: ArrayLike, intensity: ArrayLike) -> float:
     """Return the wavelength (m) of an intensity spectrum's maximum.
 
-    The result depends on the spectral density convention: pass the *wavelength*
-    density (e.g. ``ProcessedResult.Ilam``, not
-    ``ProcessedResult.Iw``) to match what the spectrum panel plots.
+    The result depends on the spectral density convention: pass the *wavelength* density
+    (e.g. ``ProcessedResult.Ilam``, not ``ProcessedResult.Iw``) to match what the
+    spectrum panel plots.
 
     Parameters
     ----------
@@ -153,8 +153,7 @@ def post_filter(
     Returns a new :class:`~croak.result.RetrievalResult` with the filtered
     spectrum (the original is unchanged), so the effect can be toggled without
     re-running the retrieval. The stored trace, error and scale factor are
-    not recomputed; they still describe the unfiltered fit. Recalculate a
-    forward trace to test the filtered field against the data.
+    not recomputed; they still describe the unfiltered fit.
     """
     grid = result.grid
     omega = grid.omega
@@ -283,10 +282,11 @@ def normalize_spectral_phase(omega, ew, mask_w, Iw):
 def normalize_temporal_phase(t, field, mask_t):
     """Return temporal phase in the display gauge used for retrieved pulses.
 
-    This display convention removes a fitted constant and linear temporal ramp.
-    The constant phase is unobservable; the ramp removal is a display choice,
-    not an additional symmetry of a trace with calibrated optical frequencies.
-    Use the complex fields for quantitative comparisons retaining carrier offsets.
+    The constant phase is not observable in the envelope retrieval; the linear
+    temporal ramp is a carrier-frequency offset. Removing both from a known field
+    and a retrieved field makes their temporal phases directly comparable. The
+    ramp removal is a display choice: use the complex fields when a calibrated
+    carrier offset matters.
 
     Parameters
     ----------
@@ -426,9 +426,8 @@ class TruthPulse:
 
         The temporal intensity is oversampled (matching
         :func:`process_result`) for a smooth overlay and an accurate FWHM; the
-        spectral intensity is the wavelength density proportional to ``|E(ω)|²·ω²``
-        mapped to ascending
-        wavelength, using the coordinate Jacobian rather than a photon-response factor.
+        spectral intensity is the wavelength density ``∝ |E(ω)|²·ω²`` (the
+        coordinate Jacobian) mapped to ascending wavelength.
 
         Parameters
         ----------
@@ -657,11 +656,7 @@ class TruthPulse:
 # ---------------------------------------------------------------------------
 @dataclass
 class ProcessedResult:
-    """Store display quantities derived from a retrieval result.
-
-    Display-ready quantities derived from a
-    :class:`~croak.result.RetrievalResult`.
-    """
+    """Display quantities derived from a :class:`~croak.result.RetrievalResult`."""
 
     # temporal (oversampled, peak-centred)
     t_over: NDArray[np.float64]
@@ -686,8 +681,8 @@ class ProcessedResult:
     tod_fs3: float
     fod_fs4: float
     #: Fraction of the retrieved pulse energy sitting in the outermost grid bins,
-    #: used as a grid-support diagnostic. It does not by itself establish
-    #: how well those bins are constrained; see :func:`edge_energy_fraction`.
+    #: where the trace carries little or no measurement. A quality flag, not a
+    #: physical quantity; see :func:`edge_energy_fraction`.
     edge_energy: float
     # trace, marginals, convergence
     delays: NDArray[np.float64]
@@ -710,14 +705,35 @@ class ProcessedResult:
 def edge_energy_fraction(
     spectrum: ArrayLike, *, collar_bins: int = TAPER_COLLAR_BINS
 ) -> float:
-    """Fraction of the retrieved pulse energy sitting in the outermost grid bins.
+    r"""Fraction of the retrieved pulse energy sitting in the outermost grid bins.
 
-    A diagnostic of spectral energy near the grid boundaries. Preprocessing
-    tapers the trace's outer frequency rows gradually to zero; not every collar
-    row is zero. High edge energy can indicate a clipped band or weak amplitude
-    constraints, especially with per-frequency response scaling. Low edge energy
-    alone does not establish field accuracy. Compare wider grids and appropriate
-    spectral constraints; see :doc:`/howto/postprocessing`.
+    A retrieval-quality flag. :func:`croak.preprocess.regrid` tapers the outermost
+    ``collar_bins`` frequency rows at each end of the grid gradually to zero, so
+    the trace carries little or no measurement there. The nonlinear mixing still
+    couples those frequencies to the live rows, but only weakly (a probe spike at
+    the grid edge moves the trace error by ~100× less than the same spike
+    mid-band), so the field is nearly free there. Because
+    :math:`|E(\omega)|^2 \ge 0` and the true value sits *on* that bound, an
+    unconstrained edge bin can only drift upward, which is why the failure always
+    looks like spectral energy appearing at the band edges.
+
+    A well-conditioned retrieval on a generously chosen band returns well under
+    ``0.01`` here. Values of a few percent mean part of the reported spectrum,
+    and therefore part of the reported pulse duration, is an artefact. The usual
+    causes, in order of how much they matter:
+
+    1. ``R_omega=True`` without ``reg_spectrum`` or ``phase_only``. Per-frequency
+       scaling discards exactly the information that pins the spectral amplitude,
+       and it *lowers* the reported trace error while doing so.
+    2. A ``lam_min``/``lam_max`` band tight enough that the taper cuts live signal
+       (:func:`croak.preprocess.regrid` warns about this at load time and records
+       the discarded fraction as :attr:`croak.preprocess.TraceData.taper_loss`).
+    3. Noise fitted into signal-free bins on a noisy trace when no measured
+       spectrum is supplied as a target; the COPRA warm-up of ``warm-lbfgs`` has
+       no spectral penalty even when one is (see :mod:`croak.warm_lbfgs`).
+
+    A low value does not by itself establish field accuracy. See
+    :doc:`/howto/postprocessing`.
 
     Parameters
     ----------
@@ -788,9 +804,9 @@ def resolve_time_direction(
     rather than the field keeps the comparison independent of the absolute phase
     (also ambiguous), and maximising over lag keeps it independent of the time
     origin (likewise). Neither profile has to be a good match for the comparison
-    to work — only for the *right* one to be the better of the two — so the decision
-    uses their relative match. A symmetric intensity profile
-    cannot resolve a phase-only distinction between the branches.
+    to work — only for the *right* one to be the better of the two — so this stays
+    reliable on an imperfect retrieval. A time-symmetric intensity profile cannot
+    distinguish the two branches.
 
     Reversal is applied by conjugating the spectrum, which is exactly equivalent
     and leaves the stored trace, ``mu`` and ``error`` valid, since the trace is
@@ -868,10 +884,9 @@ def process_result(
         are reported. With the intensity normalised to unit peak, instantaneous
         power is :math:`P(t)=E\,I(t)/\!\int I(t)\,dt`, so the **peak power** is
         :math:`E/\!\int I\,dt` (the energy divided by the effective duration).
-        The transform-limited reference gives the maximum peak power for the same
-        spectral amplitude and energy; it need not minimise FWHM for a structured
-        pulse. Energy and temporal profile must refer to the same plane and
-        spatially integrated pulse. ``None`` or a
+        The transform-limited reference carries the same energy, so it gives the
+        maximum achievable peak power for the same spectral amplitude (its FWHM
+        need not be the shortest for a structured pulse). ``None`` or a
         non-positive value leaves the plots in normalised units.
 
     Returns

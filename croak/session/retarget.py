@@ -54,7 +54,7 @@ def retarget(options: SessionOptions, new_base_dir: str) -> SessionOptions:
         a property of the measured per-dataset folder layout: a simulated session
         has one scansave file with no sibling spectrum/background convention, and
         a synthetic one has no file at all, so there is nothing to re-point and
-        those workflows cannot be retargeted through this interface.
+        silently returning the session unchanged would mislead.
 
     Notes
     -----

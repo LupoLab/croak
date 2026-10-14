@@ -21,9 +21,10 @@ generalised-cross-validation *smoothing* spline rather than a raw interpolant:
 the dispersion quantities (:func:`beta1`, :func:`croak.dispersion.material_gdd`,
 :func:`croak.dispersion.material_tod`) differentiate :math:`n(\lambda)`, and
 finite differences of an interpolant through noisy samples amplify that noise
-in the second and third derivatives. Smoothing reduces this sensitivity
-but can bias derived dispersion; check the data range and adequacy of the
-representation for the pulse bandwidth.
+catastrophically in the second and third derivatives. The smoothing spline
+regularises the noise once, at the representation layer, so the
+finite-difference machinery is unchanged. Use tabulated data only within its
+wavelength range.
 """
 
 from __future__ import annotations
@@ -191,12 +192,11 @@ def make_tabulated_material(
     a *smoothing* spline (``scipy.interpolate.make_smoothing_spline``, with the
     smoothing penalty chosen automatically by generalised cross-validation) so
     that the derived dispersion quantities — which differentiate
-    :math:`n(\lambda)` up to third order — are less sensitive to measurement
-    noise. Smoothing does not remove calibration uncertainty or guarantee the
-    accuracy of derivatives. The fit is performed in ``log``-wavelength, because
-    broadband optical
-    data is typically (near-)logarithmically sampled; this gives uniform
-    fractional resolution across many decades of wavelength.
+    :math:`n(\lambda)` up to third order — are not corrupted by measurement
+    noise (calibration errors in the data remain). The fit is performed in
+    ``log``-wavelength, because broadband optical data is typically
+    (near-)logarithmically sampled; this gives uniform fractional resolution across many
+    decades of wavelength.
 
     Parameters
     ----------
@@ -330,8 +330,8 @@ def beta(
     Returns :math:`\beta(\omega) = (\omega+\omega_0)\,n/c - \beta_1(\omega_0)\,\omega`,
     where ``omega`` is the centred grid (relative to ``omega0``) and the group
     delay term keeps the pulse centred in the time window. Non-finite entries
-    are set to zero. A finite value outside a formula's validated wavelength range
-    is not automatically detected; check the material reference.
+    (outside the Sellmeier validity range) are set to zero; a finite value
+    outside a formula's validated range is not detected.
 
     Parameters
     ----------

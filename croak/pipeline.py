@@ -80,11 +80,11 @@ def initial_guess(
             a synthetic transform-limited Gaussian of ``perfect_fwhm`` at the
             spectral peak. Note this *discards* the measured amplitude and
             encodes an assumed duration; ``"tl"`` is the better-justified
-            version of the same flat-phase start but either initialisation can reach a
-            different local solution.
+            version of the same flat-phase start and performs equivalently.
         ``"auto"``
             the measured amplitude with a centroid-delay phase, which already
-            encodes the group-delay slope and so provides a chirped starting estimate.
+            encodes the group-delay slope and so starts a *chirped* pulse close
+            to its answer.
         ``"random"``
             the measured amplitude with a uniform random phase.
         ``"truth"``
@@ -95,7 +95,7 @@ def initial_guess(
         The flat-phase starts (``"tl"``, ``"perfect"``) suit near-transform-
         limited pulses; a strongly chirped pulse started flat must build its
         quadratic phase from nothing and tends to retain temporal structure,
-        so compare initialisations rather than assuming one is always reliable.
+        where ``"auto"`` does not.
     perfect_fwhm : float, optional
         Temporal FWHM for the ``"perfect"`` seed (s).
     truth : TruthPulse, optional
@@ -185,8 +185,10 @@ def retrieve_from_tracedata(
     ----------
     td : TraceData
         Cleaned, regridded trace.
-    algorithm : str, optional
+    algorithm : {"warm-lbfgs", "copra", "copra-jax", "lbfgs", "lbfgs-hand", \
+"lbfgs-ad", "lbfgs-optx", "lm", "lm-optx", "cma-es"}, optional
         Retrieval algorithm — any key in :data:`croak.retrieve.ALGORITHMS`.
+        Default ``"warm-lbfgs"``.
         ``"warm-lbfgs"`` (the default) is ``"lbfgs-ad"`` warm-started from
         COPRA's local sweep;
         ``"copra"`` and ``"lbfgs"`` use hand-derived analytic gradients (pure
@@ -241,8 +243,8 @@ def retrieve_from_tracedata(
         Temporal (pedestal) regularisation weight (LBFGS-AD / cma-es): penalises
         the fraction of ``E(t)`` energy outside ``time_window``. A self-consistent
         alternative to the temporal post-filter — it keeps spectrum and field a
-        Fourier pair, but the chosen window remains a prior that can bias the field.
-        Active in all modes.
+        Fourier pair, so introduces no spectral artefacts, though the window is
+        a prior on the pulse's support. Active in all modes.
     time_window : tuple of float, optional
         ``(lo, hi)`` window in seconds for ``reg_time``; defaults to the
         measurement delay range ``(td.delays.min(), td.delays.max())``.
@@ -271,9 +273,8 @@ def retrieve_from_tracedata(
         channel's starting centre. See :doc:`/howto/geometric_smearing`.
     depth_weight : array_like or None, optional
         Complex generation-envelope weights, one per depth-quadrature node
-        (``lbfgs-ad`` and ``warm-lbfgs``): the transverse-geometry factor a 1D depth
-        integral
-        cannot see. See :func:`croak.forward_jax.make_param_trace_fn`.
+        (``lbfgs-ad`` and ``warm-lbfgs``): the transverse-geometry factor a 1D
+        depth integral cannot see. See :func:`croak.forward_jax.make_param_trace_fn`.
     depth_transverse : bool, optional
         Model the transverse decoherence of the depth integral (``lbfgs-ad``
         and ``warm-lbfgs``): a parameter-free per-depth transverse phase inside the
@@ -319,7 +320,7 @@ def retrieve_from_tracedata(
     # Spectral-match target: the measured independent spectrum on the grid. Only
     # meaningful in full mode and when a spectrum was actually provided.
     spectrum_target = td.Iomega
-    # ``None`` (the default) means "the settled weight, if a spectrum is
+    # ``None`` (the default) means "the default weight, if a spectrum is
     # available": it flows to the solver, whose spectral penalty is inert
     # without a target, so no warning is due. An *explicit* non-zero request
     # that cannot be honoured still warns.

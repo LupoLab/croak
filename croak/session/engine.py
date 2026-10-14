@@ -1,7 +1,4 @@
-"""Replay a saved retrieval session without a graphical interface.
-
-Headless session engine: replay a :class:`~croak.session.options.SessionOptions`
-end-to-end.
+"""Headless session engine: replay a :class:`~croak.session.options.SessionOptions`.
 
 ``run_session`` drives the same per-stage mappings the GUI uses
 (:mod:`croak.session.pipeline`) without any Qt dependency, so a saved

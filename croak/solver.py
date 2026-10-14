@@ -103,11 +103,25 @@ def spectral_target_amplitude(
 
 
 def adapt_callback(callback):
-    """Return a callback adapter accepting the optional ``snapshot`` keyword.
+    """Return ``callback`` wrapped so it always accepts a ``snapshot=`` keyword.
 
-    Both ``callback(iteration, R, best_R)`` and the extended form with
-    ``snapshot=None`` are supported. The adapter drops the snapshot keyword for
-    callbacks that cannot receive it. ``None`` is returned unchanged.
+    The documented progress signature is
+    ``callback(iteration, R, best_R, snapshot=None)``, but the shorter
+    ``callback(iteration, R, best_R)`` form is also supported. Every solver can
+    now supply an in-progress snapshot, so calling a three-argument callback
+    with the keyword would fail with a ``TypeError`` deep inside the
+    iteration. The adapter drops the snapshot for callbacks that cannot
+    receive it, so the same callback works with every solver.
+
+    Parameters
+    ----------
+    callback : callable or None
+        A user progress callback, or ``None``.
+
+    Returns
+    -------
+    callable or None
+        A callable accepting ``snapshot=``, or ``None`` if none was given.
     """
     if callback is None:
         return None
@@ -242,7 +256,8 @@ def guard_nonfinite(
     """Trap a non-finite objective/gradient during an NLopt line search.
 
     A quasi-Newton line search occasionally probes an iterate where the jitted
-    objective or its gradient evaluates to NaN/Inf. NLopt aborts on such values;
+    objective or its gradient evaluates to NaN/Inf (observed for roughly one in
+    six random starts on large dispersive grids). NLopt aborts on such values;
     returning :data:`NONFINITE_PENALTY` with a zeroed gradient instead makes
     the line search backtrack and the optimisation continue.
 
@@ -395,13 +410,41 @@ class Retriever:
         raise NotImplementedError
 
 
-#: Default weights ``(reg_spectrum, reg_amp)`` per solver family.
+#: Default regularisation weights ``(reg_spectrum, reg_amp)`` per solver family.
 #:
-#: Gradient solvers minimise :math:`R + \lambda P`; residual solvers minimise
-#: :math:`R^2 + \lambda' P`. Matching local stationary conditions gives
-#: :math:`\lambda' = 2 R \lambda` at the same field and residual. This is a
-#: local comparison, not a universal choice of weight. Check sensitivity and
-#: bias for the measured noise, grid and model; see :doc:`/howto/regularisation`.
+#: The two families do not minimise the same objective, so the same number does
+#: not mean the same thing to them. The gradient solvers minimise
+#: :math:`R + \lambda P`; the Levenberg-Marquardt solvers append the penalty as
+#: residual rows, hence minimise :math:`R^2 + \lambda' P`. Matching the
+#: stationary conditions at the same field pairs them as
+#: :math:`\lambda' = 2 R \lambda`, i.e. at the :math:`R \approx 2\times10^{-4}`
+#: of a good dispersive TG-FROG retrieval the LM weight is some three orders of
+#: magnitude smaller.
+#:
+#: The difference matters in practice. On a simulated 2 fs pulse through a
+#: 9.5 um dispersive TG-FROG medium, sweeping the LM weight over four decades
+#: gave:
+#:
+#: =====================  ========  ========  =========  ======
+#: LM (spectrum, amp)     R (%)     eps       dFWHM (%)  rough.
+#: =====================  ========  ========  =========  ======
+#: 1e-2, 3e-2 (as LBFGS)  0.0237    0.305     +1.11      1.00
+#: 1e-5, 3e-5 (mapped)    0.0193    0.112     -0.11      1.01
+#: 0, 0                   0.0174    0.466     +3.12      2.57
+#: =====================  ========  ========  =========  ======
+#:
+#: (``eps`` is the complex-field error against the known pulse and ``rough.``
+#: the spectral roughness relative to the truth.) Both failure modes are
+#: visible: the gradient weights over-regularise LM (a worse pulse *and* a
+#: worse trace error), and no penalty at all overfits (the best trace error of
+#: any arm but the worst pulse, with 2.6x the truth's spectral roughness and
+#: +3.1 % on duration). The measured optimum, 1e-5, sits within 30 % of the
+#: :math:`2 R \lambda` prediction, which supports the mapping as the rule
+#: rather than a coincidence of one trace.
+#:
+#: The LM entry therefore scales with the trace error actually reached:
+#: multiply it by :math:`R/2\times10^{-4}` on a noisier measurement. See
+#: :doc:`/howto/regularisation`.
 REG_DEFAULTS: dict[str, tuple[float, float]] = {
     "gradient": (1e-2, 3e-2),
     "lm": (1e-5, 3e-5),
@@ -433,13 +476,11 @@ def resolve_reg(
 ) -> tuple[float, float]:
     """Resolve ``(reg_spectrum, reg_amp)``, filling ``None`` with the defaults.
 
-    ``None`` means "use the package default weights for this solver
-    family" (:data:`~croak.solver.REG_DEFAULTS`); an explicit number — including ``0``
-    to
+    ``None`` means "use the package default weights for this solver family"
+    (:data:`~croak.solver.REG_DEFAULTS`); an explicit number — including ``0`` to
     disable a penalty — is passed through unchanged. The spectral-match term
-    additionally requires a ``spectrum_target`` at run time and is inert
-    without one, so the non-zero default is safe for retrievals that have no
-    independent spectrum.
+    additionally requires a ``spectrum_target`` at run time and is inert without one, so
+    the non-zero default is safe for retrievals that have no independent spectrum.
     """
     spec_default, amp_default = REG_DEFAULTS[family]
     return (

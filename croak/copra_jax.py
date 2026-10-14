@@ -12,10 +12,8 @@ vectorised:
 * the **local** sweep, which is inherently sequential (each delay updates
   :math:`\tilde E` for the next), is expressed as a ``jax.lax.scan`` over the
   delay-index permutation. The permutation is drawn host-side with the same
-  NumPy ``rng`` as the reference, so matched random orders can be used when comparing
-  the implementations.
-
-Floating-point execution can still change individual trajectories.
+  NumPy ``rng`` as the reference, so the two implementations track each other
+  (up to floating-point differences in the vectorised arithmetic).
 
 The outer iteration loop (mode switching, best-error tracking, callbacks,
 abstol/reltol stops) stays in Python, exactly as :class:`croak.lbfgs_hand.LBFGSHand`

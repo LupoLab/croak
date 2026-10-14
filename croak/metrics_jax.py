@@ -116,9 +116,8 @@ def residual_vector(
 
     Returns :math:`(T_\mathrm{meas}-\mu T_\mathrm{sim})\,w/\sqrt{\mathrm{denom}}`
     flattened to 1-D, so that its Euclidean norm equals the FROG error
-    :func:`frog_error`. Least-squares solvers minimise its squared norm, with any
-    penalty rows
-    added separately. Noise or model mismatch generally leaves a nonzero residual.
+    :func:`frog_error`. The least-squares solvers minimise its squared norm,
+    with any penalty rows appended separately.
     """
     mu = _mu(t_meas, t_sim, weights, R_omega=R_omega)
     resid = (t_meas - mu * t_sim) * weights[:, None]
@@ -142,20 +141,12 @@ def _second_diff(a: jnp.ndarray, *, normalize_by_max: bool) -> jnp.ndarray:
 
 
 def amplitude_penalty(amp_params: jnp.ndarray) -> jnp.ndarray:
-    """Compute the amplitude smoothness penalty.
-
-    Amplitude smoothness penalty (max-normalised), as in
-    :class:`~croak.pulses.ArrayPulse`.
-    """
+    """Amplitude smoothness penalty (max-normalised), as in ``ArrayPulse``."""
     return _second_diff(amp_params, normalize_by_max=True)
 
 
 def phase_penalty(phase_params: jnp.ndarray) -> jnp.ndarray:
-    """Compute the phase smoothness penalty.
-
-    Phase smoothness penalty (mean squared curvature), as in
-    :class:`~croak.pulses.ArrayPulse`.
-    """
+    """Phase smoothness penalty (mean squared curvature), as in ``ArrayPulse``."""
     return _second_diff(phase_params, normalize_by_max=False)
 
 

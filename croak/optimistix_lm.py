@@ -1,9 +1,18 @@
 """Retrieve with on-device Optimistix Levenberg–Marquardt (``lm-optx``).
 
-The residual uses the same trace-error normalisation and penalty functions as
-:class:`croak.lm.LM`. Optimistix evaluates damped Gauss–Newton steps in JAX.
-The implementation is unconstrained: it does not enforce non-negative fitted
-thickness. Check fitted values and use a well-constrained starting estimate.
+A JAX-native twin of :class:`croak.lm.LM`: it drives the same flattened FROG
+residual (:func:`croak.metrics_jax.residual_vector`, with the same
+amplitude/phase/spectral regularisation rows appended) to zero, over the same
+real parameter vector, with the same JAX forward model. Instead of SciPy
+``least_squares`` driving a host-side trust-region loop with a JAX Jacobian
+materialised and transferred every iteration, Optimistix's Levenberg–Marquardt
+runs the whole damped Gauss–Newton loop on-device (each step jitted) with the
+linear algebra handled by ``lineax``. Being pure JAX, it is a genuine
+Levenberg–Marquardt with the analytic Jacobian, which the MINPACK route of
+:class:`croak.lm.LM` cannot offer (see :mod:`croak.lm`).
+
+The implementation is unconstrained: it does not enforce a non-negative fitted
+thickness, so check fitted values.
 
 See :doc:`/explanation/algorithms` for the objective, linear-system choices and
 comparison with SciPy's trust-region solver.
@@ -61,8 +70,8 @@ _LINEAR_SOLVERS: dict[str, lx.AbstractLinearSolver] = {
 class OptxLM(Retriever):
     r"""Optimistix Levenberg–Marquardt solver with a JAX Jacobian.
 
-    The residual conventions match :class:`croak.lm.LM`; supported options and
-    bounds differ.
+    The residual conventions match :class:`croak.lm.LM`; the optimiser runs
+    on-device and is unconstrained, so bounds are not enforced.
 
     Parameters
     ----------
@@ -82,9 +91,14 @@ class OptxLM(Retriever):
         exclusive with ``smearing``, and incompatible with ``fit_smearing``
         (an explicit mixture has no kernel width to scale).
 
-        Resolve wavelength-dependent spatial filtering when the achromatic
-        approximation is inadequate. Cost depends on the focal and collection
-        quadrature sizes; check convergence for the chosen pulse and geometry.
+        Worth its cost for a broadband pulse. The reduced kernel's widths scale
+        as :math:`\sigma\propto\lambda`, so freezing them at the carrier is a
+        -16 %/+24 % spread of width across a 1 fs deep-UV band; in our earlier
+        instrument scans that cost a mean 12 % of retrieved duration there,
+        against 3.5 % at 2 fs. The mixture needs one field build per focal node
+        rather than per Gauss-Hermite node, so it is one to two orders of
+        magnitude slower; check quadrature convergence for the chosen pulse and
+        geometry.
     phase_only : bool, optional
         Hold the initial spectral amplitude fixed and retrieve phase only.
     phase_basis : {"pointwise", "bspline"}, optional
@@ -100,13 +114,13 @@ class OptxLM(Retriever):
         exactly as in :class:`croak.lm.LM`. See :doc:`/howto/regularisation`.
     linear_solver : {"normal", "qr"}, optional
         How to solve the damped Gauss--Newton system each iteration (default
-        ``"normal"``). ``"normal"`` forms ``J^T J + lambda I`` and takes its
-        Cholesky factor; ``"qr"`` factorises the stacked ``[J; sqrt(lambda) I]``
-        operator directly, which is Optimistix's own default. ``"normal"`` can be
-        faster, but forming the normal equations
-        squares the condition number, so switch to ``"qr"`` if a badly scaled
-        problem stalls or returns a non-finite result. See
-        :doc:`/explanation/algorithms`.
+        ``"normal"``). ``"normal"`` forms ``J^T J + lambda I`` and takes its Cholesky
+        factor; ``"qr"`` factorises the stacked ``[J; sqrt(lambda) I]`` operator
+        directly, which is Optimistix's own default. ``"normal"`` was roughly 2x faster
+        on a full-size pointwise retrieval in our benchmarks, because the Gram matrix is
+        a single BLAS ``gemm`` while the tall-skinny QR is panel-bound. It squares the
+        condition number, so switch to ``"qr"`` if a badly scaled problem stalls or
+        returns a non-finite result. See :doc:`/explanation/algorithms`.
     reltol, abstol : float, optional
         Convergence tolerances (defaults ``1e-4`` / ``1e-8``). ``abstol`` is the
         Optimistix ``atol``; ``reltol`` is passed as the Optimistix ``rtol`` *and*

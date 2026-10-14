@@ -7,11 +7,11 @@ Two groups of functionality live here:
   (centred order) for tests, examples and retrieval initial guesses. Chirp and
   higher-order phase are added as a Taylor expansion of the spectral phase.
 
-* **Parameterisations** — :class:`ComplexPulse` and :class:`~croak.pulses.ArrayPulse`
-  expose a
-  real parameter vector ``u`` to the gradient-based (L-BFGS) solver, together
-  with the hand-derived vector–Jacobian product :meth:`Pulse.ew_vjp` that maps a
-  spectral cotangent back to ``u``, and optional spectral-smoothness penalties.
+* **Parameterisations** — :class:`ComplexPulse` and
+  :class:`~croak.pulses.ArrayPulse` expose a real parameter vector ``u`` to the
+  gradient-based (L-BFGS) solver, together with the hand-derived vector–Jacobian product
+  :meth:`Pulse.ew_vjp` that maps a spectral cotangent back to ``u``, and optional
+  spectral-smoothness penalties.
 
 The carrier (centre wavelength) is *not* encoded in the baseband pulse shape: a
 pulse lives on the grid's centred ``omega`` axis, and the carrier enters

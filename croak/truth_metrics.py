@@ -1,8 +1,8 @@
 r"""Retrieval errors against a *known* pulse.
 
 :mod:`croak.metrics` answers "how well does the retrieval reproduce the measured
-trace" — the FROG error :math:`R`, which can be computed without a known pulse. When the
-true pulse is known (a synthetic generation, or a
+trace" — the FROG error :math:`R`, which is all one can compute from a real
+measurement. When the true pulse is known (a synthetic generation, or a
 ModelPNPS scan carrying its complex field), a second and much sharper question
 becomes available: how close is the retrieved *pulse* to the true one. The two
 are not the same. A trace error can be small while the pulse is wrong, because
@@ -13,8 +13,7 @@ Three errors, all dimensionless and all zero for a perfect retrieval:
 
 ``eps_It``
     temporal intensity :math:`|E(t)|^2`, compared after optimal intensity scaling, on
-    the truth's own
-    time axis, minimised over the retrieval's time-translation gauge.
+    the truth's own time axis, minimised over the retrieval's time-translation gauge.
 ``eps_Iw``
     spectral intensity :math:`|\tilde E(\omega)|^2` over the truth's support
     band, compared after optimal intensity scaling so the arbitrary scale cancels.
@@ -25,10 +24,12 @@ Three errors, all dimensionless and all zero for a perfect retrieval:
     PNPS literature quotes, and the only one of the three that cannot be
     satisfied by getting amplitude or phase right alone.
 
-Compare the same field reference and spectral density in both arguments.
-For SHG, resolve the conjugate time-reversal branch separately using
-:func:`croak.processing.resolve_time_direction`. Finite sampling and support
-selection also affect these metrics.
+Each is a least-squares distance after removing exactly the gauge freedoms that
+are unobservable, and no others: a metric that quotients out more would flatter
+the retrieval, one that quotients out less would score a pure relabelling as
+error. Compare the same field reference and spectral density in both arguments.
+For SHG, resolve the conjugate time-reversal branch separately with
+:func:`croak.processing.resolve_time_direction`.
 """
 
 from __future__ import annotations
@@ -104,8 +105,11 @@ def eps_temporal_intensity(
     near 1), then the cross-correlation peak refines it to **sub-sample**
     precision via :func:`croak.preprocess.marginal_peak_delay`.
 
-    Sub-sample alignment reduces discretisation error; residual interpolation
-    error should still be checked when comparing very small field differences.
+    The refinement matters. Aligning only to the nearest sample leaves up to
+    half a step of residual offset, which a normalised rms scores as roughly
+    ``dt / 2 sigma``. On an 8x-oversampled 20 fs Gaussian (0.125 fs step), a
+    half-step delay scores 5.2e-3 under integer-bin alignment and 2.3e-5 with
+    the sub-sample fit: a floor 220x lower.
 
     Parameters
     ----------
@@ -146,7 +150,7 @@ def eps_temporal_intensity(
     step = float(np.mean(np.diff(t0)))
     lags = (np.arange(correlation.size) - (i0.size - 1)) * step
     ir = sampled(marginal_peak_delay(lags, correlation))
-    # least-squares scale gauge (2026-08-30): min_c ||c I - I_true|| /
+    # least-squares scale gauge: min_c ||c I - I_true|| /
     # ||I_true|| = sin(theta). The unit-energy normalization above is kept
     # for the alignment steps (it stabilises the correlation) but no longer
     # sets the compared scale, so a low-level pedestal costs its own norm
@@ -166,8 +170,8 @@ def eps_spectral_intensity(
     quantity is the two-norm relative error minimised over the free scale
     (:math:`\sin\theta`), which removes the retrieval's arbitrary overall
     scale; spectral intensity is already blind to the constant-phase and
-    delay gauges. The
-    :math:`\sqrt{1 - x^2}` form used here cannot resolve a perfect match below
+    delay gauges. Like :func:`eps_complex_field`, the
+    :math:`\sqrt{1 - x^2}` form cannot resolve a perfect match below
     ``~1.5e-8`` — read anything at that level as zero.
 
     Parameters
@@ -199,7 +203,7 @@ def eps_spectral_intensity(
         raise ValueError("the truth spectrum is identically zero")
     band = b > threshold * peak
     a, b = a[band], b[band]
-    # least-squares scale gauge (2026-08-30): min_c ||c a - b|| / ||b||
+    # least-squares scale gauge: min_c ||c a - b|| / ||b||
     # = sin(theta). Scale-free in both arguments; replaces the earlier
     # unit-norm (chordal) form 2 sin(theta/2), to which it agrees to first
     # order and from which it differs by <1% below 0.3.
@@ -213,8 +217,9 @@ def eps_complex_field(spectrum: ArrayLike, truth: ArrayLike) -> float:
 
     Geib's :math:`\varepsilon`: the normalised distance between two complex
     spectra after minimising over amplitude scale, absolute phase and delay —
-    the continuous gauge freedoms removed by this metric. Resolve any
-    SHG conjugate time-reversal ambiguity separately. Written
+    exactly the three continuous transformations a PNPS measurement cannot
+    resolve. Resolve any SHG conjugate time-reversal ambiguity separately.
+    Written
     as an overlap,
 
     .. math::
@@ -300,13 +305,17 @@ def truth_errors(
     truth : TruthPulse
         The known pulse, from the synthetic or simulated load.
     frame_p : float, optional
-        Field-conversion exponent used for the retrieval's spectrum target.
-        This function divides the retrieved complex spectrum by
-        ``((omega + omega0) / omega0)**frame_p`` before comparing with the
-        stored integrated beamlet, then recomputes its temporal field.
-        ``frame_p=1`` denotes the declared on-axis convention; ``0.5`` is an
-        empirical effective-field convention, not the on-axis field. Use zero
-        when no conversion was applied. See :doc:`/reference/conventions`.
+        The ``spectrum_frame_p`` the retrieval ran with. A frame-corrected
+        retrieval carries its amplitude in the on-axis frame, while the stored
+        integrated beamlet truth lives in the measurement frame. This function
+        divides the retrieved complex spectrum by
+        ``((omega + omega0) / omega0)**frame_p`` and recomputes its temporal
+        field, so all three errors compare like with like: a phase-only
+        retrieval then scores ``eps_Iw = 0`` instead of the fixed frame
+        footprint (~0.107 for a 1 fs spectrum at ``p = 0.5``). ``frame_p=1``
+        is the declared on-axis convention; ``0.5`` an empirical effective one.
+        Use zero when no conversion was applied. See
+        :doc:`/reference/conventions`.
 
     Returns
     -------

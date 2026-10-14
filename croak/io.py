@@ -452,7 +452,7 @@ class SimulatedScan:
         The saved propagation distances (m) of the slices stacked along the
         window's ``nz`` axis (the file's ``/grid/zsave``), strictly increasing
         from the entrance (``0``) to the substrate exit (``zmax``). ``None`` for
-        the legacy single-thickness format that does not store ``zsave``.
+        the older single-thickness format that does not store ``zsave``.
     delay_convention : str
         The file's delay-axis convention: ``"gate"`` when the simulation stored
         the trace directly in the gate-delay (paper) frame (the file carries
@@ -741,7 +741,7 @@ def _resolve_truth_keys(g: h5py.Group, truth_source: str) -> tuple[str, str]:
     pre-mask input) and the oversampled time grid (``To``/``Ito*``) when present.
     Falls back along ``reimaged → beamlet → source`` when the requested one is
     absent — e.g. a Gaussian-beam run with no beamlet, a ModelPNPS file with no
-    on-axis truth, or a legacy file storing only ``It`` — so the loader always
+    on-axis truth, or an older file storing only ``It`` — so the loader always
     returns *some* truth.
     """
     if truth_source == "beamlet_reimaged":
@@ -858,14 +858,14 @@ def read_simulated_scan(
         the slice whose saved position ``/grid/zsave`` is nearest this value is
         selected (``argmin|zsave − z_thickness|``), taking precedence over
         ``z_index``. Requires the file to store ``/grid/zsave`` (the newer
-        multi-thickness format); a value is invalid on the legacy format.
+        multi-thickness format); a value is invalid on the older format.
     truth_source : {"beamlet", "beamlet_reimaged", "source"}, optional
         Which stored reference pulse to return as the time-domain truth (``t``,
         ``It``): the post-mask gate **beamlet** (``It_beamlet``/``Ito_beamlet``,
         default — the integrated beamlet reference) or the pre-mask ideal **source**
         input (``It``/``Ito``). The oversampled grid (``To``/``Ito*``) is used
         when present. Falls back to the other source when the requested one is
-        absent (e.g. a Gaussian-beam run with no beamlet, or a legacy file with
+        absent (e.g. a Gaussian-beam run with no beamlet, or an older file with
         only ``It``). See :func:`read_simulated_truth_keys`.
 
     Returns
@@ -916,7 +916,7 @@ def read_simulated_scan(
         e_reimaged = _read_complex("Eω_beamlet_reimaged")
         # Delay-convention marker: newer ModelPNPS files store the trace
         # directly in the gate-delay (paper) frame and say so; marker-less
-        # files are the legacy probe-delayed frame (reversed on loading).
+        # files use the older probe-delayed frame (reversed on loading).
         if "delay_convention" in g:
             raw = _require_dataset(g, "delay_convention")[()]
             delay_convention = raw.decode() if isinstance(raw, bytes) else str(raw)
@@ -947,7 +947,7 @@ def read_simulated_scan(
         mask_window = _mask_window_spec(g)
         # The multi-thickness format stacks the signal at several propagation
         # distances along the window's nz axis and records them in /grid/zsave
-        # (strictly increasing, entrance 0 → exit zmax). The legacy single-
+        # (strictly increasing, entrance 0 → exit zmax). The older single-
         # thickness format omits it; z_positions is then None.
         z_positions = _read_array(g, "zsave") if "zsave" in g else None
         # Time-domain truth overlay: the chosen source (post-mask beamlet by
@@ -1039,7 +1039,7 @@ def read_simulated_z_positions(path: str) -> NDArray[np.float64] | None:
     numpy.ndarray or None
         The saved propagation distances (m), strictly increasing from the
         entrance (``0``) to the substrate exit (``zmax``), or ``None`` for the
-        legacy single-thickness format that does not store ``zsave``.
+        older single-thickness format that does not store ``zsave``.
 
     Raises
     ------

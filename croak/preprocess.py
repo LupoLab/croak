@@ -61,12 +61,15 @@ __all__ = [
     "TAPER_COLLAR_BINS",
 ]
 
-#: Width, in grid bins, of the Planck-taper roll-off applied by :func:`regrid`
-#: at each end of the frequency axis. The taper gradually suppresses the trace
-#: towards the periodic-grid boundary, reducing discontinuities but also altering
-#: the data in that collar. Check :attr:`TraceData.taper_loss` and enlarge the
-#: grid if appreciable signal is removed. :func:`croak.processing.edge_energy_fraction`
-#: is a complementary diagnostic of the retrieved field.
+#: Width, in grid bins, of the Planck-taper roll-off that :func:`regrid` applies
+#: at each end of the retrieval grid's frequency axis. The taper is not optional:
+#: the forward model FFTs the trace on a periodic grid, so the resampled trace has
+#: to reach zero at the grid boundary or the wrap-around discontinuity rings back
+#: into the fit. Its cost is that the outermost ``TAPER_COLLAR_BINS`` rows at each
+#: end carry little or no measurement, which leaves the field at those frequencies
+#: almost unconstrained. Check :attr:`TraceData.taper_loss` (enlarge the grid if
+#: appreciable signal is removed) and, on the retrieved field,
+#: :func:`croak.processing.edge_energy_fraction`.
 TAPER_COLLAR_BINS = 10
 
 
@@ -201,9 +204,19 @@ def uniform_core_indices(x: ArrayLike, rtol: float = 1e-3) -> NDArray[np.intp]:
 def marginal_peak_delay(delays: ArrayLike, marginal: ArrayLike) -> float:
     """Locate the peak of a delay marginal to **sub-sample** precision.
 
-    Fit a parabola through the maximum sample and its two neighbours. The vertex
-    estimates the marginal peak between samples; it need not equal physical
-    pulse coincidence. Use the same origin convention for data and model.
+    Time zero is not known a priori on a measured scan; it is taken to be where
+    the delay marginal peaks. Reading that off as the largest *sample* quantises
+    the answer to the delay step, leaving up to half a step of offset, which a
+    retrieval then shows as a red/blue dipole straddling the trace in the
+    residual, because the measurement and the model sit at slightly different
+    delays.
+
+    This refines the estimate by fitting a parabola through the peak sample and
+    its two neighbours and returning the vertex, which is exact for a locally
+    quadratic peak and costs nothing: the delay axis is only *translated*, never
+    resampled. The marginal peak need not coincide with gate–probe coincidence
+    for an asymmetric trace; use the same origin convention for data and model
+    (see :mod:`croak.delay_origin`).
 
     The fit is done in local coordinates and the vertex clamped to the bracketing
     samples, so noise cannot throw it outside the interval its three points span.
@@ -593,15 +606,13 @@ def defringe_carrier(
     wavelength calibration, not fitted*. The fringes are diagonal because
     :math:`f_c` tilts with :math:`\lambda`.
 
-    This keeps only the DC band with a smooth Planck-taper low-pass whose cutoff
-    is ``carrier_fraction * f_c(lambda)`` per row — below the carrier and above
-    the trace's own slow delay-bandwidth — and discards the :math:`\pm f_c`
-    sidebands, recovering a smooth, fringe-free :math:`a(\lambda,\tau)`. Smooth
-    windows reduce ringing relative to an abrupt cutoff. Separation requires
-    the signal and fringe sidebands to occupy distinct delay-frequency bands. The
-    transform is a
-    non-uniform FFT, so the cutoff stays correctly calibrated on a jittered or
-    unevenly stepped delay axis.
+    This keeps only the DC band with a smooth Planck-taper low-pass whose cutoff is
+    ``carrier_fraction * f_c(lambda)`` per row — below the carrier and above the trace's
+    own slow delay-bandwidth — and discards the :math:`\pm f_c` sidebands, recovering a
+    smooth, fringe-free :math:`a(\lambda,\tau)`. Smooth windows avoid the Gibbs ringing
+    of a brick-wall notch. Separation requires the signal and fringe sidebands to occupy
+    distinct delay-frequency bands. The transform is a non-uniform FFT, so the cutoff
+    stays correctly calibrated on a jittered or unevenly stepped delay axis.
 
     Unlike DC removal (``filter_dc``), this **preserves** the slow signal content
     including its zero-frequency mean and low-frequency wings; the broad
@@ -626,8 +637,7 @@ def defringe_carrier(
         uses only the carrier-relative cutoff.
     roll_bins : int, optional
         Width (delay-frequency modes) of the Planck-taper roll-off. Small ⇒ steep
-        edges, less passband smoothing, with less abrupt truncation than a brick-wall
-        filter.
+        edges, less passband smoothing, while still avoiding brick-wall ringing.
         Default ``3``.
     on_alias : {"raise", "warn", "clamp"}, optional
         Behaviour when the carrier ``f_c(lambda)`` exceeds the delay Nyquist
@@ -685,13 +695,12 @@ def defringe_carrier(
 def _second_diff_normal(n: int) -> NDArray[np.float64]:
     """Upper-banded ``(3, n)`` form of ``DᵀD`` for a 2nd-difference penalty.
 
-    ``D`` is the discrete second-difference operator ``(n-2, n)`` with stencil
-    ``[1, -2, 1]``; ``DᵀD`` is symmetric pentadiagonal. The returned array is the
-    banded layout :external+scipy:func:`scipy.linalg.solveh_banded` expects with
-    ``lower=False``
-    (row 2 the main diagonal, rows 1 and 0 the first and second super-diagonals).
-    Built once per delay length and reused across every row and iteration; only
-    the diagonal ``W`` changes between solves.
+    ``D`` is the discrete second-difference operator ``(n-2, n)`` with stencil ``[1, -2,
+    1]``; ``DᵀD`` is symmetric pentadiagonal. The returned array is the banded layout
+    :external+scipy:func:`scipy.linalg.solveh_banded` expects with ``lower=False`` (row
+    2 the main diagonal, rows 1 and 0 the first and second super-diagonals). Built once
+    per delay length and reused across every row and iteration; only the diagonal ``W``
+    changes between solves.
     """
     # Build D explicitly (dense, but only once per call) and form DᵀD — robust for
     # every n >= 3, including the tiny edge cases where the band values differ.
@@ -834,8 +843,9 @@ def arpls_baseline(
     For each wavelength row ``y`` of a trace ``(Nlambda, Ndelay)`` (intensity vs
     delay), fit a free-form smooth baseline ``z`` that rides under the broad,
     slowly varying leakage background :math:`|E_b|^2` while downweighting the compact
-    signal peak near ``tau = 0``. Overlap can still cause signal loss; inspect
-    the baseline and test sensitivity to the fitting settings. The baseline minimises
+    signal peak near ``tau = 0``. Where background and signal overlap the
+    baseline can still remove signal; :func:`suggested_tau_exclude` gives a
+    hold-out that prevents this. The baseline minimises
 
     .. math::
 
@@ -895,11 +905,14 @@ def arpls_baseline(
         resolution. The baseline is smooth by construction, so a coarse grid
         captures it at a fraction of the cost; ``smoothness`` is grid-normalised so
         the same value transfers. Default ``1`` (exact, full-resolution). Must be
-        ``>= 1``. Check the approximation against ``downsample=1`` before using it
-        for a final calculation.
+        ``>= 1``. A value of ``4`` is a good speed/accuracy trade for interactive
+        use (≈2.5 % baseline difference; the test
+        ``test_arpls_baseline_downsample_matches_full`` bounds it below 5 % of the
+        baseline peak); use ``1`` for a final calculation.
     skip_below : float, optional
         Skip rows whose peak is below ``skip_below`` times the global peak,
-        returning a zero baseline for them (an explicit approximation for weak rows).
+        returning a zero baseline for them (no leakage background is fitted where
+        there is no signal).
         Default ``0.0`` (process every row). Range ``[0, 1)``.
 
     Returns
@@ -1014,18 +1027,26 @@ def suggested_tau_exclude(
 ) -> float:
     """Suggest an :func:`arpls_baseline` ``tau_exclude`` from the delay marginal.
 
-    Estimate a hold-out half-width as ``factor`` times the delay-marginal FWHM,
-    limited by ``max_fraction`` of the delay half-span. This is a heuristic
-    starting point: too narrow an interval can remove real signal, while too
-    wide an interval leaves insufficient background to constrain the baseline.
-    Inspect the result and vary the width before interpreting a retrieval.
+    Without a hold-out the arPLS baseline bends up into the signal at ``τ≈0`` and
+    removes part of the peak ("peak suck-up"). How much depends on how well each
+    wavelength row constrains the fit, so it varies sharply from row to row: on
+    one of our measured deep-UV TG-FROG traces the worst rows kept 23–36 % of
+    their peak while their immediate neighbours kept ~70 %, which reads as a thin
+    stripe at one wavelength that appears only when baseline removal is on.
+
+    Holding out the delay range where the signal lives fixes it. The suggested
+    half-width is ``factor`` times the delay-marginal FWHM, limited by
+    ``max_fraction`` of the delay half-span. Twice the FWHM worked best on that
+    trace: it took the worst row from 0.23 to 0.87 of its peak and left no row
+    below 0.87 (thirteen rows were below 0.8 unguarded), and it was *faster*,
+    because the fit settles sooner. Once (too narrow) and three times (too little
+    wing left to fit) were both worse.
 
     Parameters
     ----------
     Ifrog : array_like
         Trace, ``(Nlambda, Ndelay)``, or a single delay marginal ``(Ndelay,)``.
-        The width can depend on fringes, background and windowing; inspect the
-        suggested interval on the trace being fitted.
+        Any stage of processing will do: the width is insensitive to it.
     tau : array_like
         Delay axis (s), matching the last dimension of ``Ifrog``.
     factor : float, optional
@@ -1156,8 +1177,7 @@ def _resample_trace_batch(
 
     Vectorised equivalent of calling :func:`resample_spectrum` per delay — a
     single :external+scipy:class:`~scipy.interpolate.CubicSpline` over all columns
-    instead of
-    one spline build per delay.
+    instead of one spline build per delay.
 
     Returns the tapered trace and the **taper loss**: the fraction of the
     resampled signal that ``_collar_taper`` removes. This is the only place
@@ -1547,12 +1567,11 @@ def load_and_clean(
         lengthen ``trange`` to get more points at the same ``dt``.
     tau_crop : tuple, optional
         ``(τ_min, τ_max)`` in s: discard delays outside this range after
-        filtering, regridding and optional thresholding. ``None`` (default) keeps the
-        whole scan.
+        filtering, regridding and optional thresholding. ``None`` (default)
+        keeps the whole scan.
     tau_lims : tuple, optional
         Useful measurement delay window τm (s), applied as a delay taper during
-        filtering
-        and stored on the returned :class:`TraceData` for optional
+        filtering and stored on the returned :class:`TraceData` for optional
         post-retrieval windowing.
     filter_fringes : bool or tuple, optional
         Notch out interferometric fringes in the delay-frequency domain.
@@ -1560,13 +1579,15 @@ def load_and_clean(
         whatever it targets, so none is applied unless asked for. Turn this on
         for an interferometric measurement that actually carries fringes; a
         tuple gives an explicit stop band. Mutually exclusive with ``defringe``,
-        which uses a known carrier and assumes separated spectral sidebands.
+        which is the better method when the carrier is known a priori (it
+        assumes separated delay-frequency sidebands).
     filter_dc : bool, optional
         Remove the delay-independent (zero delay-frequency) component of each
         wavelength row. Default ``False``. Only switch it on when the
         measurement genuinely carries a delay-independent background: on a
         clean trace it subtracts real signal, which shows up as large negative
-        excursions in the filtered trace and bias in the retrieved field.
+        excursions in the filtered trace, a percent-level floor on the
+        achievable trace error and bias in the retrieved field.
     dtau_min : float, optional
         Low-pass the delay axis at ``1/dtau_min`` (Hz), suppressing structure
         faster than the delay stage can resolve. ``None`` (the default) or
@@ -1643,9 +1664,10 @@ def load_and_clean(
         :attr:`TraceData.taper_loss`.
     lam_spec, Ilam_spec : array_like, optional
         Independent fundamental spectrum, on its own wavelength axis. Used as a
-        spectral reference and carried on the result for plotting; it can initialise the
-        pulse and provide the target for spectral regularisation. The high-level
-        retrieval pipeline enables that term by default when the spectrum is present.
+        spectral reference and carried on the result for plotting; it can
+        initialise the pulse and provides the target for spectral
+        regularisation, which the high-level retrieval pipeline enables by
+        default when the spectrum is present.
 
     Returns
     -------

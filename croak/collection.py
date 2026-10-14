@@ -1,72 +1,138 @@
-r"""Model finite-aperture signal collection from a chromatic focal field.
+r"""Finite collection aperture: the focal mixture without full-beam collection.
 
-The signal must be transformed across the focal plane before intensity is
-formed. For a physical amplitude transmission :math:`W`, integrated collection
-is
+:mod:`croak.focal` sums **incoherently** over focal-plane nodes. By Parseval that is
+exact only if the detector collects the *entire* signal beam. For a physical
+amplitude transmission :math:`W`, the integrated spectral intensity is
 
 .. math::
 
     T(\omega,\tau)=\frac{1}{(2\pi)^2}\int
-       W^2(\mathbf k,\omega)|\widetilde S(\mathbf k,\omega,\tau)|^2\,d^2k.
+       W^2(\mathbf k,\omega)\,\bigl|\widetilde S(\mathbf k,\omega,\tau)\bigr|^2\,
+       \mathrm d^2k ,
 
-Only complete collection reduces by Parseval to the incoherent focal-plane
-integral :math:`\int |S|^2\,d^2r`. The ``reimaged`` observable instead sums the
-transmitted complex field and takes the intensity at the re-imaged origin:
-:math:`|\int W\widetilde S\,d^2k/(2\pi)^2|^2`.
+with :math:`\widetilde S` the *transverse* Fourier transform of the focal-plane
+signal field, and only complete collection turns that into
+:math:`\int|S|^2\,\mathrm d^2r`. A finite aperture must transform **before**
+squaring. This module supplies the aperture; the transform itself lives in
+:func:`croak.forward_jax.make_param_trace_fn`.
 
-Relative phase and frequency convention
----------------------------------------
-Let each local arm be formed by filtering its spectrum with
-:math:`A_j(\mathbf r,\omega_{\rm abs})` and transforming to time. The PG product
-is :math:`E_{1,\mathbf r}(t-\delta t_1)
-E_{2,\mathbf r}(t-\tau-\delta t_2)
-E_{3,\mathbf r}^*(t-\tau-\delta t_3)`. A wavelength-dependent filter cannot be
-pulled outside this product as :math:`A^3(\mathbf r,\omega)`.
+The phase the incoherent sum throws away
+----------------------------------------
+Write the arrival-time offset of arm :math:`j` at focal position :math:`\mathbf r` as
+:math:`\delta t_j=\boldsymbol\alpha_j\cdot\mathbf r` with
+:math:`\boldsymbol\alpha_j=\mathbf r_j/(fc)`, as
+:func:`croak.focal.focal_mixture` does (the opposite overall sign to
+:mod:`croak.smearing` — a pure point inversion of the focal plane, unobservable
+for the centred circular aperture modelled here). Each local arm is the pulse
+spectrum filtered by :math:`A(\mathbf r,\omega_{\rm abs})` and transformed to
+time, :math:`E_{\mathbf r}`, and the exact local PG signal is
 
-The local probe-frame signal uses
-:math:`p=\delta t_3-\delta t_2` and
-:math:`\vartheta=\delta t_1-(\delta t_2+\delta t_3)/2`.
-After removing the signal-carrier direction, coherent collection requires
+.. math:: S(t,\mathbf r) = E_{\mathbf r}(t-\delta t_1)\,
+          E_{\mathbf r}(t-\tau-\delta t_2)\,E_{\mathbf r}^*(t-\tau-\delta t_3).
+
+croak's per-node build is
+:math:`E_{\mathbf r}(t)E_{\mathbf r}(t-\tau+\vartheta+p/2)
+E^*_{\mathbf r}(t-\tau+\vartheta-p/2)` with
+:math:`\vartheta=\delta t_1-\tfrac12(\delta t_2+\delta t_3)` and
+:math:`p=\delta t_3-\delta t_2`. The two are **identical up to a rigid time
+shift**, :math:`S(t,\mathbf r)=S_{\text{croak}}(t-\delta t_1,\mathbf r)`, so in
+croak's convention (a delay :math:`s` is a spectral factor :math:`e^{+i\omega s}`)
+
+.. math:: \Psi(\omega,\mathbf r) = \Psi_{\text{croak}}(\omega,\mathbf r)\,
+          e^{+i\omega\,\boldsymbol\alpha_1\cdot\mathbf r}.
+
+The :math:`(p,\vartheta)` reduction therefore loses nothing: the incoherent
+assumption enters only in discarding that one phase. Removing the signal's own
+phase-matched carrier direction
+:math:`\boldsymbol\alpha_s=\boldsymbol\alpha_1+\boldsymbol\alpha_2-\boldsymbol\alpha_3`
+leaves :math:`\boldsymbol\alpha_1-\boldsymbol\alpha_s=\boldsymbol\alpha_3-
+\boldsymbol\alpha_2`, which is precisely the ``p`` vector, so
 
 .. math::
 
     \widetilde S(\boldsymbol\kappa,\Omega,\tau)
-      =\sum_k a_k\Psi_k(\Omega,\tau)
-        e^{i\Omega p_k}e^{-i\boldsymbol\kappa\cdot\mathbf r_k},
-    \qquad \boldsymbol\kappa=\mathbf k-\omega_{\rm abs}\boldsymbol\alpha_s,
+      =\sum_k a_k\,\Psi_{\text{croak}}(\Omega,\tau,\mathbf r_k)\,
+        e^{+i\Omega p_k}\,e^{-i\boldsymbol\kappa\cdot\mathbf r_k},
+    \qquad \boldsymbol\kappa=\mathbf k-\omega_{\rm abs}\boldsymbol\alpha_s .
 
-where :math:`\Omega=\omega_{\rm abs}-\omega_0` is the **centred envelope**
-frequency and :math:`\boldsymbol\alpha_s=\boldsymbol\alpha_1+
-\boldsymbol\alpha_2-\boldsymbol\alpha_3`. Replacing :math:`\Omega p` by
-:math:`\omega_{\rm abs}p` omits the carrier-reference factor
-:math:`e^{-i\omega_0p}` and changes the coherent sum. See
-:doc:`/howto/collection_aperture` for the derivation and arm conventions.
+The discarded phase is exactly the frequency times one of the two reduced
+smearing parameters: ``p`` for PG and, by the same algebra, :math:`-\vartheta` for
+SD, which is why only PG is implemented here.
 
-A physical hole at mask position :math:`\mathbf x`, distance :math:`z_{\rm mask}`
-from focus, selects :math:`\mathbf k=(\omega_{\rm abs}/c)\mathbf x/z_{\rm mask}`.
-Its centre and radius in transverse-wavevector space are therefore chromatic.
-The fourth BOXCARS corner is the degenerate carrier direction, not a proof of
-broadband phase matching for all mixing triplets.
+.. warning::
+
+   That frequency is the **centred** envelope frequency
+   :math:`\Omega=\omega_{\rm abs}-\omega_0`, while the aperture's own position
+   :math:`\boldsymbol\kappa` scales with the **absolute** one. croak's forward
+   model applies every time shift as :math:`e^{+i\Omega s}` on a centred spectrum,
+   so each replica drops a constant :math:`e^{+i\omega_0 s}`; the three together
+   drop :math:`e^{-i\omega_0 p}`, which :math:`|\Psi|^2` never sees but a coherent
+   sum does. Written against the absolute frequency the transform phase is
+   :math:`\omega_{\rm abs}(p_k-\mathbf u_j\cdot\mathbf r_k)-\omega_0 p_k`, and that
+   trailing term is the whole difference between a model that reproduces a dense
+   2-D FFT and one that is wrong by four orders of magnitude. See
+   :doc:`/howto/collection_aperture` for the arm conventions.
+
+Where the aperture sits
+-----------------------
+A hole at mask-plane position :math:`\mathbf x` a distance :math:`z_{\rm mask}`
+from the focus selects transverse wavevectors about
+:math:`\mathbf k=(\omega_{\rm abs}/c)\mathbf x/z_{\rm mask}`, so in the
+carrier-removed frame the aperture is centred at
+:math:`(\omega_{\rm abs}/c)(\mathbf x_{\text{hole}}-\mathbf r_s)/z_{\rm mask}` with
+half-width :math:`(\omega_{\rm abs}/c)(D_{\text{hole}}/2)/z_{\rm mask}`: both
+scale with frequency, i.e. **the aperture is chromatic**. For a square BOXCARS
+mask collected at the signal corner (the degenerate carrier direction) the centre
+is identically zero, which ``tests/test_collection.py`` asserts rather than
+assumes.
+
+Two collection observables are supported, both functionals of the same
+:math:`\widetilde S`:
+
+``"integrated"``
+    :math:`\sum_j \mathrm dk_j\,W_j^2\,|\widetilde S_j|^2/(2\pi)^2` — a
+    spectrometer fed by everything the hole passes (ModelPNPS.jl's ``Iω_win``).
+``"reimaged"``
+    :math:`\bigl|\sum_j \mathrm dk_j\,W_j\,\widetilde S_j/(2\pi)^2\bigr|^2` — the
+    on-axis re-imaged pixel, i.e. the windowed field back at the focal origin, and
+    the fully coherent limit (``Iω_win_reimaged``).
 
 Transmission and quadrature
 ---------------------------
-With ``weighting="amplitude"``, the physical field transmission enters the
-integrated intensity as :math:`W^2`. With ``weighting="quadrature"``, a softened
-numerical weight approximates integration over a hard hole and enters once.
-The re-imaged field sum uses it once in either convention. These weights must
-not be interchanged when reading simulator metadata.
+With ``weighting="amplitude"`` the physical field transmission enters the
+integrated intensity as :math:`W^2`. With ``weighting="quadrature"`` a softened
+numerical weight approximates integration over a hard hole and enters once in
+both observables. Use the convention the simulator recorded; see
+:data:`WEIGHTINGS`.
 
-Validity and refinement
------------------------
-The collection integral is conditional on the supplied focal-plane field.
-Depth-independent profiles, finite quadrature, material data and undepleted
-local nonlinear response remain assumptions. ``depth_transverse=True`` in
-:func:`croak.forward_jax.make_param_trace_fn` adds the outgoing per-depth phase
-:math:`[k_z(\omega,k_\perp)-k_z(\omega,0)](L-z)`. Evolved arm profiles additionally
-model incident transverse propagation. No universal slab-thickness crossover
-or sharpening rule follows from the aperture alone. Check radial, azimuthal,
-aperture and depth convergence; the bounded validation evidence is in
-:doc:`/explanation/validation`.
+Regime
+------
+For the reference instrument at 260 nm the aperture passes a k half-width of
+6.04e4 rad/m against a signal footprint of 3.63e5 rad/m: six times narrower, about
+3 % of the solid angle. The corresponding real-space coherence length (~63 µm)
+*exceeds* the region that actually emits (~15–30 µm, where :math:`|p|,|\vartheta|`
+stay inside the pulse duration), so this collection is much closer to the coherent
+limit than to the incoherent one, and a coherent sum **sharpens** where an
+incoherent one blurs.
+
+Validity
+--------
+The collection model is exact given croak's focal-plane field, but that field
+comes from a one-dimensional depth quadrature: signal generated at every depth is
+added with the same transverse phase, i.e. fully coherently in k. A real slab
+decorrelates depth from depth (diffraction, Gouy phase, walk-through), so the
+entrance-face model is *too* coherent, increasingly so the thicker the slab. In
+our earlier scans at the known truth against the 3-D instrument traces, it
+improved the residual by 24–30 % at 2–9.5 µm and over-corrected beyond about
+20 µm. The leading missing term, the per-depth transverse phase
+:math:`[k_z(\omega,k_\perp)-k_z(\omega,0)](L-z)`, has a parameter-free model:
+``depth_transverse=True`` on :func:`croak.forward_jax.make_param_trace_fn` moves the
+depth sum inside the aperture transform with that phase applied per depth node, and
+evolved arm profiles additionally model incident transverse propagation. In the papers'
+current validation protocol the full model with collection retrieves 1.047–1.079 fs
+(against a 1.053 fs truth) at all 15 thicknesses from 1 to 40 µm through a 0.5 mm hole;
+see :doc:`/explanation/validation` and :doc:`/howto/collection_aperture`. Check radial,
+azimuthal, aperture and depth convergence for new geometries.
 """
 
 from __future__ import annotations
@@ -100,7 +166,7 @@ _C_LIGHT = 299_792_458.0
 #: Mask apodisations, ported from ``ModelPNPS.makemask`` so a simulated window can be
 #: reproduced exactly rather than approximated by a top hat. The reference instrument's
 #: ``tanh`` edge is 96.9 um on a 500 um hole -- 19 % of the diameter -- so the
-#: edge profile therefore materially changes the recorded observable.
+#: difference is not a detail.
 APODISATIONS = ("hard", "supergauss", "tanh", "rcos")
 
 #: How the edge profile enters the collected energy. ``"amplitude"`` (ModelPNPS/Luna
@@ -109,8 +175,10 @@ APODISATIONS = ("hard", "supergauss", "tanh", "rcos")
 #: files, ``window_def_*_weighting = "quadrature"``): the profile is the integration
 #: WEIGHT over a hard hole and enters once in both observables; its edge is shrunk by
 #: its own second moment so the weight encloses exactly the nominal hole area
-#: (:func:`quadrature_hole_diameter`). Use the convention recorded in the file;
-#: squaring a numerical integration weight changes the effective aperture.
+#: (:func:`quadrature_hole_diameter`). Use the convention recorded in the file:
+#: squaring a tanh edge that is not antisymmetric about the rim under-counts a
+#: 0.5 mm aperture by a quarter, and the two recorded observables of such a file
+#: describe different apertures.
 WEIGHTINGS = ("amplitude", "quadrature")
 
 #: Second moment of the antisymmetric edge profiles, :math:`\int t\,\phi'(t)\,dt`

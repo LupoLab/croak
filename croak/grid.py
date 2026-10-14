@@ -16,9 +16,8 @@ frequency in the middle). The forward *model* (see :mod:`croak.forward`) instead
 works in raw DFT-bin order; the unshifted, unnormalised transforms it uses are
 exposed as the module-level :func:`raw_fft`/:func:`raw_ifft`.
 
-This NumPy-facing module uses :external+scipy:mod:`scipy.fft`; JAX forward models use
-the
-corresponding JAX transforms with the same conventions.
+This NumPy-facing module uses :external+scipy:mod:`scipy.fft`; the JAX forward
+models use the corresponding JAX transforms with the same conventions.
 """
 
 from __future__ import annotations

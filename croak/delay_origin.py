@@ -1,16 +1,33 @@
 """Match a model trace to the selected delay-origin convention.
 
-The native forward model places zero delay at gate–probe coincidence.
-Preprocessing can instead centre the measured trace on its delay-marginal
-peak. These origins can differ for an asymmetric trace. With
-``origin="marginal_peak"``, centre the model by the same parabolic peak rule,
-including the row-gain weighting when measured data are supplied. This is a
-coordinate convention, distinct from fitting an unknown delay offset.
+A measured trace does not know where its delay zero is. The preprocessing
+(:func:`croak.preprocess.regrid`) therefore centres the *data* on their
+delay-marginal peak, to sub-sample precision. The forward model instead places
+zero delay at gate–probe coincidence. For a delay-symmetric trace the two
+conventions agree. For a tightly apertured single-cycle instrument they do
+not: coherent collection makes the trace asymmetric and puts its marginal peak
+tens of attoseconds from coincidence, growing with the chirp accumulated in
+the medium. A retrieval with the delay zero held at coincidence can pay for
+that misalignment only by broadening the pulse; in our earlier scans of the
+simulated TG-FROG instrument this accounted for a ~10 % duration over-report
+at a 0.5 mm collection hole.
 
-The translation is periodic on a uniform delay grid. Check that the trace
-has negligible support at its ends. The parabolic peak position is
-differentiated while its discrete peak index is held fixed; the map is only
-piecewise differentiable when competing peaks exchange order. See
+Fitting a free delay offset (``fit_tau0``) works for transform-limited pulses
+but not for chirped ones: the chirp itself displaces the marginal peak, so
+``tau0`` wanders by hundreds of attoseconds and trades against the retrieved
+chirp. This module implements the alternative: with
+``origin="marginal_peak"``, centre the model trace on its own marginal peak by
+the same parabolic rule the preprocessing applies to the data, at every
+evaluation, including the row-gain weighting when measured data are supplied.
+Both sides then share one convention, for any pulse, with no free parameter.
+This is a coordinate convention, distinct from fitting an unknown delay
+offset.
+
+The shift is an exact Fourier translation along the uniform delay axis, so it
+costs two FFTs per evaluation. The translation is periodic, so the trace must
+have negligible support at both delay ends. The parabolic peak position is
+differentiated while its discrete peak index (``argmax``) is held fixed; the
+map is only piecewise differentiable where competing peaks exchange order. See
 :doc:`/explanation/retrieval_theory` for gains and centring assumptions.
 """
 
@@ -154,7 +171,7 @@ def recentring(
             # The factors depend (smoothly) on the trace and the gradient must
             # flow through them: cutting it (stop_gradient) makes the objective
             # and its gradient inconsistent, and the L-BFGS line search then
-            # fails outright near convergence (NLopt "runtime_error", FROG r38)
+            # fails outright near convergence (NLopt "runtime_error")
             # -- an accidental early stop, not a converged retrieval.
         return recentre_trace(trace, delays_j, weights)
 

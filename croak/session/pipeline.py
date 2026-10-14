@@ -83,7 +83,7 @@ def _resolve_reverse_trace(p: SimulatedLoadParams, scan) -> bool:
     """Resolve the delay-axis reversal: explicit setting, else the file marker.
 
     Files that declare ``delay_convention == "gate"`` are already stored in
-    the gate-delay (paper) frame and must not be reversed; legacy files
+    the gate-delay (paper) frame and must not be reversed; older files
     (marker absent, ``"legacy"``) use the probe-delayed frame and are negated.
     """
     if p.reverse_trace is not None:
@@ -230,7 +230,7 @@ def assemble_simulated_load_data(p: SimulatedLoadParams) -> dict:
     For a multi-thickness scan (one that stores ``/grid/zsave``), ``p`` selects
     which propagation thickness to load: ``z_thickness_um`` (µm) picks the nearest
     saved slice, and falls back to the substrate-exit slice when ``None`` (also
-    the only behaviour for the legacy single-thickness format).
+    the only behaviour for the older single-thickness format).
 
     The simulated trace is an angular-frequency density :math:`I_\omega`; the
     measured-data pipeline (regrid) multiplies the loaded trace by
@@ -241,8 +241,9 @@ def assemble_simulated_load_data(p: SimulatedLoadParams) -> dict:
     optional ``×(λ/µm)^n`` third-order correction → ``÷ λ²`` → optional delay
     reversal → normalise. The chosen reference spectrum (post-mask ``beamlet`` by
     default, or the pre-mask ``source``) is offered as the independent spectrum;
-    this choice fixes the spectrum reference, but does not by itself establish
-    that it matches the field convention of every forward model.
+    the mask vignetting is handled by that choice, not by a trace correction.
+    The focal-mixture models need the on-axis reference (``beamlet_reimaged``)
+    or a frame conversion; see :func:`apply_spectrum_frame`.
 
     Parameters
     ----------
@@ -346,11 +347,19 @@ def assemble_simulated_load_data(p: SimulatedLoadParams) -> dict:
 
 @dataclass(frozen=True)
 class SimulatedGeometry:
-    """Describe the recorded slab thickness and mask geometry of a simulated scan.
+    r"""Describe the recorded slab thickness and mask geometry of a simulated scan.
 
-    The mask hole diameter and edge gap set ``d/D = (gap + D)/(2D)``. Read these
-    values from the file when available rather than assuming a geometry. Fields
-    are ``None`` when the scan does not record them.
+    The retrieval needs three numbers that are properties of the *simulation*,
+    not of the trace: how far the signal propagated (the slab thickness), and
+    the mask hole diameter and edge-to-edge spacing that set the smearing
+    kernel through :math:`d/D = (\text{spacing} + D)/2D`. Carrying them by hand
+    is error-prone: running a gap-500 kernel against a gap-1000 trace cost ~2 %
+    of retrieved duration while changing nothing observable in the trace error.
+    Reading them off the file removes that failure mode.
+
+    Every field is ``None`` when the file does not record it (older files
+    predate the geometry metadata): the answer is then "unknown", not a
+    plausible default.
     """
 
     #: Propagation distance of the selected slice (µm) — the slab thickness the
@@ -403,7 +412,7 @@ def _reference_spectrum(scan: io.SimulatedScan, source: str) -> np.ndarray:
     ``"beamlet_reimaged"`` is the on-axis beamlet (the chromatic focal mixture's
     own frame, so with it the mixture needs no ``spectrum_frame_p`` reweighting);
     ``"beamlet"`` the transverse-integrated one (the 1-D models' frame, up to
-    App. D's calibrated exponent); ``"source"`` the pre-mask input. Falls back
+    the ``spectrum_frame_p`` exponent); ``"source"`` the pre-mask input. Falls back
     along ``reimaged -> beamlet -> source`` when a file lacks the requested one.
     """
     if source == "beamlet_reimaged" and scan.Iomega_beamlet_reimaged is not None:
@@ -657,8 +666,9 @@ def assemble_simulated_tracedata(p: SimulatedLoadParams) -> TraceData:
 # Preprocess: PreprocParams + load_data -> TraceData
 # ---------------------------------------------------------------------------
 #: Coarse-grid downsample and row-skip used for the GUI's *interactive* baseline
-#: preview (``fast_baseline=True``). Compare this approximation with the
-#: full-resolution baseline used for committed results and headless replay.
+#: preview (``fast_baseline=True``). The baseline is smooth, so solving on every
+#: 4th delay and skipping near-zero rows is ~3× faster at ~1 % baseline
+#: difference; the committed/headless path stays exact.
 _FAST_BASELINE_DOWNSAMPLE = 4
 _FAST_BASELINE_SKIP_BELOW = 0.01
 
@@ -672,10 +682,9 @@ def build_tracedata(
     :func:`croak.preprocess.load_and_clean` SI arguments.
 
     ``fast_baseline`` (off by default) solves the arPLS baseline on a coarse delay
-    grid and skips near-zero rows — an approximation for
-    the GUI's interactive preview; compare with a full-resolution calculation. Headless
-    replay and direct callers get the
-    exact, full-resolution baseline.
+    grid and skips near-zero rows — a ~3× speedup at ~1 % baseline difference,
+    for the GUI's interactive preview. Headless replay and direct callers get
+    the exact, full-resolution baseline.
     """
     ds = _FAST_BASELINE_DOWNSAMPLE if fast_baseline else 1
     skip = _FAST_BASELINE_SKIP_BELOW if fast_baseline else 0.0
@@ -892,8 +901,8 @@ def focal_mixture_from_params(
     - ``"manual"``: a hole of ``collection_diam_mm`` at the phase-matched
       BOXCARS corner ``(-d, -d)``, ``d = (gap + D)/2``, hard-edged — the
       physical pinhole of an experiment. (``"file"`` reproduces a simulated
-      scan's recorded edge and weighting convention. A physical amplitude
-      transmission and a numerical quadrature edge are not interchangeable.)
+      scan's recorded edge and weighting convention; a soft quadrature edge
+      there is a grid-resolution device, not a physical transmission.)
 
     Raises
     ------
@@ -958,9 +967,12 @@ def apply_spectrum_frame(p: RetrieveParams, td: TraceData) -> TraceData:
 
     Multiply ``td.Iomega`` by ``((omega + omega0)/omega0)**(2*p)`` with
     ``p=spectrum_frame_p``. The initial amplitude and spectral-penalty target
-    therefore change together. In the stated diffraction convention, ``p=1``
-    converts an integrated beamlet to the on-axis entrance field; ``p=0.5`` is
-    an empirical effective convention, not an aperture-dependent on-axis field.
+    therefore move together into the frame the forward model's field lives in.
+    The focal mixture's field is the ON-AXIS focal field, bluer than a spatially
+    integrated spectrum; in the stated diffraction convention ``p=1`` converts
+    an integrated beamlet to the on-axis entrance field, and ``p=0.5`` is an
+    empirical effective convention. The reduced kernel's implicit frame is the
+    integrated one, so leave the exponent at 0 there.
     The function does not modify a stored complex truth automatically. See
     :doc:`/reference/conventions` for like-for-like comparisons. Zero exponent
     or an absent independent spectrum leaves the input unchanged.

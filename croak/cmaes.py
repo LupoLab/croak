@@ -1,13 +1,13 @@
 """Global retrieval by evolution strategy (``cma-es``), powered by evosax.
 
-Local optimisers can be sensitive to the initial guess. This retriever uses a
-population search —
-CMA-ES (default), Separable CMA-ES or Differential Evolution — over the same
+Every other retriever (except COPRA) is a *local* optimiser, so a poor initial
+guess can leave it in the wrong basin. This retriever runs a **global** population
+search — CMA-ES (default), Separable CMA-ES or Differential Evolution — over the same
 differentiable parameterisation the gradient solvers use (full amplitude+phase,
 phase-only, or the reduced cubic B-spline phase basis). Because the forward model
 is JAX, the whole population is evaluated in a single jitted ``vmap`` device call,
-with cost depending on population size and the forward-model quadrature.
-A population search does not guarantee finding the global minimum.
+so a generation costs roughly one batched forward pass (scaling with the
+population size and the forward-model quadrature).
 
 The intended workflow is a global search here followed by a local refinement:
 run ``cma-es`` (typically with the low-dimensional ``phase_basis="bspline"``),
@@ -22,7 +22,8 @@ selection uses the regularised objective and reporting exposes the bare
 FROG error separately. The penalties self-gate by mode/basis, so on the common
 B-spline path only the phase penalty is active (amplitude/spectral are no-ops).
 
-evosax is an optional dependency — ``uv add "croak[evo]"``.
+evosax is an optional dependency — ``pip install "croak[evo]"`` (or
+``uv add "croak[evo]"``).
 """
 
 from __future__ import annotations
@@ -178,7 +179,7 @@ def run_cmaes(
 
 
 class CMAES(Retriever):
-    """Global evolution-strategy retriever (``cma-es``); see the module docstring.
+    r"""Global evolution-strategy retriever (``cma-es``); see the module docstring.
 
     Parameters
     ----------
@@ -202,8 +203,8 @@ class CMAES(Retriever):
     reg_amp, reg_phase, reg_spectrum, spectrum_target
         Smoothness / spectral-match regularisation weights, identical to the
         gradient solvers (see :class:`croak.lbfgs_ad.LBFGSAD`). The penalties are
-        added to the FROG error to form the *total* the search minimises, and selection
-        uses that total. The reported trace error excludes penalties. The
+        added to the FROG error to form the *total* the search minimises and
+        selects on; the reported trace error excludes them. The
         penalties self-gate by mode/basis, so amplitude/spectral terms are no-ops
         in phase-only or B-spline mode; ``reg_spectrum`` additionally needs an
         independent ``spectrum_target`` (full mode).
@@ -212,8 +213,7 @@ class CMAES(Retriever):
         **seconds**. Penalises the fraction of ``E(t) = ifft(spectrum)`` energy
         falling outside the window — a self-consistent, mode-agnostic alternative
         to the post-retrieval temporal filter (it keeps spectrum and field an
-        exact Fourier pair, although the chosen window can bias the retrieved field).
-        Active in
+        exact Fourier pair, so it introduces no spectral artefacts). Active in
         all modes including B-spline. ``time_window=None`` defaults to the
         measurement delay range.
     tau0, smear_scale : float, optional
@@ -229,9 +229,14 @@ class CMAES(Retriever):
         exclusive with ``smearing``, and incompatible with ``fit_smearing``
         (an explicit mixture has no kernel width to scale).
 
-        Resolve wavelength-dependent spatial filtering when the achromatic
-        approximation is inadequate. Cost depends on the focal and collection
-        quadrature sizes; check convergence for the chosen pulse and geometry.
+        Worth its cost for a broadband pulse. The reduced kernel's widths scale
+        as :math:`\sigma\propto\lambda`, so freezing them at the carrier is a
+        -16 %/+24 % spread of width across a 1 fs deep-UV band; in our earlier
+        instrument scans that cost a mean 12 % of retrieved duration there,
+        against 3.5 % at 2 fs. The mixture needs one field build per focal node
+        rather than per Gauss-Hermite node, so it is one to two orders of
+        magnitude slower; check quadrature convergence for the chosen pulse and
+        geometry.
     seed : int or None
         Optional explicit PRNG seed (otherwise derived from the framework rng).
 

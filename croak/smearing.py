@@ -68,16 +68,20 @@ order; the true :math:`|A|^6` weight has heavier tails, which
 
 Validity limits
 ---------------
-* **Full-beam collection.** The incoherent focal sum assumes collection of
-  the whole signal. A finite aperture combines fields coherently and can
-  alter the trace in ways not captured by reducing a blur width. These
-  widths are not a universal upper bound. :mod:`croak.collection` restores
-  the relative envelope phase before the spatial transform; this module
-  retains the full-collection approximation.
+* **Full-beam collection.** The incoherent sum over :math:`\mathbf r` follows from
+  Parseval and holds only if the detector collects the whole signal beam. Under
+  strong spatial filtering the average is partly *coherent*, which changes the
+  trace in ways a narrower blur width does not capture. :mod:`croak.collection`
+  lifts this: it transforms the focal field to transverse wavevector before
+  squaring it, so a finite hole is modelled. The reduction to
+  :math:`(p,\vartheta)` survives that intact (the phase the incoherent sum
+  discards is exactly :math:`\omega p`, with :math:`\omega` the centred
+  frequency), but the *kernel* in this module remains
+  the full-collection form.
 * **Achromatic kernel.** :math:`\sigma\propto\lambda` because the focal spot scales
   with wavelength while the tilt does not; the kernel is evaluated at the carrier only.
-  Broadband pulses can require the wavelength-dependent filters in
-  :mod:`croak.focal` rather than a carrier-only approximation.
+  Across a 1 fs deep-UV pulse this is a −16 %/+24 % variation of width; such
+  broadband pulses need the chromatic filters of :mod:`croak.focal`.
 * **Uniform hole illumination**, beams collimated at the focusing lens, and a medium
   thin compared with the Rayleigh range (so the delay-vs-position map is linear).
 * **No spatial chirp** in the input beam.
@@ -135,7 +139,8 @@ class SmearingKernel:
 
     ``p`` separates the gate pair for PG (one conjugated) or the two
     unconjugated replicas for SD. ``delta`` shifts their relative delay with
-    respect to the remaining replica and translates the delay axis. Both are zero-mean.
+    respect to the remaining replica, a **pure translation of the delay axis**.
+    ``p`` changes the *shape* of the nonlinear signal. Both are zero-mean.
 
     Parameters
     ----------
@@ -257,13 +262,12 @@ def delay_frequency_grid(delays: ArrayLike, sigma_delta: float) -> NDArray[np.fl
     multiplying the delay-axis DFT of the trace by the analytic Gaussian transform
     :math:`e^{-i\Omega\mu-\sigma^2\Omega^2/2}`. Doing it in the transform domain rather
     than sampling the kernel on the delay grid makes the operation exact for the
-    periodic band-limited representation on the delay grid, so
-    there is no requirement that the kernel span several delay steps.
+    periodic band-limited representation on the delay grid (which a Nyquist-sampled
+    trace has), so there is no requirement that the kernel span several delay steps.
 
-    The convolution is circular. This function checks that the kernel is narrow
-    compared with the scan, but that alone does not prevent wrap-around: the trace
-    must also decay before the delay boundaries. Check window and sampling
-    convergence for the chosen pulse.
+    The convolution is circular. This function raises if the kernel is not
+    comfortably narrower than the scan; the trace must also decay before the delay
+    boundaries, or its ends wrap into each other.
 
     Parameters
     ----------
@@ -368,7 +372,7 @@ def collinear_sd_kernel(
     verified against :func:`kernel_from_arms` to six figures over
     ``d/D = 0.75``–``1.25``. Two consequences matter for retrieval. The
     smearing reduces to a pure one-dimensional convolution along the delay
-    axis, so it has a formal Gaussian deconvolution — unlike the TG kernel, whose
+    axis, so it can be deconvolved directly — unlike the TG kernel, whose
     ``rho = 1/sqrt(5)`` makes it a correlated two-dimensional shear. And the p
     channel is the one that shifts the frequency axis in proportion to the gate
     chirp, so its absence removes the mechanism behind the chirped-arm
@@ -633,8 +637,7 @@ def deconvolve_delay(
         unchanged.
     reg : float, optional
         Wiener regularisation as a fraction of the filter's peak power. Larger
-        leaves more blur but suppresses noise amplification; the default 1e-3
-        sets the regularisation scale, not a universal reconstruction-error bound.
+        leaves more blur but suppresses noise amplification. Default 1e-3.
 
     Returns
     -------

@@ -1,11 +1,11 @@
 r"""The unified nonlinear-process forward model and its reverse-mode adjoint.
 
-:class:`ForwardModel` provides the NumPy core model and analytic adjoint.
-JAX solvers use :mod:`croak.forward_jax`, which also implements the explicit
-focal and collection models. It maps a complex spectrum :math:`\tilde E(\omega)` to a
-delay-scanned nonlinear-process spectrum (a delay-scanned FROG trace),
-optionally through a dispersive PG/SD slab, and provides the exact reverse-mode
-(Wirtinger) adjoint of that map.
+:class:`ForwardModel` is the NumPy computational core and its analytic adjoint.
+The JAX solvers use :mod:`croak.forward_jax`, which follows the same maths and
+adds the explicit focal and collection models. It maps a complex spectrum
+:math:`\tilde E(\omega)` to a delay-scanned nonlinear-process spectrum (a "PNPS"
+trace, e.g. FROG or TDP), optionally through a dispersive PG/SD slab, and provides the
+exact reverse-mode (Wirtinger) adjoint of that map.
 
 **Thin medium** is simply the special case of the dispersive model with
 :math:`\beta = 0`, zero thickness and a single quadrature node — so one code path
@@ -120,8 +120,8 @@ class ForwardModel:
     frequency order; the DFT-bin ordering is an internal detail.
 
     The hand-derived :meth:`~croak.forward.ForwardModel.adjoint_single` is **not**
-    available with smearing; use the
-    autodiff solvers (see :mod:`croak.forward_jax`) for that case.
+    available with smearing; use the autodiff solvers (see :mod:`croak.forward_jax`) for
+    that case.
     """
 
     def __init__(

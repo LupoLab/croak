@@ -10,9 +10,8 @@ through three quantities:
   error", but the same metric for any PNPS trace).
 
 Traces may be in either orientation for the global metrics (which sum over all
-elements); :func:`~croak.metrics.compute_mu_per_freq` is the exception and takes an
-explicit
-frequency axis.
+elements); :func:`~croak.metrics.compute_mu_per_freq` is the exception and takes
+an explicit frequency axis.
 """
 
 from __future__ import annotations
@@ -108,9 +107,10 @@ def compute_r(
 def compute_R(r: float, t_meas: ArrayLike, weights: ArrayLike) -> float:
     r"""Normalised FROG error :math:`R = \sqrt{r/(MN\,\max(T_\mathrm{meas}w)^2)}`.
 
-    The normalisation removes a global intensity scale. Comparisons still
-    depend on grid coverage, weights, preprocessing and the noise level. A small
-    trace error does not establish that the retrieved field is accurate.
+    Dimensionless and independent of the global intensity scale; typically
+    ``0.001``–``0.05`` for a good retrieval. Values still depend on grid
+    coverage, weights, preprocessing and noise, and a small trace error does not
+    by itself certify the retrieved field.
     """
     t_meas = np.asarray(t_meas, dtype=float)
     w = np.asarray(weights, dtype=float)
@@ -122,10 +122,7 @@ def compute_R(r: float, t_meas: ArrayLike, weights: ArrayLike) -> float:
 def frog_error(
     t_meas: ArrayLike, t_sim: ArrayLike, weights: ArrayLike | None = None
 ) -> float:
-    """Return the scale-adjusted FROG trace error.
-
-    Return the FROG error ``R`` via :func:`~croak.metrics.compute_mu` / ``r`` /
-    ``R``.
+    """Return the FROG error ``R`` via :func:`compute_mu` / ``r`` / ``R``.
 
     Parameters
     ----------

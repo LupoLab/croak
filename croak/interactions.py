@@ -39,9 +39,8 @@ Complex = NDArray[np.complex128]
 class Interaction:
     """Base class for FROG nonlinear interactions.
 
-    Subclasses set ``name`` and implement :meth:`~croak.interactions.Interaction.signal`
-    and
-    :meth:`signal_adjoint`.
+    Subclasses set ``name`` and implement
+    :meth:`~croak.interactions.Interaction.signal` and :meth:`signal_adjoint`.
     """
 
     name: ClassVar[str]

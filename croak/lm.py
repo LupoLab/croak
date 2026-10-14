@@ -1,10 +1,24 @@
 r"""Retrieve by nonlinear least squares with SciPy (``lm``).
 
-The default ``method="trf"`` uses trust-region reflective least squares with a
-JAX Jacobian. It is distinct from Levenberg–Marquardt. Explicit ``method="lm"``
-selects MINPACK Levenberg–Marquardt with a finite-difference Jacobian; ``dogbox``
-is also available. The numeric Jacobian on the MINPACK route avoids a known
-JAX callback interoperability problem.
+A least-squares retriever that drives the flattened FROG residual
+:math:`(T_\mathrm{meas}-\mu T_\mathrm{sim})\,w/\sqrt{\mathrm{denom}}` to zero.
+It shares the JAX forward model (:mod:`croak.forward_jax`), the residual builder
+(:mod:`croak.metrics_jax`) and the pulse parameterisation
+(:mod:`croak._jax_pulse`) with :class:`~croak.lbfgs_ad.LBFGSAD`.
+
+Choice of ``method``
+--------------------
+The default ``method="trf"`` is SciPy's trust-region reflective least squares,
+driven by the analytic JAX Jacobian (forward mode,
+:external+jax:func:`jax.jacfwd`, since there are far fewer parameters than
+residuals). Explicit ``method="lm"`` selects MINPACK's classic
+Levenberg–Marquardt with a finite-difference Jacobian; ``"dogbox"`` is also
+available. MINPACK is not the default because its Fortran driver calls the
+user Jacobian back from compiled code, and evaluating the JAX/XLA Jacobian
+program from inside that callback crashes the interpreter (an XLA re-entrancy
+fault; the JAX *residual* is fine). ``"trf"`` is pure-Python SciPy, accepts the
+analytic Jacobian, and for these unconstrained problems reaches the same
+minima; the numeric Jacobian keeps the MINPACK route from crashing.
 
 The normalised trace residual has Euclidean norm :math:`R`. Regularisation
 is appended as residual rows, so the squared objective is
@@ -71,9 +85,14 @@ class LM(Retriever):
         exclusive with ``smearing``, and incompatible with ``fit_smearing``
         (an explicit mixture has no kernel width to scale).
 
-        Resolve wavelength-dependent spatial filtering when the achromatic
-        approximation is inadequate. Cost depends on the focal and collection
-        quadrature sizes; check convergence for the chosen pulse and geometry.
+        Worth its cost for a broadband pulse. The reduced kernel's widths scale
+        as :math:`\sigma\propto\lambda`, so freezing them at the carrier is a
+        -16 %/+24 % spread of width across a 1 fs deep-UV band; in our earlier
+        instrument scans that cost a mean 12 % of retrieved duration there,
+        against 3.5 % at 2 fs. The mixture needs one field build per focal node
+        rather than per Gauss-Hermite node, so it is one to two orders of
+        magnitude slower; check quadrature convergence for the chosen pulse and
+        geometry.
     phase_only : bool, optional
         Hold the initial spectral amplitude fixed and retrieve phase only.
     phase_basis : {"pointwise", "bspline"}, optional

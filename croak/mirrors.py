@@ -16,10 +16,12 @@ matching :mod:`croak.dispersion`), so they drop straight into
 Both the chirped compressor mirrors (:data:`BUILTIN_MIRRORS`) and the beam-path
 coatings (:data:`BUILTIN_COATINGS`) return an amplitude (reflectivity) function
 alongside the phase, so the measured loss per bounce *is* modelled: applying a
-mirror attenuates by ``r(λ)`` and removing it divides by ``r(λ)`` (clamped). The size of
-the loss depends on the data and wavelength range. Coating
-mirrors are often removed mathematically to estimate an upstream field;
-small reflectivities amplify uncertainty in this inverse operation.
+mirror attenuates by ``r(λ)`` and removing it divides by ``r(λ)`` (clamped). For
+good chirped compressors ``R`` is ≳99 % in band, so this barely shifts the
+peak-power auto-compressor; for the coatings (bare Si, MgF₂-coated Al, exported
+by ``jaxmirror`` with per-polarisation reflectivity, phase and GDD) it matters,
+as they are usually *removed* (back-propagated) to recover the pulse upstream,
+where a small reflectivity amplifies noise.
 See :func:`croak.dispersion.register_mirror`.
 """
 

@@ -1,13 +1,20 @@
-"""Retrieve with analytic Wirtinger gradients evaluated in JAX.
+r"""Retrieve with analytic Wirtinger gradients evaluated in JAX (``lbfgs-hand``).
 
-``lbfgs-hand`` uses the core forward/adjoint model and NLopt L-BFGS, with
-phase-only retrieval, per-frequency scaling and amplitude/phase/spectral
-penalties. Its supported options match :class:`croak.lbfgs.LBFGS`, not the
-additional spatial and fitted-parameter options of the AD solver.
+A twin of :class:`croak.lbfgs.LBFGS`: the same pulse parameterisation, NLopt
+``LD_LBFGS`` optimiser and options (phase-only retrieval, ``R_omega`` adaptive
+scaling, amplitude/phase/spectral penalties, dispersive or thin propagation).
+It does not support the additional spatial and fitted-parameter options of
+:class:`croak.lbfgs_ad.LBFGSAD`.
 
-The forward and analytic reverse calculations are compiled and vectorised
-with JAX. This provides an independent derivative route for checking automatic
-differentiation; agreement of final retrievals alone is not a gradient test.
+The gradient is the same analytic Wirtinger adjoint as :class:`croak.lbfgs.LBFGS`
+(``adjoint_single`` → ``ew_vjp``), but expressed entirely in JAX and evaluated by a
+single :external+jax:func:`jax.jit`-compiled function that ``vmap``\ s the
+forward and adjoint over all delays; no automatic differentiation is used. This
+gives the hand-derived gradients the same vectorisation/JIT speedup that makes
+``lbfgs-ad`` faster than the pure-NumPy ``lbfgs`` (the gap is the trace
+evaluation, not the gradient maths). It is thus a fast, AD-free reference path:
+an independent derivative route against which the AD gradient is checked in
+``tests/test_ad_vs_analytic.py``.
 """
 
 from __future__ import annotations

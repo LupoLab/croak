@@ -30,8 +30,7 @@ class RetrievalResult:
         Algorithm name — one of the keys of
         :data:`croak.retrieve.ALGORITHMS` (``"copra"``, ``"copra-jax"``,
         ``"lbfgs"``, ``"lbfgs-hand"``, ``"lbfgs-ad"``, ``"warm-lbfgs"``,
-        ``"lbfgs-optx"``,
-        ``"lm"``, ``"lm-optx"``, ``"cma-es"``).
+        ``"lbfgs-optx"``, ``"lm"``, ``"lm-optx"``, ``"cma-es"``).
     error : float
         Final FROG error ``R``.
     errors : list of float
@@ -52,9 +51,7 @@ class RetrievalResult:
     smear_scale : float or None
         Fitted multiplier on the geometric-smearing kernel widths when the
         retriever fitted it (``fit_smearing``); ``None`` when the kernel was held
-        fixed or absent. ``1.0`` means its nominal widths were retained; this does not
-        establish
-        that the kernel accounts for every physical effect.
+        fixed or absent. ``1.0`` means the fit kept the nominal widths.
         For a split fit (``fit_smearing_split``) this is the gate-shape
         (``p``) channel multiplier.
     smear_scale_delta : float or None

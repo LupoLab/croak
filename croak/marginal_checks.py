@@ -26,10 +26,10 @@ geometry:
 - **SD** — marginal :math:`|\widehat{E^2}|^2 * S(-\omega)` (transform-limited);
   centroid :math:`\approx\bar\omega_S` (TL/symmetric only); width :math:`>\sigma_S`.
 
-For thin local SHG with matching replicas, full delay support and a corrected
-detector response, the marginal is phase-independent. A mismatch can indicate
-calibration, support or model-assumption errors; it is not by itself proof
-that the measured trace is faulty. PG/TG keep one rigorous anchor (the centroid)
+SHG is the strongest check: for a thin local medium with full delay support its
+marginal is fully phase-independent, so a mismatch points to the *trace*
+(calibration, spectral response, detector nonlinearity, scatter, delay support)
+rather than to the pulse. PG/TG keep one rigorous anchor (the centroid)
 and one rigorous lower bound (the width); SD has only soft, transform-limited
 (TL) anchors because its phase-dependent factor is the SHG spectrum.
 
@@ -39,11 +39,9 @@ This module computes those predictions (:func:`predicted_marginal`,
 marginal onto the predicted centroid (:func:`auto_third_order_exponent`). The
 full physics is in the manual's *FROG trace marginals* explanation page.
 
-These checks require matching field references, adequate support and the
-thin-local interaction assumptions. Spatial collection and propagation can
-violate them. The PG/TG transform-limited width is a reference, not a universal
-upper bound; an empirical centroid correction does not identify a physical
-source or detector mechanism. See :doc:`/explanation/marginals`.
+The predictions assume a thin local interaction and matching field references;
+spatial collection and propagation in a thick medium modify them. See
+:doc:`/explanation/marginals`.
 """
 
 from __future__ import annotations
@@ -134,9 +132,8 @@ def spectral_autoconvolution(
 ) -> NDArray[np.float64]:
     r"""Autoconvolution :math:`S * S` of a spectral intensity.
 
-    This is the phase-independent thin-local SHG-FROG marginal with identical
-    replicas and full delay support. Propagation and detector response can alter
-    a measured marginal. Two boundary
+    This is the exact, phase-independent SHG-FROG marginal shape for a thin
+    local medium with full delay support. Two boundary
     conventions are offered:
 
     * ``circular=False`` (default): the **linear** convolution, which doubles the
@@ -177,13 +174,12 @@ def apply_marginal_correction(
 ) -> NDArray[np.float64]:
     """Rescale a SHG trace's frequency rows onto the spectrum-predicted marginal.
 
-    Under the thin-local-model assumptions, the SHG frequency marginal is the spectral
-    autoconvolution
-    :math:`S * S` of the independent fundamental spectrum ``Iomega`` (both on the
-    same centred frequency grid as the trace). Each frequency row of ``trace`` is
-    rescaled so its delay-integrated marginal matches that prediction (rows with
-    no marginal power are zeroed), which corrects a measured/efficiency tilt
-    along the spectral axis without touching the delay structure.
+    For a thin local medium the SHG frequency marginal is the spectral autoconvolution
+    :math:`S * S` of the independent fundamental spectrum ``Iomega`` (both on the same
+    centred frequency grid as the trace). Each frequency row of ``trace`` is rescaled so
+    its delay-integrated marginal matches that prediction (rows with no marginal power
+    are zeroed), which corrects a measured/efficiency tilt along the spectral axis
+    without touching the delay structure.
 
     Shared by :func:`croak.preprocess.load_and_clean` (the ``marginal_correct``
     option) and the marginal-check stage's live preview, so the correction is
@@ -442,10 +438,9 @@ def auto_third_order_exponent(
     marginal a few nm off the drawn prediction line.
 
     Increasing ``n`` shifts weight to long wavelengths (low frequency), so the
-    centroid decreases for a non-degenerate positive marginal, giving at most one
-    root within the selected bounds,
-    found by :external+scipy:func:`scipy.optimize.brentq` and clamped to ``bounds``. If
-    the
+    centroid decreases monotonically with ``n`` for a positive marginal and the
+    match has at most one root, found by
+    :external+scipy:func:`scipy.optimize.brentq` and clamped to ``bounds``. If the
     target lies outside the achievable centroid range the nearer bound is
     returned.
 
@@ -481,8 +476,8 @@ def auto_third_order_exponent(
 
     Notes
     -----
-    This fits an empirical tilt over the chosen window. It does not establish
-    a universal nonlinear source factor or independently calibrate a detector.
+    This fits an empirical tilt over the chosen window; it does not identify
+    which physical factor (source or detector response) causes it.
     """
     _normalise_interaction(interaction)  # validate early
     lam = np.asarray(lam, dtype=float)

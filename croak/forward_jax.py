@@ -77,8 +77,8 @@ _C_LIGHT = 299_792_458.0
 #: Nonlinear-interaction *signal* maps, in JAX. AD (in :class:`~croak.lbfgs_ad.LBFGSAD`
 #: and :class:`~croak.lm.LM`) supplies the adjoint, but the hand-gradient retriever
 #: :class:`~croak.lbfgs_hand.LBFGSHand` and :class:`~croak.copra_jax.COPRAJax` need the
-#: explicit
-#: Wirtinger adjoints below. Keys match :data:`croak.interactions.INTERACTIONS`.
+#: explicit Wirtinger adjoints below. Keys match
+#: :data:`croak.interactions.INTERACTIONS`.
 _JAX_INTERACTIONS: dict[str, Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]] = {
     "shg": lambda test, gate: test * gate,
     "sd": lambda test, gate: test**2 * jnp.conj(gate),
@@ -185,8 +185,8 @@ def _signal_with_tape(
     """Forward signal for one delay, returning ``(psi, test, gate)``.
 
     ``test``/``gate`` are the time-domain fields the adjoint needs (the JAX
-    analogue of :meth:`~croak.forward.ForwardModel.signal_single`'s ``record=True``
-    tape).
+    analogue of :meth:`~croak.forward.ForwardModel.signal_single`'s
+    ``record=True`` tape).
     """
     ew = jnp.asarray(ew)
     ew_bin = jnp.fft.ifftshift(ew)
@@ -541,11 +541,10 @@ def make_param_trace_fn(
     Gauss–Legendre nodes :math:`\xi\in[0,1]` and weights :math:`\hat w`
     (:math:`\sum\hat w=1`) so that, at call time, the depth nodes are
     :math:`z_q=L\,\xi_q`, the weights are :math:`L\,\hat w_q`, and the
-    propagation phases :math:`e^{i\beta L\xi_q}`, :math:`e^{i\beta L(1-\xi_q)}`
-    are differentiable in ``L``. When it is not set, the nodes/weights are baked
-    once from :func:`~croak.forward.quadrature_nodes_weights` (so the thin-medium
-    single-node
-    case ``material=None`` is preserved for a ``tau0``-only fit).
+    propagation phases :math:`e^{i\beta L\xi_q}`, :math:`e^{i\beta L(1-\xi_q)}` are
+    differentiable in ``L``. When it is not set, the nodes/weights are baked once from
+    :func:`~croak.forward.quadrature_nodes_weights` (so the thin-medium single-node case
+    ``material=None`` is preserved for a ``tau0``-only fit).
 
     Parameters
     ----------
@@ -585,8 +584,9 @@ def make_param_trace_fn(
         ``material``/``thickness``/``npoints``/``quadrature`` (verified; the
         filters must sit on the same depth nodes as the propagation phases).
         PG only; fitting thickness with evolved profiles is unsupported because
-        the table is built for fixed depth nodes. Check its transverse quadrature
-        and wavelength-range assumptions.
+        the table is built for fixed depth nodes. Cost is close to the entrance
+        mixture's: the depth axis is already batched, only the build-time table
+        is new.
     fit_smearing : bool, optional
         Make the trace differentiable in the smearing scale. Marker only, for the
         same reason as ``fit_tau0``; it does require ``smearing`` to be set.

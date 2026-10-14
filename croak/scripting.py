@@ -3,10 +3,9 @@
 ``croak script options.toml`` emits a small script that reproduces the retrieval
 by calling the public croak API stage by stage. Every parameter is rendered as an
 explicit dataclass literal so the script is transparent and hand-editable, while
-the pipeline steps call the same :mod:`croak.session.pipeline` functions the GUI and the
-``replay`` command use — so the generated workflow uses the same stage operations. Keep
-the input
-files, software version and random seed with the script for reproducibility.
+the pipeline steps call the same :mod:`croak.session.pipeline` functions the GUI
+and the ``replay`` command use, so a generated script never drifts from the real
+mapping. Keep the input files and software version with the script.
 """
 
 from __future__ import annotations

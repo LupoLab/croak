@@ -945,7 +945,7 @@ class StageRetrieve(Stage):
             if attr is not None and bool(getattr(p, attr))
         ]
         # Old session files could persist several independent checkboxes. Keep
-        # the first legacy choice visible; selecting any combo entry immediately
+        # the first stored choice visible; selecting any combo entry immediately
         # rewrites the state into the new mutually-exclusive representation.
         return enabled[0] if enabled else next(iter(_INITIAL_GUESSES))
 
@@ -1317,7 +1317,7 @@ class StageRetrieve(Stage):
             w.blockSignals(True)
             w.setCurrentText(str(val))
             w.blockSignals(False)
-        # Also normalise legacy sessions that stored several independent guess
+        # Also normalise older sessions that stored several independent guess
         # checkboxes before this control became a single exclusive selector.
         self._on_initial_guess_changed(self.guess_combo.currentText())
         self.collection_diam_spin.setEnabled(p.collection == "manual")
