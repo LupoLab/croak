@@ -21,9 +21,9 @@ generalised-cross-validation *smoothing* spline rather than a raw interpolant:
 the dispersion quantities (:func:`beta1`, :func:`croak.dispersion.material_gdd`,
 :func:`croak.dispersion.material_tod`) differentiate :math:`n(\lambda)`, and
 finite differences of an interpolant through noisy samples amplify that noise
-catastrophically in the second and third derivatives. The smoothing spline
-regularises the noise once, at the representation layer, so the existing
-finite-difference machinery is left untouched.
+in the second and third derivatives. Smoothing reduces this sensitivity
+but can bias derived dispersion; check the data range and adequacy of the
+representation for the pulse bandwidth.
 """
 
 from __future__ import annotations
@@ -191,8 +191,10 @@ def make_tabulated_material(
     a *smoothing* spline (``scipy.interpolate.make_smoothing_spline``, with the
     smoothing penalty chosen automatically by generalised cross-validation) so
     that the derived dispersion quantities — which differentiate
-    :math:`n(\lambda)` up to third order — are not corrupted by measurement
-    noise. The fit is performed in ``log``-wavelength, because broadband optical
+    :math:`n(\lambda)` up to third order — are less sensitive to measurement
+    noise. Smoothing does not remove calibration uncertainty or guarantee the
+    accuracy of derivatives. The fit is performed in ``log``-wavelength, because
+    broadband optical
     data is typically (near-)logarithmically sampled; this gives uniform
     fractional resolution across many decades of wavelength.
 
@@ -248,7 +250,7 @@ def _load_tabulated(
 ) -> Callable[[ArrayLike], NDArray[np.float64]] | None:
     """Lazily build and cache a built-in tabulated material's ``n`` callable.
 
-    Returns the callable for a name in :data:`_TABULATED_FILES` (case-insensitive),
+    Returns the callable for a name in ``_TABULATED_FILES`` (case-insensitive),
     caching it via :func:`register_material` so the CSV is read and the spline
     fitted only once; returns ``None`` for any other name.
     """
@@ -328,7 +330,8 @@ def beta(
     Returns :math:`\beta(\omega) = (\omega+\omega_0)\,n/c - \beta_1(\omega_0)\,\omega`,
     where ``omega`` is the centred grid (relative to ``omega0``) and the group
     delay term keeps the pulse centred in the time window. Non-finite entries
-    (outside the Sellmeier validity range) are set to zero.
+    are set to zero. A finite value outside a formula's validated wavelength range
+    is not automatically detected; check the material reference.
 
     Parameters
     ----------
@@ -342,7 +345,7 @@ def beta(
     Returns
     -------
     numpy.ndarray
-        Real propagation constant of the same length as ``omega``.
+        Real propagation constant (rad/m) of the same length as ``omega``.
     """
     omega = np.asarray(omega, dtype=float)
     if material is None:

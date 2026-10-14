@@ -1,7 +1,11 @@
 # Core physics
 
 Grids and transforms, pulse parameterisations, nonlinear interactions, the
-forward model, material dispersion and numerical helpers.
+forward model, material dispersion and numerical helpers. Begin with
+[measurement fundamentals](../../user_guide/fundamentals.md) for units and
+conventions, or [modelling the measurement](../../user_guide/models.md) for the
+physical assumptions behind these interfaces. The [first retrieval](../../tutorials/01_first_retrieval.md)
+shows how the grid, pulse and trace functions fit together.
 
 ## Grid and transforms
 
@@ -43,15 +47,20 @@ consumed by the forward model.
 
 ## Chromatic focal mixture
 
-The smearing kernel without its achromatic reduction: an explicit quadrature over the
-focal plane, each node carrying its own chromatic amplitude filter and its own definite
-arrival offsets.
+An explicit quadrature over the focal plane, with wavelength-dependent amplitude
+filters and arrival offsets at each node. It resolves effects approximated by
+the reduced Gaussian kernel; matching second moments does not make the models
+identical for every field.
 
 ```{eval-rst}
 .. automodule:: croak.focal
    :members:
 ```
 
+(the-phase-the-incoherent-sum-throws-away)=
+(where-the-aperture-sits)=
+(validity)=
+(regime)=
 ## Collection aperture
 
 The focal mixture without its full-beam-collection assumption. See
@@ -60,6 +69,14 @@ The focal mixture without its full-beam-collection assumption. See
 ```{eval-rst}
 .. automodule:: croak.collection
    :members:
+
+.. autodata:: croak.collection.WEIGHTINGS
+
+.. autodata:: croak.collection.EDGE_SECOND_MOMENT
+
+.. autofunction:: croak.collection.aperture_offset
+
+.. autofunction:: croak.collection.quadrature_hole_diameter
 ```
 
 ## Materials

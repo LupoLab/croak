@@ -266,7 +266,8 @@ def make_spline_phase_basis(
     The spectral phase on the support window is a fixed **linear** map
     :math:`\phi = B\,c` of ``n_nodes`` control points ``c`` (the optimised
     parameters), with the amplitude held at the seed ``amplitude``. Because
-    ``B`` (the :func:`scipy.interpolate.BSpline.design_matrix`) is a constant, the
+    ``B`` (the :external+scipy:meth:`scipy.interpolate.BSpline.design_matrix`) is a
+    constant, the
     map is exactly :math:`C^2` (cubic) and trivially AD-differentiable. Knots are
     clamped over the non-zero-spectrum window only, so nodes don't waste degrees
     of freedom where there is no signal.
@@ -455,7 +456,7 @@ class ExtraParamSpec:
 
     The slab **thickness** ``L`` and a **delay-zero offset** :math:`\tau_0` are
     optimised as *dimensionless, O(1)-scaled offsets* appended to the pulse
-    parameter vector, so the augmented problem stays well-conditioned for NLopt /
+    parameter vector, to improve numerical scaling for NLopt /
     SciPy ``trf`` despite the tiny physical scales (``L ~ 1e-5 m``,
     :math:`\tau_0 \sim 10^{-15}` s):
 
@@ -464,8 +465,9 @@ class ExtraParamSpec:
         L = L_0 + \delta_L\,s_L, \qquad \tau_0 = \tau_{0,0} + \delta_\tau\,s_\tau
 
     with the optimised variables :math:`\delta_L, \delta_\tau` initialised at
-    zero. :math:`\delta_L` is bounded below at :math:`-L_0/s_L` so ``L`` stays
-    non-negative. The centres :math:`L_0`, :math:`\tau_{0,0}` are the priors: the
+    zero. The returned lower bound :math:`-L_0/s_L` keeps ``L`` non-negative
+    only when the chosen solver enforces it; unconstrained solvers ignore it. The
+    centres :math:`L_0`, :math:`\tau_{0,0}` are the priors: the
     nominal values for a cold-started retrieval, the *previous* fit's values when
     warm-starting (see :func:`croak.pipeline.retrieve_from_tracedata`), and the
     fitted values when re-linearising for covariance. An extra whose ``fit_*``
@@ -489,14 +491,15 @@ class ExtraParamSpec:
         delay step. Required when ``fit_tau0`` is set.
     fit_smearing : bool, optional
         Fit the geometric-smearing **strength** as a dimensionless multiplier on
-        both kernel widths — equivalently, the mask ratio ``d/D``, which is the
-        only physical lever on the effect. Requires a smearing kernel.
+        both kernel widths — equivalently, the mask ratio ``d/D``, which is one
+        geometric scaling within the reduced model. A fitted value can
+        also absorb omitted physics. Requires a smearing kernel.
     smear_scale0 : float, optional
         Centre multiplier (``1.0`` = the kernel as supplied). For a split fit
         this is the ``p``-channel centre.
     scale_smear : float, optional
         Normalisation for the multiplier offset. It is already ``O(1)``, so the
-        default ``1.0`` is almost always right.
+        default is ``1.0``; inspect scaling when fitting unusual ranges.
     fit_smearing_split : bool, optional
         Fit the gate-shape (``p``) and delay (``delta``) kernel widths as two
         independent multipliers instead of one joint one — the diagnostic for

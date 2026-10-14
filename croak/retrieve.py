@@ -49,13 +49,11 @@ ALGORITHMS: dict[str, type[Retriever]] = {
 
 
 def algorithm_params(name: str) -> set[str]:
-    """Return the keyword names a registered algorithm's constructor accepts.
+    """Return the keyword names accepted by a registered solver constructor.
 
-    The solver's ``__init__`` signature *is* the single source of truth for what
-    each algorithm supports: ``"copra"``/``"copra-jax"`` lack ``reg_amp`` etc.,
-    so they are absent from the returned set. Callers (the pipeline dispatch and
-    the GUI's option greying) use this to forward only accepted options and to
-    disable controls an algorithm cannot use.
+    The set includes inherited constructor options for wrappers such as
+    ``warm-lbfgs``. Unsupported algorithm names raise ``ValueError``. Use this
+    interface to determine which controls or keyword arguments a solver accepts.
     """
     if name not in ALGORITHMS:
         raise ValueError(f"unknown algorithm {name!r}")
@@ -95,9 +93,9 @@ def retrieve(
 ) -> RetrievalResult:
     """Retrieve a pulse from a measured trace with the chosen algorithm.
 
-    A thin convenience wrapper around the solver classes
-    (:class:`~croak.copra.COPRA`, :class:`~croak.lbfgs.LBFGS`): it constructs the
-    solver from ``kwargs`` and calls its :meth:`~croak.solver.Retriever.run`.
+    Select a solver with ``algorithm`` and pass its model and optimisation
+    options as keyword arguments. See :doc:`/howto/solver_selection` for
+    supported combinations and :doc:`/getting_started/quickstart` for an example.
 
     Parameters
     ----------
@@ -117,14 +115,17 @@ def retrieve(
     guess : None, array_like or Pulse, optional
         Initial guess.
     weights : array_like, optional
-        Per-frequency weights (length ``Nomega``).
+        Per-frequency residual weights (length ``Nomega``), squared in the
+        least-squares loss. Use inverse standard deviations for independent
+        errors with known variance.
     rng : numpy.random.Generator, optional
         Random generator for a random initial guess.
     omega0 : float, optional
         Carrier angular frequency (rad/s). For a **dispersive** retrieval it sets the
         carrier at which the slab dispersion is built (forwarded to the solver
-        constructor) as well as labelling the result's wavelength axes; for a thin
-        retrieval it only labels the axes.
+        constructor) as well as labelling the result's wavelength axes; for a thin local
+        model it labels the axes. Chromatic focal and collection models also
+        require the correct carrier.
     callback : callable, optional
         ``callback(iteration, R, best_R, snapshot=...)`` progress hook, where
         ``snapshot`` is an optional zero-argument in-progress-result builder (or
@@ -149,8 +150,9 @@ def retrieve(
     Notes
     -----
     The penalty-capable solvers (every family except COPRA) default to the
-    settled regularisation weights — ``reg_spectrum = 0.01`` and
-    ``reg_amp = 0.03`` for the gradient objective, mapped to ``1e-5``/``3e-5``
+    default regularisation weights — ``reg_spectrum = 0.01`` and
+    ``reg_amp = 0.03`` for the gradient objective, with separate defaults
+    ``1e-5``/``3e-5``
     for the Levenberg–Marquardt residual form (:data:`croak.solver.REG_DEFAULTS`).
     The spectral term binds only when a ``spectrum_target`` is supplied; pass
     ``reg_amp=0, reg_spectrum=0`` for an unregularised fit.

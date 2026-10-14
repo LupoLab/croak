@@ -1,16 +1,12 @@
-"""L-BFGS retrieval via Optimistix (``lbfgs-optx``).
+"""Retrieve a pulse with Optimistix L-BFGS and JAX gradients.
 
-A JAX-native twin of :class:`croak.lbfgs_ad.LBFGSAD`: it minimises the **same**
-scalar objective (FROG error plus the same amplitude / phase / spectral
-penalties) over the same real parameter vector (:mod:`croak._jax_pulse`), with the
-same JAX forward model (:mod:`croak.forward_jax`) and JAX autodiff gradient. The
-**only** difference is the optimiser: instead of NLopt's ``LD_LBFGS`` driving a
-host-side loop (with the gradient transferred device→host every evaluation),
-Optimistix's :class:`optimistix.LBFGS` runs the limited-memory BFGS loop
-**on-device** (each step jitted).
+Minimise trace error plus spectral-amplitude, phase and spectrum-match
+penalties using the shared JAX forward model. For matching supported model
+options, this is the same objective as :class:`croak.lbfgs_ad.LBFGSAD`.
+Optimistix controls the iteration and termination. This interface does not
+expose the temporal penalty or jointly fitted scalar parameters available
+in the NLopt-backed solver; compare the class parameters before switching.
 
-It is the natural counterpart to :class:`~croak.optimistix_lm.OptxLM` for
-head-to-head comparison against the NLopt-backed ``lbfgs-ad``.
 """
 
 from __future__ import annotations
@@ -37,12 +33,11 @@ __all__ = ["OptxLBFGS"]
 
 
 class OptxLBFGS(Retriever):
-    r"""Optimistix limited-memory BFGS solver with JAX autodiff gradients.
+    """Optimistix limited-memory BFGS solver with JAX autodiff gradients.
 
-    The objective, parameterisation and options match
-    :class:`croak.lbfgs_ad.LBFGSAD`; only the optimiser differs (Optimistix's
-    on-device :class:`optimistix.LBFGS` in place of NLopt's host-side
-    ``LD_LBFGS``).
+    Use Optimistix L-BFGS for the supported fixed-parameter models and phase
+    bases listed below. The temporal penalty and joint fitted scalar parameters
+    of :class:`croak.lbfgs_ad.LBFGSAD` are not exposed by this interface.
 
     Parameters
     ----------
@@ -62,12 +57,12 @@ class OptxLBFGS(Retriever):
         exclusive with ``smearing``, and incompatible with ``fit_smearing``
         (an explicit mixture has no kernel width to scale).
 
-        Only worth its cost for a broadband pulse. The reduced kernel's widths
-        scale as :math:`\sigma\propto\lambda`, so freezing them at the carrier
-        is a -16%/+24% spread of width across a 1 fs deep-UV band and costs a
-        mean 12% of retrieved duration there, against 3.5% at 2 fs. The mixture
-        needs one field build per focal node rather than per Gauss-Hermite
-        node, so it is one to two orders of magnitude slower.
+        Resolve wavelength-dependent spatial filtering when the achromatic
+        approximation is inadequate. Cost depends on the focal and collection
+        quadrature sizes; check convergence for the chosen pulse and geometry.
+    phase_only : bool, optional
+        Hold the initial spectral amplitude fixed and retrieve phase only.
+    phase_basis : {"pointwise", "bspline"}, optional
         Phase parameterisation; ``"bspline"`` uses ``n_nodes`` cubic-spline
         control points (implies phase-only). See
         :func:`croak._jax_pulse.make_spline_phase_basis`.
@@ -81,7 +76,7 @@ class OptxLBFGS(Retriever):
     reltol, abstol : float, optional
         Convergence tolerances (defaults ``1e-4`` / ``1e-8``). ``abstol`` is the
         Optimistix ``atol``; ``reltol`` is passed as the Optimistix ``rtol`` *and*
-        drives a relative-improvement plateau stop in :func:`croak._optimistix.run_optx`
+        drives a relative-improvement plateau stop in ``run_optx``
         (Optimistix's own Cauchy termination is ``atol``-dominated and effectively
         ignores ``rtol``, so the plateau stop is what makes ``reltol`` take effect).
     targeterr : float, optional

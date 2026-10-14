@@ -1,22 +1,13 @@
-r"""L-BFGS retrieval with **hand-derived** gradients, jitted in JAX (``lbfgs-hand``).
+"""Retrieve with analytic Wirtinger gradients evaluated in JAX.
 
-A drop-in twin of :class:`croak.lbfgs.LBFGS` and :class:`croak.lbfgs_ad.LBFGSAD`:
-same pulse parameterisation, same NLopt ``LD_LBFGS`` optimiser, same options
-(phase-only, ``R_omega`` adaptive scaling, amplitude / phase / spectral
-regularisation, dispersive or thin propagation).
+``lbfgs-hand`` uses the core forward/adjoint model and NLopt L-BFGS, with
+phase-only retrieval, per-frequency scaling and amplitude/phase/spectral
+penalties. Its supported options match :class:`croak.lbfgs.LBFGS`, not the
+additional spatial and fitted-parameter options of the AD solver.
 
-The gradient is the **same analytic Wirtinger adjoint** as :class:`croak.lbfgs.LBFGS`
-(``adjoint_single`` → ``ew_vjp``), but expressed entirely in JAX and evaluated by a
-single :func:`jax.jit`-compiled function that ``vmap``\\s the forward + adjoint over
-all delays — **no automatic differentiation is used anywhere**. This gives the
-hand-derived gradients the same vectorisation/JIT speedup that makes ``lbfgs-ad``
-faster than the pure-NumPy ``lbfgs`` (the gap is the trace evaluation, not the
-gradient maths — the two gradients are identical, see
-``tests/test_ad_vs_analytic.py``).
-
-It is thus a fast, AD-free reference path, and shares the JAX forward/adjoint core
-(:func:`croak.forward_jax.make_forward_adjoint_fns`) intended to also accelerate
-COPRA.
+The forward and analytic reverse calculations are compiled and vectorised
+with JAX. This provides an independent derivative route for checking automatic
+differentiation; agreement of final retrievals alone is not a gradient test.
 """
 
 from __future__ import annotations
@@ -52,7 +43,7 @@ class LBFGSHand(Retriever):
     ``spectrum_target``, ``reltol``/``abstol``/``targeterr``, ``verbose``); see
     that class for the full description. The forward model, FROG error and its
     gradient are all evaluated with the JAX twins, the gradient using the
-    explicit Wirtinger adjoint (not :func:`jax.grad`).
+    explicit Wirtinger adjoint (not :external+jax:func:`jax.grad`).
 
     Notes
     -----

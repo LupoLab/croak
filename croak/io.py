@@ -2,8 +2,7 @@
 
 A thin, GUI-agnostic layer over HDF5 (``h5py``), NumPy ``.npz`` and delimited
 text files. It enumerates the numeric datasets in a file, auto-matches the FROG
-trace / wavelength / scan-axis arrays by name (mirroring
-``ToolHelpers._match_dataset_index``), loads selected datasets, and converts the
+trace / wavelength / scan-axis arrays by name, loads selected datasets, and converts the
 loaded axes to SI units.
 
 The actual file *choosing* is the GUI's job (``QFileDialog``); this module only
@@ -358,7 +357,7 @@ def to_1d(arr: NDArray, name: str = "") -> NDArray[np.float64]:
 def reduce_to_1d(arr: NDArray, name: str, match_len: int) -> NDArray[np.float64]:
     """Reduce an intensity array to length ``match_len`` (averaging multi-shot axes).
 
-    Mirrors ``Clean._meanspectrum``: a 2-D ``(N_lambda, N_shots)`` array is
+    A 2-D ``(N_lambda, N_shots)`` array is
     averaged over the non-matching axis. Square arrays default to averaging
     axis 1.
     """
@@ -392,12 +391,6 @@ def reduce_to_1d(arr: NDArray, name: str, match_len: int) -> NDArray[np.float64]
 #: actually present).
 SIMULATED_WINDOW_KEYS: tuple[str, ...] = ("Iω_win", "Iω_win_reimaged", "Iω_full")
 
-#: Logical time-domain "truth" sources a simulated scan can provide for the
-#: retrieval overlay: the post-mask gate **beamlet** (the beam that actually
-#: gates, ``It_beamlet``/``Ito_beamlet``) or the pre-mask ideal **source** input
-#: (``It``/``Ito``). Listed in preference order (``beamlet`` first), so a file
-#: that stores the beamlet defaults to it. ``read_simulated_truth_keys`` lists the
-#: subset a given file actually stores.
 #: Time-domain truth sources a scan may store, in preference order: the post-mask
 #: gate beamlet (transverse-integrated, ``It_beamlet``), its ON-AXIS counterpart
 #: (``It_beamlet_reimaged`` --- one power of ω bluer in amplitude, the field the
@@ -468,9 +461,10 @@ class SimulatedScan:
         (``SimulatedLoadParams.reverse_trace``).
     Eomega_beamlet : numpy.ndarray or None
         The **complex** vignetted gate-beam spectrum (``Eω_beamlet_re/_im`` in
-        newer files): the retrievable ground truth including its spectral
-        phase, which carries any input chirp exactly (the mask is a real
-        amplitude filter). Enables complex-field retrieval-error metrics and
+        newer files): a stored reference including its spectral
+        phase. This is the transverse-integrated beamlet convention; convert
+        to a common field reference before comparing with a retrieved pulse. Enables
+        complex-field retrieval-error metrics and
         direct truth-GDD measurement, the temporal/spectral truth-phase
         overlays, and truth-seeded retrievals. ``None`` for files that store
         only intensities.
@@ -494,20 +488,16 @@ class SimulatedScan:
     delay_convention: str = "legacy"
     Eomega_beamlet: NDArray[np.complex128] | None = None
     Eomega: NDArray[np.complex128] | None = None
-    #: The ON-AXIS beamlet spectrum and field (``Iω_beamlet_reimaged``,
-    #: ``Eω_beamlet_reimaged``), when the file stores them (pnps files do). The
-    #: k-integrated ``Iomega_beamlet`` is the partner of the collected trace
-    #: ``Iω_win``; this is the partner of ``Iω_win_reimaged`` and, more to the
-    #: point, the field the chromatic focal mixture's ``ew`` represents (one
-    #: power of ω bluer in amplitude than the integrated spectrum, App. D).
+    #: On-axis beamlet spectrum and field, when stored. In the declared
+    #: diffraction convention this differs from the transverse-integrated
+    #: beamlet by one power of absolute frequency in field amplitude. It is
+    #: the entrance field represented by the chromatic focal model; the
+    #: detector's collection mode is a separate choice.
     Iomega_beamlet_reimaged: NDArray[np.float64] | None = None
     Eomega_beamlet_reimaged: NDArray[np.complex128] | None = None
-    #: Mask geometry the scan was generated with (m), when the file records it.
-    #: The smearing kernel is built from d/D = (spacing + D)/2D, and carrying
-    #: that by hand between scripts is how a sweep ended up running a gap-500
-    #: kernel against a gap-1000 trace — 25% too narrow, ~2% of retrieved
-    #: duration, and invisible in the trace error. ``None`` for files written
-    #: before the simulator recorded it.
+    #: Mask geometry recorded in the scan (m). Use these values to keep the
+    #: model geometry consistent with the generating simulation. The reduced
+    #: kernel uses d/D = (spacing + D)/(2D). ``None`` if not recorded.
     mask_diameter: float | None = None
     mask_spacing: float | None = None
     #: Focusing focal length (m), when recorded. The reduced smearing kernel
@@ -555,7 +545,8 @@ class MaskWindowSpec:
         How the edge profile enters the collected energy: ``"amplitude"`` (a field
         filter, squared in the energy --- ModelPNPS files, and the default when the
         record has no ``weighting`` scalar) or ``"quadrature"`` (a weight over a hard
-        hole, entering once --- pnps files). See :data:`croak.collection.WEIGHTINGS`.
+        hole, entering once --- pnps files). See
+        :class:`croak.collection.CollectionAperture`.
     delta_k : float
         Transverse k-grid spacing of the simulation (rad/m), from ``/grid/kx``.
     reference_wavelength : float
@@ -856,7 +847,7 @@ def read_simulated_scan(
     path : str
         Path to the ``.h5``/``.hdf5`` scan file.
     window_key : str, optional
-        Trace-window dataset to read: ``"Iω_win"`` (full-beam, default) or
+        Trace-window dataset to read: ``"Iω_win"`` (first collection window, default) or
         ``"Iω_win_reimaged"`` (on-axis re-imaged).
     z_index : int, optional
         Propagation-slice index along the window's ``nz`` axis. Default ``-1``
@@ -868,10 +859,10 @@ def read_simulated_scan(
         selected (``argmin|zsave − z_thickness|``), taking precedence over
         ``z_index``. Requires the file to store ``/grid/zsave`` (the newer
         multi-thickness format); a value is invalid on the legacy format.
-    truth_source : {"beamlet", "source"}, optional
+    truth_source : {"beamlet", "beamlet_reimaged", "source"}, optional
         Which stored reference pulse to return as the time-domain truth (``t``,
         ``It``): the post-mask gate **beamlet** (``It_beamlet``/``Ito_beamlet``,
-        default — the beam that actually gates) or the pre-mask ideal **source**
+        default — the integrated beamlet reference) or the pre-mask ideal **source**
         input (``It``/``Ito``). The oversampled grid (``To``/``Ito*``) is used
         when present. Falls back to the other source when the requested one is
         absent (e.g. a Gaussian-beam run with no beamlet, or a legacy file with

@@ -1,30 +1,17 @@
-"""The delay origin of a model trace: gate--probe coincidence, or the marginal peak.
+"""Match a model trace to the selected delay-origin convention.
 
-A measured trace does not know where its delay zero is. The preprocessing
-(:func:`croak.preprocess.regrid`) therefore centres the *data* on their
-delay-marginal peak, to sub-sample precision. The forward model, on the other
-hand, places delay zero at gate--probe coincidence. For a delay-symmetric trace
-the two conventions agree; for the traces of a tightly apertured single-cycle
-instrument they do not -- coherent collection makes the trace asymmetric and
-puts its marginal peak tens of attoseconds from coincidence, growing with the
-chirp accumulated in the medium -- and a retrieval with the delay zero held at
-coincidence can pay for the misalignment only by broadening the pulse (FROG
-N101/N102: the whole of the "+10 % single-cycle over-report" at the production
-hole).
+The native forward model places zero delay at gate–probe coincidence.
+Preprocessing can instead centre the measured trace on its delay-marginal
+peak. These origins can differ for an asymmetric trace. With
+``origin="marginal_peak"``, centre the model by the same parabolic peak rule,
+including the row-gain weighting when measured data are supplied. This is a
+coordinate convention, distinct from fitting an unknown delay offset.
 
-Two remedies exist. Fitting a delay offset ``tau0`` (``fit_tau0``) works for
-transform-limited pulses but is not benign for chirped ones: the chirp itself
-displaces the marginal peak, ``tau0`` then wanders by hundreds of attoseconds
-and trades against the retrieved chirp. This module implements the other:
-**centre the model trace on its own marginal peak, by the same sub-sample
-parabolic rule the preprocessing applies to the data**, at every evaluation.
-Both sides then share one convention, for any pulse, with no free parameter.
-
-The shift is applied to the computed trace by an exact Fourier translation
-along the (uniform) delay axis, so it costs two FFTs per evaluation and is
-differentiable in both the trace values and the estimated peak position; the
-peak *index* is found with ``argmax`` (no gradient, correctly -- the vertex of
-the parabola through the three samples carries it).
+The translation is periodic on a uniform delay grid. Check that the trace
+has negligible support at its ends. The parabolic peak position is
+differentiated while its discrete peak index is held fixed; the map is only
+piecewise differentiable when competing peaks exchange order. See
+:doc:`/explanation/retrieval_theory` for gains and centring assumptions.
 """
 
 from __future__ import annotations
@@ -43,12 +30,23 @@ DELAY_ORIGINS = ("coincidence", "marginal_peak")
 
 
 def marginal_peak_delay_jax(delays: jnp.ndarray, marginal: jnp.ndarray) -> jnp.ndarray:
-    """Sub-sample delay of the marginal's peak (JAX port of ``marginal_peak_delay``).
+    """Estimate the marginal-peak delay with a local parabola.
 
-    Parabola through the peak sample and its two neighbours, vertex clamped to the
-    bracketing samples; the peak sample is used unchanged at either end of the axis
-    or when the three points do not curve downward. The ``argmax`` carries no
-    gradient; the vertex position does.
+    Parameters
+    ----------
+    delays : jax.Array
+        Uniform delay samples in seconds, with at least three points.
+    marginal : jax.Array
+        One marginal value per delay sample.
+
+    Returns
+    -------
+    jax.Array
+        Scalar peak delay in seconds. The fitted vertex is clamped to the
+        neighbouring samples. For an edge maximum, the current implementation
+        uses the adjacent interior delay sample; avoid clipped traces. A
+        non-concave interior triplet uses its central sample. The peak index
+        is not differentiated; the vertex location within that branch is.
     """
     n = marginal.shape[0]
     i = jnp.argmax(marginal)
@@ -68,20 +66,26 @@ def marginal_peak_delay_jax(delays: jnp.ndarray, marginal: jnp.ndarray) -> jnp.n
 def recentre_trace(
     trace: jnp.ndarray, delays: jnp.ndarray, row_weights: jnp.ndarray | None = None
 ) -> jnp.ndarray:
-    r"""Shift ``trace`` so its delay-marginal peak sits at zero.
+    """Shift a trace so its estimated delay-marginal peak sits at zero.
 
-    Exact Fourier translation along the delay axis, which must be uniform (the
-    retrieval grid is). The shift is periodic on the axis, so a trace that has
-    decayed to zero at both ends -- the usual case -- is translated without artefact.
+    Parameters
+    ----------
+    trace : jax.Array
+        Trace with shape ``(Nomega, Ndelay)``.
+    delays : jax.Array
+        Uniform delay samples in seconds, with at least three points.
+    row_weights : jax.Array or None, optional
+        Length-``Nomega`` intensity gains applied only when forming the marginal.
+        Pass the row gains mapping the prediction onto the measured trace when
+        the data have a different spectral response; see :func:`recentring`.
 
-    ``row_weights`` (``(Nomega,)``) weights the rows before the marginal is formed.
-    The data's marginal is taken *after* the generation-response scaling and the
-    per-frequency factors, so for the two conventions to coincide the model's
-    marginal must carry the same row weighting: pass the per-row least-squares
-    factors :math:`\\mu_\\omega` that map the model rows onto the data rows (see
-    :func:`recentring`). Without it, an asymmetric trace's marginal peak depends on
-    how the rows are weighted and the two sides drift apart by up to tens of
-    attoseconds when the response exponent is far from the model's own.
+    Returns
+    -------
+    jax.Array
+        Translated trace, with its original shape. The Fourier translation is
+        periodic, so check support at both delay boundaries. The supplied row
+        gains set the centring position but are not applied to the returned
+        intensity. This low-level function assumes a uniform delay axis.
     """
     delays = jnp.asarray(delays)
     weighted = trace if row_weights is None else trace * row_weights[:, None]
@@ -114,8 +118,8 @@ def recentring(
     t_meas : array_like, optional
         The measured trace on the same grid. When given, the model's marginal is
         formed with the per-row least-squares factors
-        :math:`\\mu_\\omega = \\langle T_{meas}, T\\rangle_\\omega /
-        \\langle T, T\\rangle_\\omega`
+        :math:`\mu_\omega = \langle T_{meas}, T\rangle_\omega /
+        \langle T, T\rangle_\omega`
         that map the model rows onto the data rows, so the two marginals carry
         the same row weighting whatever generation-response exponent the data
         were corrected with. Recommended; the factors are recomputed at every

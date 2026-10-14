@@ -18,6 +18,8 @@ and [Choosing a solver](../../howto/solver_selection.md) for when to use which.
 ```{eval-rst}
 .. automodule:: croak.solver
    :members:
+
+.. autodata:: croak.solver.REG_DEFAULTS
 ```
 
 ## COPRA
@@ -71,6 +73,7 @@ driven by Optimistix's on-device L-BFGS instead of NLopt.
    :members:
 ```
 
+(choice-of-method)=
 ## Levenberg–Marquardt
 
 ```{eval-rst}
@@ -80,8 +83,9 @@ driven by Optimistix's on-device L-BFGS instead of NLopt.
 
 ## Levenberg–Marquardt (Optimistix)
 
-The `lm-optx` twin: a genuine JAX-Jacobian Levenberg–Marquardt running entirely
-on-device, sidestepping the MINPACK reentrancy issue of {class}`~croak.lm.LM`.
+The `lm-optx` solver uses Optimistix Levenberg–Marquardt on device. The `lm`
+interface uses SciPy trust-region reflective least squares; see the
+[algorithm guide](../../explanation/algorithms.md) for constraints and objectives.
 
 ```{eval-rst}
 .. automodule:: croak.optimistix_lm
@@ -104,8 +108,9 @@ optional `croak[evo]` extra.
 
 The default `warm-lbfgs` retriever: {class}`~croak.lbfgs_ad.LBFGSAD` on the full
 extended model, started from a COPRA local-projection sweep rather than from the
-raw initial guess. Same forward model and same minimum as `lbfgs-ad`; what
-changes is how much the answer depends on where it started.
+raw initial guess. The final stage uses the `lbfgs-ad` objective. Warm starting can improve
+convergence, but neither a common minimum nor independence from the initial
+guess is guaranteed.
 
 ```{eval-rst}
 .. automodule:: croak.warm_lbfgs
@@ -134,5 +139,16 @@ pass your own `callback`.
 
 ```{eval-rst}
 .. automodule:: croak.metrics
+   :members:
+```
+
+## Delay-origin convention
+
+Match the model's delay origin to preprocessing. See [weighted gains and
+centring](../../explanation/retrieval_theory.md) for the distinction between
+marginal-peak centring and fitting a free delay offset.
+
+```{eval-rst}
+.. automodule:: croak.delay_origin
    :members:
 ```

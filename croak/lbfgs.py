@@ -59,14 +59,14 @@ class LBFGS(Retriever):
         Use per-frequency adaptive scaling factors.
     reg_amp : float or None, optional
         Amplitude second-difference smoothness weight. ``None`` (default)
-        resolves to the settled production weight ``0.03``
+        resolves to the package default weight ``0.03``
         (:data:`croak.solver.REG_DEFAULTS`); pass ``0`` to disable.
     reg_phase : float, optional
         Phase second-difference smoothness weight (default ``0``).
     reg_spectrum : float or None, optional
         Weight of the spectral-match penalty pulling the retrieved spectral
         amplitude towards ``spectrum_target`` (full mode only). ``None``
-        (default) resolves to the settled ``0.01`` and is inert without a
+        (default) resolves to the default ``0.01`` and is inert without a
         ``spectrum_target``; pass ``0`` to disable.
     spectrum_target : array_like or None, optional
         Measured spectral **intensity** on the retrieval grid (centred order,
@@ -76,9 +76,9 @@ class LBFGS(Retriever):
         NLopt relative/absolute function tolerances (defaults ``1e-4`` / ``1e-8``).
     targeterr : float, optional
         Stop early when the FROG error drops below this value. Two
-        robustness guards apply during optimization: a non-finite objective or
+        robustness guards apply during optimisation: a non-finite objective or
         gradient is replaced by a large finite penalty so the line search
-        backtracks (:func:`croak.solver.guard_nonfinite`), and an internal
+        backtracks (``guard_nonfinite``), and an internal
         NLopt failure (line-search breakdown, roundoff limit) returns the best
         iterate found instead of raising; both warn once.
     verbose : bool, optional

@@ -1,4 +1,4 @@
-r"""Chirped-mirror dispersion (reflectivity + group-delay data).
+"""Chirped-mirror dispersion (reflectivity + group-delay data).
 
 A port of the ``lookup_mirror`` / ``process_mirror_data`` routines of
 `Luna.jl <https://github.com/LupoLab/Luna.jl>`_ (``PhysData.jl``), an
@@ -16,11 +16,10 @@ matching :mod:`croak.dispersion`), so they drop straight into
 Both the chirped compressor mirrors (:data:`BUILTIN_MIRRORS`) and the beam-path
 coatings (:data:`BUILTIN_COATINGS`) return an amplitude (reflectivity) function
 alongside the phase, so the measured loss per bounce *is* modelled: applying a
-mirror attenuates by ``r(λ)`` and removing it divides by ``r(λ)`` (clamped). For
-good chirped compressors ``R`` is ≳99 % in band, so this barely shifts the
-peak-power auto-compressor; for the coatings (bare Si, MgF₂-coated Al, exported
-by ``jaxmirror`` with per-polarisation reflectivity, phase and GDD) it matters,
-as they are usually *removed* (back-propagated) to recover the pulse upstream.
+mirror attenuates by ``r(λ)`` and removing it divides by ``r(λ)`` (clamped). The size of
+the loss depends on the data and wavelength range. Coating
+mirrors are often removed mathematically to estimate an upstream field;
+small reflectivities amplify uncertainty in this inverse operation.
 See :func:`croak.dispersion.register_mirror`.
 """
 
@@ -221,10 +220,10 @@ _COATING_COLS: dict[str, tuple[int, int]] = {"s": (1, 5), "p": (2, 6)}
 def _amplitude_callable(
     lam_m: ArrayLike, r: ArrayLike
 ) -> Callable[[ArrayLike], NDArray[np.float64]]:
-    r"""Build a per-bounce amplitude function ``r(omega_abs)`` for application.
+    """Build a per-bounce amplitude function ``r(omega_abs)`` for application.
 
     The returned callable interpolates the amplitude reflectivity ``r`` on
-    wavelength, floored at :data:`_AMPLITUDE_FLOOR` (so removal cannot divide by
+    wavelength, floored at ``_AMPLITUDE_FLOOR`` (so removal cannot divide by
     zero) and returning ``1`` outside the data range (no effect where the mirror
     has no data — consistent with the phase being tapered to zero there).
     """

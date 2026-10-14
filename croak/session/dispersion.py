@@ -1,4 +1,7 @@
-"""Apply a saved :class:`DispersionParams` to a retrieved pulse (headless).
+"""Apply saved dispersion parameters to a retrieved pulse.
+
+Apply a saved :class:`~croak.session.params.DispersionParams` to a retrieved pulse
+(headless).
 
 The dispersion stage compensates residual dispersion on the *already-retrieved*
 pulse: Taylor terms, propagation through built-in materials / a refractiveindex
@@ -144,6 +147,11 @@ def compose_dispersion(p: DispersionParams, result: RetrievalResult) -> Retrieva
     RuntimeError
         If a refractiveindex.info material is requested but the ``ridb`` extra is
         not installed.
+
+    Notes
+    -----
+    The stored trace, error and gain remain those of the original retrieval.
+    They do not become a fit to a measurement at the propagated plane.
     """
     if not has_dispersion(p):
         return result

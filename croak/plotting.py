@@ -11,7 +11,8 @@ The retrieval summary is assembled from twelve independent **panels**
 overview; :func:`plot_retrieval_page` draws one of the three 2×2 pages
 (:data:`RETRIEVAL_PAGES`: Traces, Pulse, Diagnostics) the GUI shows as tabs.
 
-Figures are built with :class:`matplotlib.figure.Figure` directly (no
+Figures are built with :external+matplotlib:class:`matplotlib.figure.Figure` directly
+(no
 ``pyplot`` global state), so they embed cleanly in a Qt canvas and also save
 standalone via ``fig.savefig(...)``.
 """
@@ -51,8 +52,8 @@ if TYPE_CHECKING:
     from .uncertainty import UncertaintyResult
 
 #: Edge-energy fraction (see :func:`croak.processing.edge_energy_fraction`) above
-#: which the spectrum panel flags the retrieval in red. A sound retrieval on a
-#: generous band sits two orders of magnitude below this.
+#: which the spectrum panel flags the retrieval in red. This is a heuristic
+#: grid-support warning; test the result on an enlarged grid.
 EDGE_ENERGY_WARN = 0.01
 
 __all__ = [
@@ -301,7 +302,8 @@ _SCALED_RC_BASE: dict[str, float] = {
 def scaled_rc(scale: PlotScale) -> dict[str, float]:
     """Return rcParams overrides that shrink every font size and pad by ``scale``.
 
-    Use with :func:`matplotlib.rc_context` *around the plotting call*: matplotlib
+    Use with :external+matplotlib:func:`matplotlib.rc_context` *around the plotting
+    call*: matplotlib
     resolves relative sizes (``fontsize="small"``, the ``'large'`` title default)
     against ``font.size`` when an artist is created, not when it is drawn, so the
     context must enclose everything that creates text.
@@ -396,8 +398,9 @@ def signed_pcolormesh(ax, x, y, C, *, db, tracedb=30.0, cmap_pos, vmax=None):
     only as saturated as a positive of equal magnitude — small negatives stay
     faint instead of dominating — and zero is white in both (pair ``cmap_pos``
     with :func:`cmap_white`). ``C`` follows the usual
-    :func:`~matplotlib.axes.Axes.pcolormesh` convention — shape
-    ``(len(y), len(x))`` (transpose the FROG ``(Nλ, Nτ)`` arrays yourself).
+    :external+matplotlib:meth:`~matplotlib.axes.Axes.pcolormesh` convention — shape
+    ``(len(y), len(x))`` (a FROG ``(Nλ, Nτ)`` array already has this shape for x=delay
+    and y=wavelength).
 
     Returns ``(mappable_pos, mappable_neg)`` (the second is ``None`` when there
     are no negative samples).
@@ -816,8 +819,10 @@ def plot_temporal(
     ``truth`` (a :class:`~croak.processing.TruthPulse`: a synthetic generating
     field, or a simulated scan's reference intensity) is overlaid as a thin black
     line under the retrieved/TL curves, labelled with its own FWHM, and — when it
-    carries a temporal phase — as a dotted phase in the same gauge as the retrieved
-    one.
+    carries a temporal phase — as a dotted phase with the same display-phase convention
+    as the retrieved
+    one. Removing a temporal-phase ramp changes the envelope carrier reference;
+    interpret calibrated carrier information separately.
 
     Returns the twin phase axes. :func:`draw_temporal` is the same panel for the
     registry, returning every artist (:class:`TemporalArtists`).
@@ -996,13 +1001,14 @@ def plot_spectral(
 
     ``axis`` is ``"frequency"`` (PHz, the default: the space the retrieval works
     in, where ``|E(ω)|²`` of a symmetric pulse is symmetric) or ``"wavelength"``
-    (nm, the spectrometer's axis, carrying the λ² Jacobian). Both spectra are
+    (nm, the spectrometer's axis, carrying the 1/λ² density Jacobian). Both spectra are
     drawn as unit-peak densities in the chosen variable; ``lam_min``/``lam_max``
     (m) bound the axis on either. The phase curves are the same on both.
 
     ``truth``, when it carries a spectrum, is overlaid as a thin black line under
     the retrieved curve; when it carries a known spectral phase, that phase is
-    overlaid on the phase axis. It is drawn in the SAME gauge as the retrieved
+    overlaid on the phase axis. It is drawn with the same spectral-phase convention as
+    the retrieved
     phase (unwrapped, de-tilted, zeroed at the spectral peak — see
     :func:`croak.processing.normalize_spectral_phase`), because spectral phase
     is defined only up to a constant and a linear term; a truth pinned any other
@@ -1695,7 +1701,8 @@ class PageSpec:
     key, title : str
         Identifier and human-readable name (the GUI's tab label).
     mosaic : tuple of tuple of str
-        Rows of panel keys, as :meth:`~matplotlib.figure.Figure.subplot_mosaic`
+        Rows of panel keys, as
+        :external+matplotlib:meth:`~matplotlib.figure.Figure.subplot_mosaic`
         takes them.
     """
 
@@ -1840,7 +1847,7 @@ def _draw_colorbars(
 def _draw_panels(
     fig, page: PageSpec, data: RetrievalPlotData
 ) -> tuple[dict[str, Axes], dict[str, PanelArtists]]:
-    """Lay ``page``'s mosaic out in ``fig``, draw every panel and its colorbars."""
+    """Lay ``page``'s mosaic out in ``fig``, draw every panel and its colourbars."""
     axd = fig.subplot_mosaic([list(row) for row in page.mosaic])
     artists = {key: RETRIEVAL_PANELS[key].draw(ax, data) for key, ax in axd.items()}
     _draw_colorbars(fig, axd, artists)
@@ -1848,18 +1855,16 @@ def _draw_panels(
 
 
 class RetrievalPageView:
-    """An artist-reusing view of one page of retrieval panels (GUI support).
+    """Maintain a page of retrieval plots for repeated GUI updates.
 
-    The live preview hands the Retrieve stage a new result a few times a second.
-    Clearing a figure and rebuilding a page's axes, colorbars and legends for each
-    one costs a full constrained-layout solve and lets legends jump between frames;
-    this view draws the page once and then pushes later results onto the existing
-    artists, as :class:`FrogFilterView` does for the preprocessing figure.
+    Draw the page once, then update its existing artists when
+    :meth:`can_update` accepts the new data. Redraw when the grid, optional
+    curves or panel structure changes.
 
     Parameters
     ----------
     page : PageSpec
-        Which panels, in which grid.
+        Panels and their layout.
 
     Examples
     --------
@@ -2036,25 +2041,14 @@ def plot_retrieval(
 
 
 def filter_view_vmax(td) -> float:
-    """Linear-row colour scale for the six-panel filter view.
+    """Return the shared positive colour scale for the six-panel filter view.
 
-    Returns the largest **positive** sample across the measured, filtered and
-    regridded traces, taking the two wavelength-domain arrays only over the
-    measurement window ``td.lamm_lims`` — "where the trace carries signal".
-
-    Both restrictions matter on real data. An absolute-calibration curve amplifies
-    the background-subtracted noise far outside the signal band by orders of
-    magnitude, so scaling by ``max|·|`` (as this used to) lets a large *negative*
-    excursion set the *positive* scale: on a measured DUV trace whose signal peaks
-    at ``+1`` but dips to ``-5.7`` at 1097 nm, every linear panel rendered its
-    signal at 18 % of the colour range. The Load stage's preview already scales to
-    the in-band signal for the same reason.
-
-    The three panels share this one number so the row's single colorbar means
-    something; because each array is peak-normalised upstream they are comparable.
-    Falls back to the full wavelength range when no window is set, and to
-    ``max|·|`` (then ``1.0``) if nothing positive remains, so the result is always
-    positive.
+    Take the largest positive sample across measured, filtered and regridded
+    traces, restricting wavelength-domain arrays to ``td.lamm_lims`` when set.
+    This prevents an out-of-band calibration or negative background excursion
+    from determining the positive signal scale. The arrays are peak-normalised
+    upstream. If no positive sample remains, fall back to the largest absolute
+    value, then 1.0, so the returned scale is positive.
     """
 
     def _positive_max(arr, lam=None) -> float:
@@ -2216,7 +2210,8 @@ def _decimate_for_display(C, x, y, *, cap=1000):
 def _resample_uniform_x(x, C):
     """Resample ``C`` (``(ny, nx)``) along axis 1 onto a uniform ``x`` grid.
 
-    :class:`~matplotlib.image.AxesImage` (``imshow``) assumes evenly spaced pixels
+    :external+matplotlib:class:`~matplotlib.image.AxesImage` (``imshow``) assumes evenly
+    spaced pixels
     and is positioned by a single linear ``extent``. A *wavelength* axis derived
     from a uniform **frequency** grid (the simulated-trace case) is strongly
     non-uniform, so a feature would otherwise be painted at the wrong wavelength
@@ -2239,20 +2234,13 @@ def _resample_uniform_x(x, C):
 
 
 class FrogFilterView:
-    """Stateful, artist-reusing twin of :func:`plot_frog_filter` for the GUI.
+    """Maintain a preprocessing figure for repeated GUI updates.
 
-    :func:`plot_frog_filter` clears and rebuilds the whole figure (6 panels ×
-    up to 2 ``pcolormesh`` + 4 colorbars) on every call — ~150–400 ms, the
-    dominant cost of the GUI preprocessing redraw. This view builds the mosaic,
-    images and colorbars **once** (:meth:`attach`); each :meth:`update` only
-    pushes new data via ``set_data``/``set_extent``/``set_clim`` on persistent
-    :class:`~matplotlib.image.AxesImage` objects, which benchmarks ~4× faster.
-
-    The signed-split rendering of :func:`signed_pcolormesh` is preserved: each
-    panel stacks a positive image (``cmap_white(viridis)``) under a
-    negative-magnitude image (white→red), both masked and sharing one scale.
-    Uses ``imshow`` (uniform-pixel) with an ``extent``; the wavelength axis may
-    be mildly non-uniform but the distortion is negligible for a preview.
+    Call :meth:`attach` to create the six panels and their colourbars, then
+    :meth:`update` to replace the displayed arrays. Positive and negative samples
+    use the same signed-magnitude convention as :func:`signed_pcolormesh`.
+    Non-uniform wavelength arrays are interpolated onto a uniform display grid;
+    the underlying :class:`croak.preprocess.TraceData` arrays are unchanged.
     """
 
     _PANELS = (
@@ -2284,7 +2272,7 @@ class FrogFilterView:
         return self.fig is not None
 
     def attach(self, fig: Figure) -> None:
-        """Build the mosaic, images and colorbars once into ``fig``."""
+        """Build the mosaic, images and colourbars once into ``fig``."""
         self.fig = fig
         fig.clear()
         with contextlib.suppress(Exception):
@@ -2477,11 +2465,13 @@ def plot_fwhm_distribution(
 
 
 def plot_intensity_band(ax, uresult: UncertaintyResult) -> None:
-    """Median temporal intensity with 68 %/95 % bootstrap confidence bands.
+    """Plot the median temporal intensity and pointwise 68 %/95 % resampling bands.
 
     Requires the bootstrap to have been run with ``collect_profiles=True``. The profiles
     are peak-aligned (translation gauge removed by ``shiftnorm``), so the band is the
-    gauge-safe spread of the intensity envelope across replicates.
+    spread of the aligned intensity envelope across replicates. These are
+    pointwise intervals, not simultaneous confidence bands for the whole curve;
+    their coverage depends on the resampling and measurement assumptions.
     """
     if uresult.profiles is None or uresult.t_profile is None:
         raise ValueError(
@@ -2572,8 +2562,9 @@ def plot_fwhm_vs_thickness(
     """Scatter the retrieved FWHM against the drawn substrate thickness.
 
     The horizontal bands give the point estimate and its 68 % interval; the vertical
-    band is the measured thickness prior. The slope of the cloud is the physical
-    sensitivity ``dFWHM/dL`` the analysis propagates.
+    band is the measured thickness prior. A local slope estimates
+    the sensitivity ``dFWHM/dL`` for this model and optimisation protocol; solver
+    variation can also contribute to the spread.
 
     Parameters
     ----------
@@ -2604,9 +2595,10 @@ def plot_fwhm_vs_thickness(
 def plot_error_vs_thickness(ax, uresult: UncertaintyResult) -> None:
     """Scatter the FROG error against the drawn thickness (a consistency check).
 
-    A flat cloud means the data does not constrain the thickness (the full prior
-    propagates); a clear minimum near ``L₀`` means the trace itself prefers a
-    thickness, partially constraining it.
+    A flat cloud suggests little trace sensitivity over the sampled thickness
+    range. A minimum identifies a preferred thickness under the chosen model,
+    but is not by itself a calibrated confidence interval or posterior. This
+    plot does not reweight the sampled thickness prior.
     """
     if uresult.thicknesses is None:
         raise ValueError("uresult has no thicknesses; run method='thickness'")

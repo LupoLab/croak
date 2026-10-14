@@ -20,26 +20,30 @@ model it falls back to the internal reduced-χ² estimate
 
 This is the **fast, analytic** complement to the resampling bootstrap in
 :mod:`croak.uncertainty`: one Jacobian and one eigensolve instead of hundreds of
-re-retrievals. Two subtleties make it rigorous:
+re-retrievals. Two qualifications are essential:
 
 * **Gauge degeneracy.** FROG's continuous trivial ambiguities — the absolute phase
   (CEP) and the absolute timing (a linear spectral phase) — are *flat directions*
   of the objective, so :math:`J^\mathsf{T}J` is rank-deficient. We use the
-  pseudo-inverse (eigenvalues below ``rcond`` × the largest are dropped); the null
-  space carries no uncertainty for any **gauge-invariant** quantity (FWHM,
-  :math:`|\tilde E(\omega)|^2`, the temporal intensity), whose gradient is
-  orthogonal to it.
+  pseudo-inverse (eigenvalues below ``rcond`` × the largest are dropped); known gauge
+  directions do not affect gauge-invariant quantities such as FWHM or
+  spectral intensity. A temporal profile requires alignment. Other discarded
+  directions can be weakly identified physical changes; setting their
+  variance to zero can understate uncertainty.
 * **Linearisation.** It is a first-order (Laplace) Gaussian approximation about
   :math:`u^\*`. We propagate it by drawing parameter samples
   :math:`u_k\sim\mathcal N(u^\*,\mathrm{cov}(u))` and pushing each through the exact
   (nonlinear) field → FWHM map, which captures the curvature of that map under the
-  Gaussian parameter posterior. It is fast and excellent for well-constrained,
+  Gaussian parameter posterior. It can be useful for well-constrained,
   high-SNR retrievals; near the transform limit or at low SNR the full
   :mod:`croak.uncertainty` bootstrap is the reference and this is the cross-check.
 
 Because the covariance is rebuilt from the retrieved spectrum and the JAX forward
-model, it works for *any* result, not only one produced by an LM solver — the
-least-squares algorithm only matters for whether the Jacobian is exposed natively.
+model, it can analyse a non-LM result whose model and parameterisation are supported.
+The current interface does not expose focal/collection models, depth weighting
+or marginal-peak centring; it cannot reproduce a retrieval using those options.
+It also does not include regularisation curvature, so it is not automatically
+the sampling covariance of a penalised estimator.
 """
 
 from __future__ import annotations
@@ -439,11 +443,22 @@ def parameter_covariance(
     rcond : float, optional
         Relative eigenvalue floor for the pseudo-inverse: eigenvalues of
         :math:`J^\mathsf{T}J` below ``rcond`` × the largest are treated as flat
-        (gauge) directions and dropped (default ``1e-10``).
+        directions (not necessarily all gauges) and dropped (default ``1e-10``).
 
     Returns
     -------
     CovarianceResult
+
+    Notes
+    -----
+    With ``noise`` supplied, the residual is divided by its per-pixel standard
+    deviation. In the current implementation, ``weights`` affect the fitted
+    intensity gain but do not additionally mask or weight that whitened residual.
+    Use this route only when that matches the intended likelihood. Without
+    ``noise``, the residual weights are included in the normalised residual.
+    The degrees-of-freedom estimate uses ``max(m - n, 1)`` rather than the numerical
+    rank or an effective count for fitted gains; inspect this approximation for
+    rank-deficient or strongly regularised fits.
     """
     core = _compute_core(
         result,
@@ -524,9 +539,10 @@ def covariance_uncertainty(
     compatible with the bootstrap output, so the same intervals, temporal band and
     plotting apply.
 
-    Sampling from the Gaussian parameter posterior and pushing each draw through the
-    exact field → FWHM map is the delta method carried to the nonlinearity of that
-    map: fast (no re-retrieval), and the natural analytic cross-check on the
+    Sampling from the local Gaussian parameter approximation and pushing each draw
+    through the
+    exact field → FWHM map retains nonlinearity of that map within the local Gaussian
+    approximation: fast (no re-retrieval), and the natural analytic cross-check on the
     resampling bootstraps. Gauge null directions carry zero variance, so the draws do
     not jitter the CEP or timing.
 

@@ -1,4 +1,7 @@
-"""Headless session engine: replay a :class:`SessionOptions` end-to-end.
+"""Replay a saved retrieval session without a graphical interface.
+
+Headless session engine: replay a :class:`~croak.session.options.SessionOptions`
+end-to-end.
 
 ``run_session`` drives the same per-stage mappings the GUI uses
 (:mod:`croak.session.pipeline`) without any Qt dependency, so a saved
@@ -51,7 +54,7 @@ _STAGE_ORDER: tuple[str, ...] = (
 
 @dataclass
 class SessionResult:
-    """Every intermediate produced by :func:`run_session`.
+    """Every intermediate produced by :func:`~croak.session.engine.run_session`.
 
     Fields are populated up to the last stage that ran; later ones stay ``None``.
     ``result`` is the (post-filtered) retrieval; ``dispersed`` is it after the

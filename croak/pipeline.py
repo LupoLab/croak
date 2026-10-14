@@ -70,7 +70,7 @@ def initial_guess(
         Cleaned trace.
     mode : {"auto", "tl", "perfect", "random", "truth"}
         The first four start from a spectral amplitude and differ in the phase, which
-        is what selects the basin the optimizer falls into:
+        is what selects the basin the optimiser falls into:
 
         ``"tl"``
             the measured amplitude with **flat** phase --- the transform limit
@@ -80,11 +80,11 @@ def initial_guess(
             a synthetic transform-limited Gaussian of ``perfect_fwhm`` at the
             spectral peak. Note this *discards* the measured amplitude and
             encodes an assumed duration; ``"tl"`` is the better-justified
-            version of the same flat-phase start and performs equivalently.
+            version of the same flat-phase start but either initialisation can reach a
+            different local solution.
         ``"auto"``
             the measured amplitude with a centroid-delay phase, which already
-            encodes the group-delay slope and so starts a *chirped* pulse close
-            to its answer.
+            encodes the group-delay slope and so provides a chirped starting estimate.
         ``"random"``
             the measured amplitude with a uniform random phase.
         ``"truth"``
@@ -95,7 +95,7 @@ def initial_guess(
         The flat-phase starts (``"tl"``, ``"perfect"``) suit near-transform-
         limited pulses; a strongly chirped pulse started flat must build its
         quadratic phase from nothing and tends to retain temporal structure,
-        where ``"auto"`` does not.
+        so compare initialisations rather than assuming one is always reliable.
     perfect_fwhm : float, optional
         Temporal FWHM for the ``"perfect"`` seed (s).
     truth : TruthPulse, optional
@@ -185,8 +185,7 @@ def retrieve_from_tracedata(
     ----------
     td : TraceData
         Cleaned, regridded trace.
-    algorithm : {"warm-lbfgs", "copra", "copra-jax", "lbfgs", "lbfgs-hand", \
-"lbfgs-ad", "lbfgs-optx", "lm", "lm-optx", "cma-es"}
+    algorithm : str, optional
         Retrieval algorithm — any key in :data:`croak.retrieve.ALGORITHMS`.
         ``"warm-lbfgs"`` (the default) is ``"lbfgs-ad"`` warm-started from
         COPRA's local sweep;
@@ -203,7 +202,7 @@ def retrieve_from_tracedata(
     R_omega : bool, optional
         Per-frequency adaptive scaling (supported by every algorithm).
     guess : str, array_like or Pulse, optional
-        ``"auto"``/``"perfect"``/``"random"``/``"truth"`` (see
+        ``"auto"``/``"tl"``/``"perfect"``/``"random"``/``"truth"`` (see
         :func:`initial_guess`) or an explicit spectrum/pulse passed straight
         through.
     perfect_fwhm : float, optional
@@ -226,7 +225,7 @@ def retrieve_from_tracedata(
         it. See :doc:`/howto/collection_aperture`.
     reg_amp : float or None, optional
         Spectral-amplitude smoothness weight. ``None`` (default) resolves to
-        the settled production weight for the solver's objective family —
+        the package default weight for the solver's objective family —
         ``0.03`` for the gradient solvers, ``3e-5`` for the LM residual form
         (see :data:`croak.solver.REG_DEFAULTS`). Pass ``0`` to disable.
     reg_phase : float, optional
@@ -234,7 +233,7 @@ def retrieve_from_tracedata(
     reg_spectrum : float or None, optional
         Spectral-match regularisation weight (full mode): pulls the retrieved
         spectral amplitude towards the measured independent spectrum
-        ``td.Iomega``. ``None`` (default) resolves to the settled weight
+        ``td.Iomega``. ``None`` (default) resolves to the package default weight
         (``0.01`` gradient / ``1e-5`` LM) and silently does nothing when no
         independent spectrum is available; an *explicit* ``reg_spectrum > 0``
         with no spectrum is ignored with a warning. Pass ``0`` to disable.
@@ -242,7 +241,8 @@ def retrieve_from_tracedata(
         Temporal (pedestal) regularisation weight (LBFGS-AD / cma-es): penalises
         the fraction of ``E(t)`` energy outside ``time_window``. A self-consistent
         alternative to the temporal post-filter — it keeps spectrum and field a
-        Fourier pair, so introduces no spectral artefacts. Active in all modes.
+        Fourier pair, but the chosen window remains a prior that can bias the field.
+        Active in all modes.
     time_window : tuple of float, optional
         ``(lo, hi)`` window in seconds for ``reg_time``; defaults to the
         measurement delay range ``(td.delays.min(), td.delays.max())``.
@@ -256,7 +256,8 @@ def retrieve_from_tracedata(
         ``fit_*`` flag is off.
     fit_thickness, fit_tau0 : bool, optional
         Fit the dispersive-slab thickness and/or a delay-zero offset as extra
-        parameters alongside the pulse (``lbfgs-ad`` / ``lm`` only;
+        parameters alongside the pulse (``lbfgs-ad`` / ``warm-lbfgs`` / ``lm`` /
+        ``lm-optx`` / ``cma-es``;
         ``fit_thickness`` needs a dispersive slab, PG/SD). See
         :doc:`/howto/fitting_thickness_tau0`.
     fit_smearing : bool, optional
@@ -270,11 +271,12 @@ def retrieve_from_tracedata(
         channel's starting centre. See :doc:`/howto/geometric_smearing`.
     depth_weight : array_like or None, optional
         Complex generation-envelope weights, one per depth-quadrature node
-        (``lbfgs-ad`` only): the transverse-geometry factor a 1D depth integral
+        (``lbfgs-ad`` and ``warm-lbfgs``): the transverse-geometry factor a 1D depth
+        integral
         cannot see. See :func:`croak.forward_jax.make_param_trace_fn`.
     depth_transverse : bool, optional
         Model the transverse decoherence of the depth integral (``lbfgs-ad``
-        only): a parameter-free per-depth transverse phase inside the
+        and ``warm-lbfgs``): a parameter-free per-depth transverse phase inside the
         collection transform. Requires ``focal`` with a ``collection`` and a
         dispersive slab. See :func:`croak.forward_jax.make_param_trace_fn`.
     polish : bool, optional

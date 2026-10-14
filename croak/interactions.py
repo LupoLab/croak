@@ -10,7 +10,7 @@ Interaction       signal ``s``           geometry
 ================  =====================  =================================
 ``SHG``           ``E * G``              second-harmonic generation
 ``SD``            ``E**2 * conj(G)``     self-diffraction
-``PG``            ``E * |G|**2``         polarization gating
+``PG``            ``E * |G|**2``         polarisation gating
 ================  =====================  =================================
 
 Adjoint convention: the cotangent of a complex variable ``v`` is
@@ -21,7 +21,7 @@ Geometric smearing (:mod:`croak.smearing`) needs the same signals written out as
 product of *three* separately shifted replicas, because the two factors that coincide
 in the thin 1-D model acquire different arrival times across the focal spot. That form
 is exposed by :meth:`Interaction.smeared_shifts` and :meth:`Interaction.smeared_signal`;
-at zero smearing they reproduce :meth:`signal` exactly.
+at zero smearing they reproduce :meth:`~croak.interactions.Interaction.signal` exactly.
 """
 
 from __future__ import annotations
@@ -39,7 +39,8 @@ Complex = NDArray[np.complex128]
 class Interaction:
     """Base class for FROG nonlinear interactions.
 
-    Subclasses set :attr:`name` and implement :meth:`signal` and
+    Subclasses set ``name`` and implement :meth:`~croak.interactions.Interaction.signal`
+    and
     :meth:`signal_adjoint`.
     """
 
@@ -158,7 +159,7 @@ class SD(Interaction):
 
 
 class PG(Interaction):
-    """Polarization gating: ``s = E * |G|**2``."""
+    """Polarisation gating: ``s = E * |G|**2``."""
 
     name = "pg"
 

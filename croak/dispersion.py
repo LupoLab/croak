@@ -114,7 +114,7 @@ def apply_dispersion(
     material_thicknesses: dict[str, float] | None = None,
     mirror_bounces: dict[str, int] | None = None,
 ) -> Complex:
-    r"""Apply Taylor + material + mirror dispersion to a spectrum (returns a copy).
+    """Apply Taylor + material + mirror dispersion to a spectrum (returns a copy).
 
     Parameters
     ----------
@@ -139,6 +139,14 @@ def apply_dispersion(
     -------
     numpy.ndarray
         The dispersed complex spectrum.
+
+    Notes
+    -----
+    Negative material lengths and bounce counts invert the supplied transfer
+    function. They do not recover information lost in low-transmission bands.
+    Check optical-data validity and noise amplification before interpreting an
+    upstream field. Phase-only propagation conserves spectral energy; mirror
+    amplitude functions can change it.
     """
     out = np.asarray(ew, dtype=complex)
     phi = dispersion_phase(

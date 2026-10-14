@@ -13,7 +13,7 @@ on the terminal. If ``tqdm`` is somehow unavailable, a small built-in
 carriage-return bar is used instead so the module stays self-contained.
 
 The GUI passes its own ``callback`` and so is left untouched: it draws its own
-convergence curve and status line (see :mod:`croak.gui.stage_retrieve`).
+convergence curve and status line (see :doc:`/howto/gui`).
 
 Environments
 ------------

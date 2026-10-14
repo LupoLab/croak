@@ -37,11 +37,10 @@ equation of state, so
     n(\lambda, P, T) = \sqrt{1 + \chi_{1,\mathrm{ref}}(\lambda)\,
     \frac{P}{1\,\mathrm{bar}}\,\frac{273.15\,\mathrm{K}}{T}}.
 
-The ideal-gas approximation is accurate to ~0.1 % for helium and air up to a few
-bar; it deviates from a real-gas treatment (Luna uses CoolProp) only at high
-pressure (tens of bar, e.g. hollow-core-fibre compression). The Sellmeier poles
-sit in the deep XUV, so :math:`n` is smooth across the optical/IR band; any
-non-finite value outside the valid range is masked downstream by
+The ideal-gas density law is an approximation whose accuracy depends on gas,
+pressure and temperature. Check those conditions and the Sellmeier wavelength
+range against the material reference. A finite index returned by the formula
+is not proof that the model is valid there; non-finite values are masked by
 :func:`croak.materials.beta`.
 """
 

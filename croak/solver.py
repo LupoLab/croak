@@ -103,29 +103,11 @@ def spectral_target_amplitude(
 
 
 def adapt_callback(callback):
-    """Return ``callback`` wrapped so it always accepts a ``snapshot=`` keyword.
+    """Return a callback adapter accepting the optional ``snapshot`` keyword.
 
-    The documented progress signature is
-    ``callback(iteration, R, best_R, snapshot=None)``, but a three-argument
-    callback used to work with the projection solvers because they had no
-    in-progress result to offer and never passed the keyword. Now that every
-    solver can supply one, calling such a callback would fail with a
-    ``TypeError`` deep inside the iteration.
-
-    Rather than make the shorter form an error, drop the snapshot for callbacks
-    that cannot receive it. That also removes a pre-existing trap in the other
-    direction: the same three-argument callback already failed with
-    ``lbfgs-ad``, so which forms were legal depended on the solver.
-
-    Parameters
-    ----------
-    callback : callable or None
-        A user progress callback, or ``None``.
-
-    Returns
-    -------
-    callable or None
-        A callable accepting ``snapshot=``, or ``None`` if none was given.
+    Both ``callback(iteration, R, best_R)`` and the extended form with
+    ``snapshot=None`` are supported. The adapter drops the snapshot keyword for
+    callbacks that cannot receive it. ``None`` is returned unchanged.
     """
     if callback is None:
         return None
@@ -247,7 +229,7 @@ def assemble_result(
 
 #: Large finite objective value returned in place of a non-finite one: NLopt's
 #: line search reads it as a very bad step and backtracks, where a bare NaN
-#: would abort the whole optimization with an opaque ``nlopt.runtime_error``.
+#: would abort the whole optimisation with an opaque ``nlopt.runtime_error``.
 NONFINITE_PENALTY = 1e10
 
 
@@ -260,10 +242,9 @@ def guard_nonfinite(
     """Trap a non-finite objective/gradient during an NLopt line search.
 
     A quasi-Newton line search occasionally probes an iterate where the jitted
-    objective or its gradient evaluates to NaN/Inf (observed for roughly one in
-    six random starts on large dispersive grids). NLopt aborts on such values;
+    objective or its gradient evaluates to NaN/Inf. NLopt aborts on such values;
     returning :data:`NONFINITE_PENALTY` with a zeroed gradient instead makes
-    the line search backtrack and the optimization continue.
+    the line search backtrack and the optimisation continue.
 
     Parameters
     ----------
@@ -318,7 +299,7 @@ def split_smear_value(smear) -> tuple[float, float | None]:
 class Retriever:
     """Base class for retrieval algorithms.
 
-    Subclasses implement :meth:`_solve`. Algorithm and forward-model
+    Subclasses implement ``_solve``. Algorithm and forward-model
     hyperparameters are set on the constructor; :meth:`run` takes the
     measurement and returns a :class:`~croak.result.RetrievalResult`.
     """
@@ -414,36 +395,13 @@ class Retriever:
         raise NotImplementedError
 
 
-#: Default regularisation weights ``(reg_spectrum, reg_amp)`` per solver family.
+#: Default weights ``(reg_spectrum, reg_amp)`` per solver family.
 #:
-#: The two families do not minimise the same objective, so the same number does
-#: not mean the same thing to them. The gradient solvers minimise
-#: :math:`R + \lambda P`; the Levenberg-Marquardt solvers append the penalty as
-#: residual rows, hence minimise :math:`R^2 + \lambda' P`. Matching the
-#: stationary conditions pairs them as :math:`\lambda' = 2 R \lambda`, i.e. at
-#: the :math:`R \approx 2\times10^{-4}` of a good dispersive TG-FROG retrieval
-#: the LM weight is some three orders of magnitude smaller.
-#:
-#: That is not a cosmetic difference. On the 2 fs, 9.5 um dispersive trace
-#: (2026-08-25), sweeping the LM weight over four decades:
-#:
-#: =====================  ========  ========  =========  ======
-#: LM (spectrum, amp)     R (%)     eps       dFWHM (%)  rough.
-#: =====================  ========  ========  =========  ======
-#: 1e-2, 3e-2 (as LBFGS)  0.0237    0.305     +1.11      1.00
-#: 1e-5, 3e-5 (mapped)    0.0193    0.112     -0.11      1.01
-#: 0, 0                   0.0174    0.466     +3.12      2.57
-#: =====================  ========  ========  =========  ======
-#:
-#: Both failure modes are visible: the gradient weights over-regularise LM (a
-#: worse pulse *and* a worse trace error), and no penalty at all overfits (the
-#: best trace error of any arm, the worst pulse -- 2.6x the truth's spectral
-#: roughness and +3.1% on duration). The measured optimum, 1e-5, sits within
-#: 30% of the 2 R lambda prediction, which is the evidence that the mapping is
-#: the right rule rather than a coincidence of one trace.
-#:
-#: So the LM entry scales with the trace error you actually reach: multiply it
-#: by :math:`R/2\times10^{-4}` on a noisier measurement.
+#: Gradient solvers minimise :math:`R + \lambda P`; residual solvers minimise
+#: :math:`R^2 + \lambda' P`. Matching local stationary conditions gives
+#: :math:`\lambda' = 2 R \lambda` at the same field and residual. This is a
+#: local comparison, not a universal choice of weight. Check sensitivity and
+#: bias for the measured noise, grid and model; see :doc:`/howto/regularisation`.
 REG_DEFAULTS: dict[str, tuple[float, float]] = {
     "gradient": (1e-2, 3e-2),
     "lm": (1e-5, 3e-5),
@@ -462,7 +420,11 @@ def reg_family(solver: str) -> str:
 
 
 def reg_defaults(solver: str) -> tuple[float, float]:
-    """``(reg_spectrum, reg_amp)`` suited to ``solver``; see :data:`REG_DEFAULTS`."""
+    """Return the default spectrum and amplitude penalty weights.
+
+    ``(reg_spectrum, reg_amp)`` suited to ``solver``; see
+    :data:`~croak.solver.REG_DEFAULTS`.
+    """
     return REG_DEFAULTS[reg_family(solver)]
 
 
@@ -471,8 +433,9 @@ def resolve_reg(
 ) -> tuple[float, float]:
     """Resolve ``(reg_spectrum, reg_amp)``, filling ``None`` with the defaults.
 
-    ``None`` means "use the settled production weights for this solver
-    family" (:data:`REG_DEFAULTS`); an explicit number — including ``0`` to
+    ``None`` means "use the package default weights for this solver
+    family" (:data:`~croak.solver.REG_DEFAULTS`); an explicit number — including ``0``
+    to
     disable a penalty — is passed through unchanged. The spectral-match term
     additionally requires a ``spectrum_target`` at run time and is inert
     without one, so the non-zero default is safe for retrievals that have no
