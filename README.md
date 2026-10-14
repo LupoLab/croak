@@ -1,5 +1,7 @@
 # croak
 
+**Complete Retrieval by Optimisation and Adjoint Kernels**
+
 [![Tests](https://github.com/LupoLab/croak/actions/workflows/ci.yml/badge.svg)](https://github.com/LupoLab/croak/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/LupoLab/croak/graph/badge.svg)](https://codecov.io/gh/LupoLab/croak)
 [![Docs](https://readthedocs.org/projects/croak/badge/?version=latest)](https://croak.readthedocs.io)
@@ -270,7 +272,12 @@ uv sync --group docs
 uv run sphinx-build -b html docs docs/_build/html
 ```
 
-Start with **Getting started → Quickstart**, then the **Tutorials**.
+Start with the [Introduction](https://croak.readthedocs.io/en/latest/introduction/index.html),
+then follow the [User guide](https://croak.readthedocs.io/en/latest/user_guide/index.html)
+or explore the [Examples](https://croak.readthedocs.io/en/latest/examples/index.html).
+The [Developer's guide](https://croak.readthedocs.io/en/latest/developer_guide/index.html)
+covers contributing, and the [API](https://croak.readthedocs.io/en/latest/reference/api/index.html)
+documents the Python interfaces.
 
 ## The name
 

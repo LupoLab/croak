@@ -3,7 +3,10 @@
 Complete reference for every public module in croak, generated from the
 NumPy-style docstrings. The pages group the package by role; the
 [quickstart](../../getting_started/quickstart.md) and
-[how-to guides](../../howto/preprocessing.md) show these APIs in context.
+[user guide](../../user_guide/index.md) show these APIs in context. The
+[examples](../../examples/index.md) provide runnable calculations, and the
+[developer's guide](../../developer_guide/index.md) explains how to contribute
+to the package.
 
 The headline API is importable from the top-level `croak` namespace
 (e.g. `croak.Grid`, `croak.retrieve`, `croak.load_and_clean`); the submodules

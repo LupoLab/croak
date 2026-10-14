@@ -6,6 +6,14 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Reorganised the manual beneath five navigation sections: Introduction,
+  User guide, Examples, Developer's guide, and API. Added chapter introductions,
+  a topic-based example catalogue, contributor guidance, and cross-references,
+  while retaining existing page URLs and tutorial content. Expanded the croak
+  acronym prominently on the home page, introduction, and README.
+
 ### Fixed
 
 - **Back at Stage 1 could silently lose the session.** Pressing Back once too

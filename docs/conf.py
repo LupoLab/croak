@@ -35,6 +35,8 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = [
     "_build",
+    # Editorial inventories and audit notes are review records, not manual pages.
+    "_review",
     # The committed execution cache holds .ipynb files Sphinx must not treat
     # as source documents.
     ".jupyter_cache",
@@ -107,7 +109,8 @@ html_theme_options = {
     "show_toc_level": 2,
     "use_edit_page_button": False,
     "navbar_align": "left",
-    "header_links_before_dropdown": 6,
+    # The root toctree contains only the five sections of the manual.
+    "header_links_before_dropdown": 5,
 }
 
 # MathJax: render the physics-convention transforms and Wirtinger algebra.
