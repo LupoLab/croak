@@ -1,35 +1,45 @@
 # Modelling the collection aperture
 
-A finite collection aperture selects part of the **complex spatial signal**.
-The field must be transformed into the collection plane before taking its
-intensity; adding local intensities first loses interference between positions.
-This page explains the physical choices and the corresponding API. Start with
-[the model hierarchy](../explanation/forward_model.md#the-model-hierarchy-and-when-each-member-applies).
+The [chromatic focal mixture](../explanation/forward_model.md#geometric-smearing) sums
+**incoherently** over focal-plane position. By Parseval that is exact only if the
+detector collects the whole signal beam — and most non-collinear instruments do not:
+the signal is picked out of the BOXCARS pattern by a hole, which is a filter in
+transverse wavevector. The field must then be transformed into the collection plane
+before taking its intensity.
 
-Full isolated-signal collection permits an incoherent focal intensity integral
-by Parseval's identity. A finite aperture generally changes both the spectrum
-and the delay structure. It need not act as a narrower version of the same
-smearing kernel. [Known-field validation](../explanation/validation.md#fixed-field-validation-and-numerical-convergence)
-quantifies the tested regimes.
+When the hole is narrow the average over the focal spot is partly **coherent**, and a
+coherent sum sharpens where an incoherent one blurs. A finite aperture changes both
+the spectrum and the delay structure of the trace; it does not act as a narrower
+version of the same smearing kernel.
+
+**Practical rule.** For near-single-cycle pulses through a restrictive aperture,
+retrieve with the full model: `focal=` with `collection=` set to the instrument's
+aperture. In the companion papers' simulated TG-FROG instrument this recovers a
+1.05 fs pulse to within 3 % at every substrate thickness from 1 to 40 µm through a
+0.5 mm collection hole, and its fixed-field trace predictions agree to 0.03–0.2 %
+rms of peak ([validation](../explanation/validation.md)). The alternative is to open
+the aperture until the extended model's full-collection premise holds, as far as
+pump leakage allows.
 
 ## When it matters
 
-Compare two numbers at the carrier:
+Compare two numbers at the carrier. On this page $\omega$ is the absolute optical
+angular frequency; $\Omega=\omega-\omega_0$ is the centred frequency of croak's grids.
 
 | quantity | expression | reference instrument at 260 nm |
 |---|---|---|
 | signal k footprint | $3(\omega/c)(D/2)/f$ | 3.63e5 rad/m |
 | aperture k half-width | $(\omega/c)(D_\text{hole}/2)/z_\text{mask}$ | 6.04e4 rad/m |
 
-These carrier-frequency scales provide a first diagnostic, not a broadband
-acceptance criterion. In this example the aperture is six times narrower than
-the estimated footprint, so full collection is a poor starting assumption.
-Inspect the frequency-dependent field and test aperture quadrature convergence.
+If the aperture is comparable to or wider than the footprint, the incoherent sum is
+adequate. Here it is **six times narrower** — about 3 % of the solid angle — so the
+instrument sits far closer to the coherent limit than to the incoherent one, and the
+collection model is not a refinement.
 
 The other way to see it: a disc of k half-width $\kappa_a$ correlates the focal plane
 over an Airy kernel whose first null is at $3.83/\kappa_a \approx 63\,\mu\text{m}$,
 while the region that actually emits (where
-the arrival offsets $p, \vartheta$ stay inside the pulse duration) is only 15–30 µm
+the arrival offsets $p, \delta$ stay inside the pulse duration) is only 15–30 µm
 across. The detector cannot resolve the smearing it is supposed to average over.
 
 ## The quick version
@@ -96,7 +106,7 @@ is set and no explicit `focal=` is given (`scan_path` is only needed for
 ## Reading the aperture off a simulated scan
 
 A `scansave` file records the window it was collected through, so it does not have to be
-retyped :
+retyped (and mistyped):
 
 ```python
 from croak.collection import aperture_from_scan
@@ -106,11 +116,11 @@ reimaged = aperture_from_scan("scan.h5", mode="reimaged")     # Iω_win_reimaged
 ```
 
 This resolves the simulator's `"default"` apodisation width from the file's own
-transverse k-grid, which matters: for one legacy instrument file it is **96.9 µm on a
+transverse k-grid, which matters: for a soft-edged window it can be **96.9 µm on a
 500 µm hole** — an edge 19 % of the diameter, passing 0.994 at the centre and still
-0.006 at $r = D$. Treating that stored soft window as a hard hole changes the physical model.
-Corrected scans may instead record a hard-hole integration weight; read each
-file rather than assuming that all datasets use the same aperture rendering.
+0.006 at $r = D$. Treating that window as a hard hole is a large error, not a rounding
+one. Other scans record a hard-hole integration weight instead, so read the window
+from each file.
 {class}`~croak.io.MaskWindowSpec` is the raw record, and
 {attr}`SimulatedScan.mask_window <croak.io.SimulatedScan>` carries it.
 
@@ -158,7 +168,7 @@ assert np.abs(aperture_offset(mixture)).max() < 1e-9   # collecting on phase mat
 ```
 
 {func}`~croak.focal.focal_mixture` records its `arms` because the incoherent sum
-needed only the arm *differences* that make $(p,\vartheta)$, but the aperture needs to
+needed only the arm *differences* that make $(p,\delta)$, but the aperture needs to
 know where the signal actually goes.
 
 For broadband mixing, the carrier's fourth-corner construction does not make
@@ -200,11 +210,11 @@ This neglects input diffraction, beam walk and changes in local overlap. The
 exit signal also acquires a transverse propagation phase. These are separate
 approximations; the options below address different parts of them.
 
-Validity depends on pulse bandwidth, thickness, focusing and collection.
-The revised evidence does not establish a universal thickness boundary or
-uniquely assign every residual to transverse decoherence. Use the
-[current validation](../explanation/validation.md), then refine depth and
-transverse quadratures for the field and geometry being modelled.
+With the entrance-profile model and the instrument's collection aperture, the full
+model already retrieves the simulated 1–40 µm series accurately (see
+[validation](../explanation/validation.md)). The options below are opt-in
+refinements for thicker slabs or tighter focusing; refine the depth and transverse
+quadratures for the field and geometry being modelled.
 
 ### `depth_transverse`: modelling the missing decoherence
 
@@ -261,9 +271,8 @@ model it refuse loudly. Notes:
   `"reimaged"` shifts — asserted in `tests/test_depth_transverse.py`, pinning where
   the phase sits relative to the modulus.
 
-Internal transform and derivative tests check the calculation, not agreement
-with an independent instrument model. Compare the predicted trace at a fixed
-known field before using an extra parameter or correction to improve a retrieval.
+These tests check the calculation; check agreement with your instrument by
+comparing the predicted trace at a fixed known field.
 
 ### fc-z: the depth-resolved mixture (`evolve_profiles`)
 
@@ -301,30 +310,31 @@ conventions. Notes:
   per-depth filters slot into the existing $(N, Q)$ multiply; new cost is a
   seconds-level numpy build of the $(3, K, Q, N)$ filter table at model
   construction (~10–50 MB at production shapes).
-The profile propagation has independent plane-wave and Fourier-reference checks,
-including zero-evolution and Gaussian controls. Those checks establish numerical
-consistency. They do not establish that profile evolution explains every residual
-in a three-dimensional instrument. Assess the model at the actual pulse and
-geometry; the [developer validation guide](../developer_guide/validation.md)
-identifies the implementation tests.
+* **Validation.** The evolved profile matches an independent plane-wave propagator
+  to 10⁻⁶ of peak, a zero-evolution table reproduces the entrance filter exactly,
+  and the Gaussian control is a null (`tests/test_fcz.py`; see the
+  [developer validation guide](../developer_guide/validation.md)).
 
 (only-pg-tg-for-now)=
 ## Supported interactions
 
-The phase the incoherent sum discards is $\omega p$ for PG and $-\omega\vartheta$ for SD
-— in both cases $\omega$ times one of the two reduced smearing parameters, so the
-$(p,\vartheta)$ reduction is sufficient for an apertured instrument and not just a fully
+The phase the incoherent sum discards is $\Omega p$ for PG and $-\Omega\delta$ for SD
+— in both cases the centred frequency $\Omega$ times one of the two reduced smearing
+parameters, so the $(p,\delta)$ reduction is sufficient for an apertured instrument and not just a fully
 collected one. Only the PG case is derived and validated, so an SD interaction with a
 collection aperture raises rather than quietly using the wrong sign.
 
-That $\omega$ is the **centred** (envelope) frequency while the aperture's own position
-scales with the absolute one, so the two frequency arguments must be kept distinct — see the warning in
+$\Omega$ is the **centred** (envelope) frequency while the aperture's own position
+scales with the absolute one $\omega_\text{abs}=\omega_0+\Omega$, so the two must be
+kept distinct — see the warning in
 {mod}`croak.collection`.
 
 ## Checking it
 
-Increase focal, aperture and depth quadratures separately where practical, then
-check the resulting trace and inferred quantities. Agreement with full collection
-in a suitable limit is a normalisation check; it does not validate the illumination
-or material assumptions. Contributor reference tests are described in
+Two properties are worth asserting on your own geometry, and both are in
+`tests/test_collection.py`: with an unbounded aperture on a Cartesian focal grid the
+model must return the incoherent sum exactly (Parseval), and a dense 2-D FFT of the
+focal field windowed in k must reproduce the quadrature model with no fitted scale.
+Then increase the focal, aperture and depth quadratures until the trace stops
+changing. The reference tests are described in
 [numerical validation](../developer_guide/validation.md#collection-reference-tests).

@@ -42,8 +42,8 @@ A single-trace bootstrap gives a defensible error bar **only** when:
 
 Granted these, one may write **"1.4 ± 0.2 fs (1σ statistical; systematic uncertainty not
 included)"**. Repeated acquisitions test measurement variability, but shared calibration
-biases can persist across all of them. A total budget also needs calibration and
-model sensitivity assessments.
+biases can persist across all of them. A total uncertainty budget also needs the
+calibration and model systematics.
 
 ## Why this is even possible — the statistical structure of FROG
 
@@ -269,8 +269,9 @@ input: the **substrate thickness** $L$, through which the model propagates the f
 is measured independently with an error bar, $L\sim\mathcal N(L_0,\sigma_L)$ — e.g.
 $9.952\pm0.539$ µm — the retrieved field, and hence its FWHM, inherits a systematic
 uncertainty. For short, deep-UV pulses (≈1 fs, ≈230 nm) the dispersion of even a few
-hundred nm of silica is significant, and this term can exceed the
-statistical one of Methods A/B.
+hundred nm of silica is significant, and this term can dominate the statistical
+one of Methods A/B: in the [thickness-uncertainty example](../examples/thickness_uncertainty.md)
+(a 3 fs pulse through 100 ± 5 µm of silica) it is about six times larger.
 
 **Procedure** ({func}`~croak.uncertainty.thickness_bootstrap`). A brute-force Monte-Carlo
 over the *measured prior*: for $b=1\dots B$ draw $L_b\sim\mathcal N(L_0,\sigma_L)$ (clipped
@@ -295,17 +296,16 @@ and holds the model fixed; D perturbs the *model* and holds the data fixed. If t
     *constructor* parameter), so potentially more expensive per replicate than Method A.
 * - Bonus diagnostic: the **FROG error vs thickness** curve reveals whether the data
     itself constrains $L$ (a clear minimum) or not (flat ⇒ the full prior propagates).
-  - Higher residuals in the prior tails may be physical misfit or failed optimisation.
-    This method retains them rather than truncating the prior; inspect convergence.
+  - A raised error in the prior's tails is mostly *physical misfit*, not stagnation, so
+    the usual convergence filter is disabled (`convergence_tol=1e9`); only failed
+    (non-finite) draws are dropped. Inspect convergence yourself.
 ```
 
 ```{note}
-The per-draw trace error $R(L)$ can change with thickness, but can also reflect
-convergence and compensation by the fitted field. Inspect it alongside the pulse. If $R(L)$ has a clear minimum inside the prior,
-the trace *partially constrains* the thickness but this alone establishes no conservative coverage guarantee;
-a combined data-plus-prior treatment (a thickness posterior from $R(L)$) could tighten it.
-croak propagates the external measured prior as specified. Joint inference from
-data and prior is a separate analysis.
+The per-draw trace error $R(L)$ is a diagnostic: if it has a clear minimum inside the
+prior, the trace itself *partially constrains* the thickness, and a combined
+data-plus-prior treatment (a thickness posterior from $R(L)$) could tighten the
+interval. croak propagates the external measured prior as specified.
 
 The **data-driven alternative** is to *fit* the thickness as a retrieval parameter
 (`fit_thickness=True` on `lbfgs-ad`/`lm`; see [Fitting the medium thickness and
@@ -435,11 +435,16 @@ is not measurement uncertainty. The warm-start policy decides which question you
   answers a different question ("how reproducible is the whole pipeline, optimiser
   included").
 
-First examine sensitivity of the full-data fit to starts and budget; no finite
-multi-start or CMA-ES run proves that it found a global basin. Inspect replicate
-residuals and convergence diagnostics. A high residual can indicate stagnation,
-model mismatch or an unusual noise realisation; automatic rejection can truncate
-the uncertainty distribution. Report any filtering rule and its effect.
+First confirm the full-data solution sits in the global basin (a
+{class}`~croak.cmaes.CMAES` or multi-start check, once). Then filter replicates
+that stagnate. Methods A and B do this by default: a replicate whose trace error
+exceeds `convergence_tol` × the median replicate error (default
+`convergence_tol=3.0`) is dropped as a stagnation outlier, along with any non-finite
+result. The rule is relative to the median, so it works for both methods' error
+scales. The thickness bootstrap (Method D) disables it (`convergence_tol=1e9`),
+because there a raised error is physical. `n_converged` against `n_resamples` on the
+result shows how many replicates were kept; if more than a few were dropped,
+investigate rather than loosen the filter.
 
 ## Coverage calibration — turning a spread into a confidence interval
 
@@ -463,16 +468,19 @@ distribution) is the honest report rather than a single "±".
 
 ## Practical recommendation
 
-Choose the uncertainty source first. Use a calibrated detector model for a
-parametric study, empirical resampling with justified measurement units for a
-cross-check, and a covariance calculation to examine local parameter correlations.
-Propagate independently measured calibration distributions separately. Retain the
-same physical model and constraints used for the original retrieval.
+- **Default answer** — Method A (parametric bootstrap) with a measured noise model,
+  warm-started, $B \sim 300$–$1000$ replicates, bias-corrected percentiles, checked
+  with the coverage harness.
+- **Cross-check** — Method B (data bootstrap, blocked over delay columns for scanned
+  data). No noise model needed.
+- **Parameter correlations and fitted extras** — Method C (local covariance), which
+  needs no re-retrieval.
+- **Measured systematics** — Method D for the substrate thickness, combined in
+  quadrature with the statistical term.
 
-Check convergence, increase replicate count until the quantities you report are
-stable, and test coverage in representative simulations. Disagreement between
-estimators is diagnostic but does not uniquely identify its cause: noise,
-parameterisation, optimisation and nonlinear statistics can all contribute.
+Keep the physical model and constraints of the original retrieval, increase the
+replicate count until the reported quantities are stable, and treat disagreement
+between estimators as a diagnostic.
 
 ## Verdict on "1.4 ± 0.2 fs"
 

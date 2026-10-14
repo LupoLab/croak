@@ -8,10 +8,17 @@ consequence of omitting propagation; [validation](validation.md) examines more
 complete instrument simulations.
 
 Start with the thin-medium model below, then add the effects justified by your
-experiment. {class}`~croak.forward.ForwardModel` implements the local and slab
-models and their analytic adjoint. The JAX model implements these and the spatial
-extensions. Their supported limits are cross-checked, but they are distinct
-computational paths.
+experiment. {class}`~croak.forward.ForwardModel` is the NumPy core: it maps a
+complex spectrum $\tilde E(\omega)$ to the trace for the thin and dispersive-slab
+models and provides the exact reverse-mode (Wirtinger) adjoint of that map, which
+COPRA and the analytic-gradient solvers descend on. It also evaluates the reduced
+smearing trace (a `smearing=` kernel), but without an adjoint. **The thin medium
+is just the slab with $\beta=0$, $L=0$ and a single quadrature node**
+({func}`~croak.forward.quadrature_nodes_weights` returns one node for zero
+thickness), so one code path and one adjoint serve both regimes. The JAX model
+({func}`~croak.forward_jax.make_param_trace_fn`) implements the same models plus
+the spatial extensions below, differentiated by automatic differentiation; the
+two paths are cross-checked where they overlap.
 
 The unknown field must have a declared reference plane. In the slab model it is
 the entrance field; the chromatic model further distinguishes an on-axis field
@@ -111,9 +118,9 @@ Remember that dispersive propagation is supported for **PG** and **SD** only
 Gauss–Legendre quadrature is efficient for a smooth depth integrand; the
 `"uniform"` rule provides a useful independent discretisation check. Required
 node counts depend on bandwidth, thickness, dispersion and field structure.
-Repeat the forward calculation with more nodes and compare both the trace and
-retrieved quantities. A fixed count such as 15–20 is a starting choice, not a
-machine-precision guarantee.
+The solvers default to `npoints=20`, chosen for few-µm to tens-of-µm UV slabs. For a
+thicker or more dispersive medium, increase `npoints` until the trace and the
+retrieved field stop changing.
 
 ```{note}
 **The GUI ties `npoints` to a depth step Δz.** The Retrieve stage's *Dispersive
@@ -135,7 +142,8 @@ model contains (the replicas disperse, so deeper slices are weaker). What a 1D
 model cannot see is the *transverse* geometry of the crossing beams: the focal
 spot growing away from the focus (Rayleigh range), the beamlets walking through
 each other, and the Gouy phase — which enters the *coherent* depth sum as a
-z-dependent phase, not just an amplitude. A reduced approximation represents these effects by one smooth complex envelope $g(z)$ multiplying the local
+z-dependent phase, not just an amplitude. To good approximation all of this
+factorises into one smooth complex envelope $g(z)$ multiplying the local
 generation.
 
 `depth_weight` on {func}`~croak.forward_jax.make_param_trace_fn` (and the
@@ -147,8 +155,8 @@ irrelevant (absorbed by $\mu$); only the shape matters. Two rules of thumb:
   practice with ordinary focusing (for the example DUV geometry,
   $z_R \approx 87$ µm: the envelope varies by <10 % across a 40 µm slab, and
   its smooth symmetric part is nearly pure renormalisation).
-- **Required once $L$ approaches the beam-overlap length** $\sim w_0/\theta$
-  (the crossed beamlets walk through each other): beyond it, generation stops
+- **Required once $L$ approaches the beam-overlap length** $\sim w_0/\theta$,
+  with $\theta$ the beam crossing angle (the crossed beamlets walk through each other): beyond it, generation stops
   regardless of how much substrate remains, and a uniform-weight model would
   attribute signal to depths that produce none. A diagnostic signature: a
   uniform-weight retrieval with `fit_thickness` returns the *effective
@@ -226,8 +234,9 @@ coordinates.
 
 For an example DUV geometry (1 mm holes, 0.5 mm edge to edge so $d/D=0.75$,
 260 nm) the PG kernel is $\sigma_p = 0.320$ fs, $\sigma_\delta = 0.357$ fs — a
-0.84 fs FWHM blur along the delay axis, which matters for a 1 fs pulse. The draft's reference geometry uses $d/D=1.0$; distinguish that case from this
-illustrative geometry.
+0.84 fs FWHM blur along the delay axis, which matters for a 1 fs pulse. The
+simulated instrument used in [validation](validation.md) has $d/D=1.0$, with
+proportionally wider kernels.
 
 ### Cost and accuracy
 
@@ -244,18 +253,20 @@ transform, which is exact for any trace that is Nyquist-sampled in $\tau$ (so th
 kernel need not span several delay steps). It does require a **uniformly spaced**
 delay axis.
 
-The Gaussian timing distribution matches the second moments of the exact
-$|A|^6$ focal weight. It is an approximation in addition to achromatic profiles,
-full collection and the stated depth assumptions. Its accuracy depends on the
-pulse and geometry; a convergence check for one pulse does not establish a
-uniform error bound.
+Within the achromatic, fully collected reduction, the remaining approximation is
+replacing the exact $|A|^6$ focal weight by a Gaussian with the same second
+moments. The leading trace correction is quadratic in $(p,\delta)$, so only those
+moments matter to first order. For the chirped test pulse and reference geometry
+in `tests/test_smearing.py`, the Gaussian and Airy-weighted focal-plane traces
+differ by about one part in $10^5$ of the trace peak.
 
 ```{note}
 Geometric smearing is supported through the JAX model by `warm-lbfgs`,
-`lbfgs-ad`, `lm`, `lm-optx`, `lbfgs-optx` and `cma-es`. croak's ordinary
-single-field COPRA update and analytic-adjoint solvers do not implement the
-spatial mixture. This is an implementation limit, not a proof that vector or
-mixed-state projection algorithms are impossible.
+`lbfgs-ad`, `lm`, `lm-optx`, `lbfgs-optx` and `cma-es`. The incoherent sum over
+quadrature nodes means the measured trace is no longer $|\psi(\omega,\tau)|^2$ for
+a single signal, which breaks COPRA's magnitude-replacement projection, and the
+hand-derived adjoint of {eq}`dispersive` is not extended to it. Asking for
+smearing with any other algorithm raises rather than silently dropping the kernel.
 ```
 
 See [Geometric smearing](../howto/geometric_smearing.md) for how to use it.
@@ -266,10 +277,10 @@ Two assumptions in the paragraphs above are separable, and croak lets each be dr
 
 {mod}`croak.focal` drops the **achromatic** one. The reduction freezes the $|A|^6$
 weight at the carrier, but the mask maps to transverse wavevector as
-$x = k_\perp z_\text{mask} c/\omega$, so $A$ depends on the product $r\omega$ and
+$x = k_\perp z_\text{mask} c/\omega_\text{abs}$, so $A$ depends on the product $r\omega_\text{abs}$ and
 different focal positions see different *spectra*. The mixture keeps the sum over
 $\mathbf r$ explicit, each node applying its own $A(r,\omega)$ and carrying its own
-*definite* $(p,\vartheta)$ instead of a distribution over them. Held at the carrier it
+*definite* $(p,\delta)$ instead of a distribution over them. Held at the carrier it
 reproduces the closed forms above exactly, which
 {func}`~croak.focal.reduced_moments` checks.
 
@@ -285,16 +296,18 @@ per-node build differ by a rigid time shift,
 $S(t,\mathbf r) = S_\text{croak}(t-\boldsymbol\alpha_1\cdot\mathbf r,\mathbf r)$,
 so the only thing lost is one phase — and after the signal's own phase-matched carrier
 $\boldsymbol\alpha_s = \boldsymbol\alpha_1+\boldsymbol\alpha_2-\boldsymbol\alpha_3$
-is removed, what remains is $e^{+i\Omega p}$: **exactly $\Omega$ times one of the two
-reduced parameters** (and $-\Omega\vartheta$ for SD). The $(p,\vartheta)$
+is removed, what remains is $e^{+i\Omega p}$, with $\Omega=\omega_\text{abs}-\omega_0$
+the centred frequency: **exactly $\Omega$ times one of the two
+reduced parameters** (and $-\Omega\delta$ for SD). The $(p,\delta)$
 parameterisation is therefore sufficient for an apertured instrument as well as a
 fully collected one.
 
 Whether it *matters* is a question about one ratio: the aperture's k half-width
-$(\omega/c)(D_\text{hole}/2)/z_\text{mask}$ against the signal's own k content
-$3(\omega/c)(D/2)/f$. For the example DUV geometry that is 6.04e4 against 3.63e5 —
-six times narrower. This comparison signals that full collection is not a safe
-assumption; it is not a general bound on the retrieved duration or blur. See
+$(\omega_\text{abs}/c)(D_\text{hole}/2)/z_\text{mask}$ against the signal's own k
+content $3(\omega_\text{abs}/c)(D/2)/f$, both at absolute optical frequency. For the
+example DUV geometry that is 6.04e4 against 3.63e5 m⁻¹ — the aperture is six times
+narrower, so the fully collected (incoherent) reduction does not describe that
+instrument and the collection must be modelled. See
 [Modelling the collection aperture](../howto/collection_aperture.md).
 
 ### Depth-resolved transverse dephasing (`depth_transverse`)
@@ -343,20 +356,20 @@ A_j(r_k, \omega; z_q) = N(\omega)\!\int_0^{k_R(\omega)}\!
 $$
 
 in place of the single shared entrance filter $A(r_k,\omega)$: the aperture's
-k-space (a disc of radius $k_R = (\omega/c)(D/2)/f$, or the Gaussian control's
+k-space (a disc of radius $k_R = (\omega_\text{abs}/c)(D/2)/f$, or the Gaussian control's
 $e^{-k_\perp^2 w_0^2/4}$) propagated by the *transverse* part of $k_z$ only —
 the on-axis dispersion stays in the depth propagator, so $z\to 0$ reduces
-exactly to the entrance model. The $(p_k,\vartheta_k)$ arrival offsets stay
-depth-independent (exact: transverse wavevector is conserved). In this model, the "Cost and accuracy" statement that the transverse
-weight commutes with the depth propagator is *no longer true* under fc-z —
-this permits a
-gate-vs-probe arrival asymmetry that accumulates with depth. Cost is ~fc (the
+exactly to the entrance model. The $(p_k,\delta_k)$ arrival offsets stay
+depth-independent (exact: transverse wavevector is conserved). Under fc-z the
+"Cost and accuracy" statement that the transverse weight commutes with the depth
+propagator no longer holds — deliberately: that non-commutation is what lets the
+model carry a gate-vs-probe arrival asymmetry that accumulates with depth. Cost is ~fc (the
 depth axis is already batched; only a seconds-level numpy filter build and a
 $(3,K,Q,N)$ table are new). PG only; fitted thickness is unsupported; the
 spec's slab parameters must match the trace map's (verified). Validated by an
 independent plane-wave propagator at $10^{-6}$ of peak and by moment-pinning
-against the measured three-beam overlap/centroid/timing table of the beamlet
-companion analysis — see `tests/test_fcz.py`.
+against a three-beam overlap/centroid/timing table measured on the 3-D
+instrument simulations — see `tests/test_fcz.py`.
 
 ## The model hierarchy, and when each member applies
 
@@ -368,13 +381,18 @@ The options form a hierarchy, with different assumptions and cost:
 | Extended | Coherent slab generation and reduced timing kernel | Achromatic local profiles and full isolated-signal collection adequate |
 | Full | Chromatic focal fields and coherent finite-aperture collection, with selected depth corrections | Specified beam profiles, paraxial geometry, material response and detector model adequate |
 
-Bandwidth, accumulated dispersion, focal overlap and aperture size all matter.
-Opening an aperture can reduce collection effects, but pump leakage limits how
-far it can be opened. No single bandwidth or thickness criterion proves that a
-model is adequate. Test numerical convergence separately from physical model
-sensitivity, and compare any independently known field in the same reference
-plane. The [validation chapter](validation.md) reports the demonstrated cases
-and their retained failures; the [gallery](../examples/index.md#instrument-effects-and-validation)
+The standard model is conventional FROG practice: right for thin media and
+multi-cycle pulses. Two dimensionless quantities decide whether more is needed:
+the fractional bandwidth (chromatic focal effects) and the ratio of collection
+aperture to generation aperture (coherent-collection effects). With the
+dispersive slab and smearing kernel, the extended model costs about the same as
+the standard one. For near-single-cycle pulses through a restrictive collection
+aperture, use the full model; opening the aperture reduces collection effects,
+but pump leakage limits how far it can be opened. In the simulated TG-FROG
+instrument the full model with the recorded 0.5 mm aperture recovers a 1.05 fs
+pulse to 1.047–1.079 fs at every thickness from 1 to 40 µm, while the standard
+model returns 1.35–2.41 fs; the [validation chapter](validation.md) gives the
+details, and the [gallery](../examples/index.md#instrument-effects-and-validation)
 provides runnable illustrations.
 
 ## API

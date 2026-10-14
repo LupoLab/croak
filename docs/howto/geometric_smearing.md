@@ -99,10 +99,13 @@ $E(t)\,|E(t-\tau)|^2$; scanning the probe instead (as in the `ModelPNPS` referen
 simulation, and in TG setups generally) gives $|E(t)|^2 E(t-\tau_{\rm exp})$, which
 is the same operator with $\tau = -\tau_{\rm exp}$.
 
-Use the file's documented delay convention. The simulated loader can read its
-`delay_convention` marker; older files may need reversal. Reverse the data axis
-and set the kernel correlation consistently. Do not infer the convention from
-a favourable retrieval or assume that every simulator file uses the same sign.
+Retrieving a probe-scanned trace against croak's convention without flipping the
+axis returns $E^*(-t)$: the spectral amplitude and the duration are unchanged, but
+the temporal profile is mirrored and the spectral phase negated, so the sign of the
+retrieved GDD/TOD flips. Use the file's documented delay convention (the simulated
+loader reads its `delay_convention` marker). Whenever the delay axis the retrieval
+sees is the probe-scanned one, build the kernel with `reverse_delay=True`, so that
+$\rho$ matches the trace.
 ```
 
 ```{note}
@@ -143,14 +146,15 @@ res = croak.retrieve(
 print(res.smear_scale)   # compare with the nominal scale of 1.0
 ```
 
-A value near 1 is consistent with the nominal kernel, but does not uniquely
-identify the mechanism. Inspect correlations with the field and other parameters.
+A value near 1 is consistent with the nominal kernel; a value far from 1 usually means the reduced
+kernel is absorbing something else (collection, chromatic focal effects or another
+model error).
 
 ```{warning}
-Avoid freeing both smearing width and thickness without independent information.
-They can be strongly correlated with each other and with pulse phase. Fix
-calibrated quantities first, then assess parameter covariance and sensitivity;
-identifiability depends on the particular measurement.
+**Do not fit the smearing width and the slab thickness in the same run.** The
+smearing multiplier will soak up dispersion-model error, and the two are not
+separately identifiable from a single trace. Fit one, hold the other, and check
+the parameter covariance.
 ```
 
 Uncertainty follows the same route as the other extra parameters:
@@ -159,8 +163,7 @@ Uncertainty follows the same route as the other extra parameters:
 
 ### Splitting the two channels
 
-The kernel has two channels: the delay offset $\vartheta$ (also written
-$\delta$ above and in the reduced-kernel API) (a pure blur along
+The kernel has two channels: the delay offset $\delta$ (a pure blur along
 the delay axis) and the gate-shape parameter $p$ (a symmetric split of the gate
 pair, which for a chirped gate shears the trace along frequency). The joint
 multiplier scales both together, which is the right physical prior — both
@@ -241,10 +244,10 @@ raise.
 | `fit_smearing` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | a `smearing` kernel |
 | `fit_smearing_split` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | `fit_smearing` |
 
-`copra`, `copra-jax`, `lbfgs` and `lbfgs-hand` do not implement this spatial
-mixture. Their current projection or analytic derivative path is restricted to
-a local signal. Asking for unsupported smearing raises an error. This does not
-exclude other vector or mixed-state projection formulations in principle.
+`copra`, `copra-jax`, `lbfgs` and `lbfgs-hand` cannot model smearing: the
+incoherent average over the kernel breaks COPRA's magnitude-replacement projection,
+and the hand-derived adjoint is not extended to it. Asking for smearing with them
+raises rather than silently dropping the kernel.
 
 SHG raises too: geometric smearing here is defined for the three-arm PG/SD forms.
 
@@ -286,7 +289,8 @@ nominal, type it into *σ delay (fs)*, which back-computes the spacing.
 ## Worked example
 
 `examples/example_geometric_smearing.py` synthesises a trace with a known kernel
-and retrieves it with and without, printing the duration inflation:
+and retrieves it with and without, printing the trace error, FWHM and rms
+width of each fit (see the [gallery page](../examples/geometric_smearing.md)):
 
 ```
 uv run python examples/example_geometric_smearing.py

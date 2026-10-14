@@ -48,9 +48,9 @@ solver with them, warm-started from the solution. Mismatched settings bias the i
     {class}`~croak.uncertainty.NoiseModel` (or estimates one from the residual).
 * - `"delay"`
   - Resample whole delay columns (block bootstrap) — the natural unit for a delay-scanned
-    trace. Uses empirical resampling assumptions.
+    trace. No noise model needed.
 * - `"frequency"`
-  - Resample frequency rows. Uses empirical resampling assumptions.
+  - Resample frequency rows. No noise model needed.
 * - `"thickness"`
   - **Systematic, not statistical.** Propagate a measured substrate-thickness prior
     through a *dispersive* retrieval (see [below](#substrate-thickness-systematic)).
@@ -62,8 +62,17 @@ solver with them, warm-started from the solution. Mismatched settings bias the i
 
 The first three are *statistical* estimators. Running more than one and comparing is the
 strongest check: agreement builds confidence; disagreement points at the noise model
-(A vs B) or a non-Gaussian posterior. The covariance function is a local analytic counterpart. Agreement is a useful
-check, but cannot validate assumptions shared by both.
+(A vs B) or a non-Gaussian posterior. The covariance function is the local analytic
+counterpart.
+
+```{note}
+The statistical methods drop stagnated replicates by default: any replicate whose
+trace error exceeds `convergence_tol` × the median replicate error
+(`convergence_tol=3.0`) is discarded, as is any non-finite result. Compare
+`u.n_converged` with `u.n_resamples` to see how many were kept. The thickness method
+disables this filter (`convergence_tol=1e9`), because there a raised error in the
+prior's tails is physical misfit.
+```
 
 ## The noise model (parametric)
 
@@ -90,7 +99,8 @@ thickness (`material`/`thickness`). When that thickness is an independently **me
 input with its own error bar — e.g. `9.952 ± 0.539` µm — the retrieved FWHM inherits a
 *systematic* uncertainty that the statistical bootstraps above cannot see: every one of
 their replicates reuses the *same* fixed thickness. For short, deep-UV pulses this term
-can exceed the statistical contribution.
+can dominate: in the [thickness example](../examples/thickness_uncertainty.md) it is about
+six times larger than the parametric bootstrap.
 
 {func}`~croak.uncertainty.thickness_bootstrap` (method `"thickness"`) propagates the
 measured thickness prior $L\sim\mathcal N(L_0,\sigma_L)$ by brute-force Monte-Carlo: it
@@ -125,8 +135,8 @@ total_pm = hypot(stat.plus_minus, u.plus_minus)   # ± half-widths (s)
 The `plot_thickness_sensitivity` figure also shows **FROG error vs thickness** — a
 consistency check. A flat curve means the data does not constrain the thickness (the full
 prior propagates); a clear minimum near $L_0$ means the trace itself prefers a thickness,
-partially constraining it. Unlike the statistical bootstrap, a higher error in the tails
-can be physical misfit, but failed optimisation must also be checked — so this method does not convergence-filter it.
+partially constraining it. A higher error in the tails is mostly physical misfit, so
+this method does not convergence-filter it; check for failed optimisation yourself.
 ```
 
 A complete, runnable script is in `examples/example_thickness_uncertainty.py`.

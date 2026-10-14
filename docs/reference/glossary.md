@@ -27,10 +27,11 @@ and the names used in the code.
 
 ```{admonition} R vs G
 :class: note
-The normalised RMS trace error is written **$G$** (the "G-error") in much of the
-FROG literature and **$R$** throughout croak. Compare definitions before comparing numbers: weighting and normalisation
-can differ between sources. croak uses
-{func}`croak.metrics.compute_R`, `result.error`.
+The peak-normalised rms trace error
+$R=\sqrt{r/(MN\,\max(T_\text{meas}w)^2)}$ is written **$G$** (the "G-error")
+in much of the FROG literature and **$R$** throughout croak. They are the same
+quantity ({func}`croak.metrics.compute_R`, `result.error`); with weights, croak
+uses the weighted residual and the peak of the weighted measured trace.
 ```
 
 ## Terms
@@ -116,13 +117,17 @@ Field reference
   transverse-integrated beamlet, effective and on-axis entrance fields can have
   different amplitudes and temporal profiles. See [conventions](conventions.md).
 
-$p$, $\theta$
-: gate-pair separation and probe-to-gate-centroid delay in the spatial model.
-  The gates arrive at $\tau-\theta\mp p/2$ in the probe frame.
+$p$, $\delta$
+: the two timing coordinates of the spatial (smearing) model: the gate-pair
+  separation and the probe-to-gate-centroid offset ({mod}`croak.smearing`). For
+  PG the two gate replicas arrive at $\tau-\delta\mp p/2$ in the probe frame;
+  for SD, $p$ separates the two unconjugated replicas and $\delta$ offsets the
+  conjugated arm (see [the forward model](../explanation/forward_model.md#geometric-smearing)).
 
 $p_f$
 : the exponent of a declared spectral field conversion
-  $\widetilde E_{p_f}=(\omega_{\rm abs}/\omega_{\rm ref})^{p_f}\widetilde E_{\rm int}$.
+  $\widetilde E_{p_f}=(\omega_{\rm abs}/\omega_0)^{p_f}\widetilde E_{\rm int}$,
+  referenced to the carrier $\omega_0$.
   It labels a field convention, not a detector-response correction.
 
 Detector response

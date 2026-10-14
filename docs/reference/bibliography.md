@@ -1,25 +1,23 @@
 # References
 
 (companion-paper)=
-## Associated draft papers
+## Companion papers
 
-Two unpublished manuscripts by J. C. Travers and C. Brahms inform this manual:
+- J. C. Travers and C. Brahms, "Differentiable physical models for
+  ultrashort-pulse retrieval," in preparation. — the inverse problem: the
+  retrieval protocol and what each forward model recovers from simulated
+  TG-FROG measurements.
+- J. C. Travers and C. Brahms, "A dispersive and spatial model of
+  transient-grating frequency-resolved optical gating," in preparation. — the
+  coherent slab, the timing reduction, chromatic focal fields, finite collection
+  and the fixed-field validation of the forward model.
 
-- *Differentiable physical models for ultrashort-pulse retrieval* — the inverse
-  problem, retrieval protocol, field comparisons and retained failure cases.
-- *A dispersive and spatial model of transient-grating frequency-resolved
-  optical gating* — the coherent slab, timing reduction, chromatic focal fields,
-  finite collection and known-field validation.
+The [validation chapter](../explanation/validation.md) summarises their results.
 
-These titles identify draft sources, not published articles. No journal, DOI or
-public data accession is claimed for them. The [validation chapter](../explanation/validation.md)
-states which evidence comes from each draft and distinguishes it from the
-bundled illustrative examples.
-
-Cite the software version used for a calculation. The all-version software
-archive is [doi:10.5281/zenodo.22182305](https://doi.org/10.5281/zenodo.22182305);
-the repository's `CITATION.cff` records the software citation. Draft citations
-should retain their unpublished status until publication details are available.
+If you use croak in published work, please cite the first paper, together with
+the software version you used: the all-version software archive is
+[doi:10.5281/zenodo.22182305](https://doi.org/10.5281/zenodo.22182305), and the
+repository's `CITATION.cff` gives both citations.
 
 ## Foundational work
 
@@ -61,7 +59,7 @@ should retain their unpublished status until publication details are available.
 ## Software and data sources
 
 - [ModelPNPS.jl](https://github.com/LupoLab/ModelPNPS.jl) — the companion
-  paper's instrument simulator: an open-source Julia package (built on Luna.jl)
+  papers' instrument simulator: an open-source Julia package (built on Luna.jl)
   that simulates PNPS measurements in three dimensions from the underlying
   propagation physics. It produced the validation datasets summarised in
   [Validation](../explanation/validation.md), including the reduced scans

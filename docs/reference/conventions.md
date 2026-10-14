@@ -41,12 +41,15 @@ beamlet representation, the on-axis beamlet field at the slab entrance, and an
 effective one-dimensional retrieval field. Their spectra and durations can
 differ even for the same pulse travelling through the instrument.
 
-For the draft's Airy-beam convention, conversion from the integrated beamlet
-spectrum to the model field uses an amplitude factor
-$(\omega_{\rm abs}/\omega_0)^{p_f}$. The full on-axis convention uses $p_f=1$;
-the reduced effective-field convention uses $p_f=1/2$. The latter is a declared
-empirical convention, not a universal broadband power law. The timing split
-$p$ is a different quantity.
+For the uniformly illuminated circular-hole (Airy) focal model, the focal
+profiles have unit on-axis amplitude, so the on-axis field and the
+transverse-integrated beamlet spectrum differ by a diffraction factor. croak
+converts between them with the amplitude factor $(\omega_{\rm abs}/\omega_0)^{p_f}$,
+referenced to the carrier $\omega_0$
+({func}`croak.truth_metrics.truth_errors` `frame_p`, the session's
+`spectrum_frame_p`). $p_f=1$ is the on-axis entrance field; $p_f=1/2$ is an
+empirical effective-field convention for the one-dimensional models, not a
+broadband power law. (The exponent $p_f$ is unrelated to the timing split $p$.)
 
 When comparing models, convert their **complex spectra** to a common field
 convention before transforming to time. Converting only a plotted intensity or
@@ -87,9 +90,18 @@ preprocessing arrays use the same orientation with wavelength on axis 0,
 ## The trace error R
 
 The fit quality is the normalised, dimensionless **trace error $R$**
-({func}`croak.metrics.compute_R`), reported as `result.error`. croak divides the weighted residual norm by the weighted data norm.
-Some FROG references use a peak-normalised error $G$ instead; compare definitions
-before comparing numerical values. See [Retrieval as least squares](../explanation/retrieval_theory.md)
+({func}`croak.metrics.compute_R`), reported as `result.error`:
+
+```{math}
+R = \sqrt{\frac{r}{MN\,\max(T_\text{meas}\,w)^2}},
+\qquad r = \sum\bigl[(T_\text{meas}-\mu T_\text{sim})\,w\bigr]^2,
+```
+
+the weighted rms residual divided by the peak of the weighted measured trace,
+with $M\times N$ the trace size and $\mu$ the optimal scale. This is the
+standard peak-normalised FROG error, often written $G$ in the literature. It
+depends on the retained rectangle, weights and preprocessing, so state them
+when comparing values. See [Retrieval as least squares](../explanation/retrieval_theory.md#the-trace-error-r)
 and the [glossary](glossary.md).
 
 ## Ambiguities

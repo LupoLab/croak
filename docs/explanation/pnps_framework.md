@@ -49,8 +49,8 @@ each a different instantaneous nonlinearity in the time domain:
 | Self-diffraction | $E^2\,G^*$ | `"sd"` | $\omega_0$ |
 | Polarisation gating | $E\,\lvert G\rvert^2$ | `"pg"` | $\omega_0$ |
 
-The **transient-grating** (TG-FROG) geometry in the
-[associated drafts](validation.md), with coincident gate replicas, shares the **PG** signal kernel
+The **transient-grating** (TG-FROG) geometry used in
+[validation](validation.md), with coincident gate replicas, shares the **PG** signal kernel
 $E\lvert G\rvert^2$, so retrieving TG-FROG data uses `interaction="pg"`. See
 [Interactions](interactions.md) for the signal fields and their adjoints.
 

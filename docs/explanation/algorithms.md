@@ -106,7 +106,7 @@ The amplitude and spectral penalties are **on by default** at the package
 weights (0.03 and 0.01; the spectral term binds only when a target spectrum is
 supplied) — pass `0` to disable them.
 
-See [Regularisation](../howto/regularisation.md). Its convergence depends on the initial field, constraints and line search.
+See [Regularisation](../howto/regularisation.md).
 Compare runs under matched settings before attributing a difference to the
 algorithm alone.
 
@@ -260,10 +260,14 @@ model: it can score the core dispersive model with reduced smearing, but its
 local projection does not invert that mixture. It does not include the focal or
 collection model, joint scalar fits, regularisation or marginal centring.
 
-This makes the warm stage an initialisation strategy whose usefulness depends
-on the data. Check direct `lbfgs-ad` when the starting field is already reliable
-or the omitted physics is substantial. See the [solver API](../reference/api/retrieval.md#warm-started-l-bfgs)
-for stage budgets and supported settings.
+It is the default because the initial guess is the largest source of run-to-run
+variation, and the two stages carry different amounts of measured information per
+iteration. COPRA's local sweep replaces each delay's signal modulus with the
+measured one — a projection, not a descent step — which moves a long way toward the
+data in very few iterations. What arrives at L-BFGS is a cheap estimate that already
+agrees with the trace, from which the gradient solver refines under the full model.
+See the [solver API](../reference/api/retrieval.md#warm-started-l-bfgs) for stage
+budgets and supported settings.
 
 Both stages report progress, so the convergence curve covers the whole run and
 the GUI's live preview is active from the first COPRA iteration rather than only
@@ -273,11 +277,38 @@ do not count the same unit of work: one COPRA "iteration" is a full local sweep
 over every delay, while one L-BFGS step is a single function evaluation. Compare
 each stage against itself, not across the rule.
 
-Warm starts can reduce sensitivity to an uninformative initial guess, but can
-also move a good supplied field into a worse basin. Compare with direct
-`lbfgs-ad` when you have a reliable initial field, and retain several starts for
-difficult cases. Start-to-start variation is an
-optimisation diagnostic, not an experimental error bar.
+croak's own solver benchmarks, on simulated deep-UV TG-FROG traces (a Gaussian-beam control and the apertured mask, at transform
+limit, ±2 fs² and the mask ±0.625 fs² pair, at the 9.5 µm substrate), compared
+`warm-lbfgs` with cold-started `lbfgs-ad`: mean complex error 38 % lower (median
+63 %), mean duration error 52 % lower, worst-case duration error 69.3 % → 20.8 %.
+Four of the eight cases improved by more than 20 % in complex error and none
+degraded by more than 20 %; the duration improved in seven of eight. The warm start
+improves poor starts and leaves good ones roughly unchanged. Over a 1–40 µm ladder
+the complex-error ranges improve on most arms, clearly so on both chirped Gaussian
+arms and on mask −2 fs²; the retrieved-duration ranges over depth are mixed and
+slightly wider on the mask arms.
+
+The largest effect is on **variance**. The spread in retrieved duration over
+starting points collapses on every chirped arm — five-fold on Gaussian +2 fs² and
+mask −2 fs², twelve-fold on Gaussian −2 fs² (±36.9 → ±3.1 %) and mask +2 fs²
+(±6.0 → ±0.5 %) — while the transform-limited arms, never start-sensitive, are
+unchanged. A ±37 % spread over initial guesses means a single cold-start value is
+not informative on its own. Multi-restart is then also a diagnostic: agreement
+between warm and cold starts indicates a well-behaved landscape, and disagreement
+gives a spread you can report (an optimisation diagnostic, not an experimental
+error bar).
+
+One regression is known: the Gaussian transform-limited arm at depths away from
+9.5 µm, where the warm complex error reaches 0.63 against a cold maximum of 0.18 —
+the case where the cold start was already reliable. Use `lbfgs-ad` directly if you
+are supplying a starting point you already trust.
+
+```{note}
+croak's defaults (`warm-lbfgs`, `reg_spectrum=0.01`, `reg_amp=0.03`) differ from
+the protocol used in the companion papers (`lbfgs-ad` from a transform-limited
+start, 400 iterations, spectral and amplitude weights both 0.03); see
+[validation](validation.md#the-retrieval-protocol).
+```
 
 ## Phase parameterisation: the B-spline basis
 
@@ -302,17 +333,28 @@ from the main pulse while keeping the spectrum and field an exact Fourier pair. 
 
 ## How they compare
 
-Compare algorithms on the same data, model, initial field, constraints and
-objective normalisation. Record compilation separately from repeated evaluation
-time, and compare physical outputs as well as iteration counts. COPRA can provide
-a useful initial field, L-BFGS can refine a regularised objective, and a
-Jacobian-based stage can test local refinement. CMA-ES explores a population,
-but it also has finite-budget failures and no global-optimum guarantee.
+COPRA descends rapidly at first, then slows; L-BFGS descends gradually but
+steadily. A practical recipe is **`warm-lbfgs` (or COPRA, or L-BFGS) to converge,
+then a short LM polish** to reduce the final $R$, run from several
+[random restarts](../howto/solver_selection.md) on hard traces, keeping the
+lowest-$R$ result. When restarts fail to escape a bad minimum, a **`cma-es` global
+search** (usually on the B-spline basis) followed by a local refine is the
+heavier-duty alternative. Compare algorithms on the same data, model, initial field,
+constraints and objective normalisation, and record JAX compilation separately from
+repeated evaluation time.
 
-The [gallery comparison](../tutorials/02_choosing_an_algorithm.md) is one controlled
-example. [Validation](validation.md) documents the separate scientific retrieval
-protocol and its unsuccessful cases. Neither establishes a universal solver
-ranking.
+- **Levenberg–Marquardt is a polish, not a cold solver.** It needs far fewer
+  iterations than L-BFGS, but each assembles a full Jacobian and costs much more
+  wall clock; from random starts its trust region is not a global search.
+- **COPRA is best run with its single global scale $\mu$.** The retained frequency
+  marginal acts as a built-in constraint on the spectral amplitude; per-frequency
+  factors (`R_omega`) open the weakly constrained amplitude directions with no
+  penalty to close them. The gradient solvers pair `R_omega` with a spectral
+  constraint for the same reason (see [regularisation](../howto/regularisation.md#per-frequency-scaling)).
+
+The [algorithm tutorial](../tutorials/02_choosing_an_algorithm.md) is an executed
+comparison, and the [solver-selection guide](../howto/solver_selection.md) gives
+recommendations by problem type.
 
 ## Next
 

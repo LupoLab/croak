@@ -113,9 +113,8 @@ differentiable:
 
 - **Geometric time smearing.** Averaging over a distribution of internal delays
   means the measurement is no longer the intensity of one local signal field.
-  croak implements this through the JAX model; its ordinary single-field COPRA
-  update and current analytic adjoint do not implement the mixture. Vector or
-  mixed-state projection methods are possible in principle. See [Geometric smearing](../howto/geometric_smearing.md).
+  This breaks COPRA's magnitude-replacement projection and the hand-written
+  adjoint, so croak implements smearing through the JAX model. See [Geometric smearing](../howto/geometric_smearing.md).
 - **Fitting parameters beyond the field**: the medium thickness (`fit_thickness`),
   the delay-zero offset (`fit_tau0`) and the smearing width (`fit_smearing`) all
   become just more coordinates to differentiate with respect to. See

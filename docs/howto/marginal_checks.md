@@ -9,14 +9,8 @@ retrieval would otherwise absorb. The physics is in
 [FROG trace marginals as consistency checks](../explanation/marginals.md); this
 page is the recipe.
 
-```{important}
-The identities below assume a thin, local interaction with coincident replicas,
-complete delay support, a matching fundamental-spectrum reference plane and a
-calibrated spectral response. Dispersion, split gates, chromatic spatial fields,
-finite collection and cropping can invalidate these ideal-model predictions.
-A mismatch is then evidence to investigate, not proof of a detector fault.
-The transform-limited PG width is a **soft reference**, not a universal upper bound.
-```
+The identities assume a thin, local interaction and complete delay support; a
+dispersive slab, smearing or a finite collection aperture also reshape the marginal.
 
 ## Predict a marginal from a spectrum
 
@@ -72,10 +66,11 @@ print("width OK:", sigma_meas > pred.sigma_spectrum)   # rigorous lower bound
 
 Interpreting a mismatch:
 
-- **SHG** — within the stated assumptions, centroid/width/shape mismatch indicates inconsistency (calibration,
-  spectral response, scatter, detector nonlinearity), which requires checking both data and model assumptions.
+- **SHG** — a centroid, width or shape mismatch means the trace and spectrum are
+  inconsistent: calibration, spectral response, scatter or detector nonlinearity.
 - **PG / TG** — the centroid is still a hard calibration check; a width below
-  `σ_S` means spectral clipping or detector roll-off, above `σ_TL` can reflect phase structure as well as broadband artefacts.
+  `σ_S` means spectral clipping or detector roll-off. The TL width `σ_TL` is a soft
+  reference: phase structure can exceed it.
 - **SD** — only the width lower bound is rigorous; the centroid holds at TL or for
   a temporally symmetric pulse.
 
@@ -97,8 +92,7 @@ n = mc.auto_third_order_exponent(
 corrected = trace * croak.preprocess.third_order_scale(lam, n)[:, None]
 ```
 
-This estimates one empirical response parameter under the stated model. It
-does not independently identify detector response or correct delay-dependent
+This fits one empirical response exponent; it does not correct delay-dependent
 collection effects.
 
 ## In the GUI

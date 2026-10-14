@@ -61,12 +61,10 @@ trace lies at $+\tau_0$ (the simulated gate uses $e^{i\omega(\tau-\tau_0)}$).
 
 `fit_thickness` is supported for the **dispersive PG/SD slab**. The depth
 integral makes thickness affect the trace beyond a single input spectral phase.
-Support does not guarantee that a particular trace identifies thickness.
+Whether a particular trace identifies it is a separate question (see below).
 
-Dispersive SHG is not implemented: its signal propagates at a different carrier
-and needs a corresponding propagation model. The restriction is a limitation
-of the current model, not a general assertion that SHG cannot contain thickness
-information.
+For **SHG**, croak has no dispersive slab model (the signal propagates at
+$2\omega_0$), so `fit_thickness` with SHG is rejected with an error.
 
 Even within PG/SD, the *bulk-chirp* part of $L$ is partly degenerate with the
 retrieved phase; only the depth-distributed part constrains it. Thickness is
@@ -164,10 +162,12 @@ summary. The thickness fit starts from the *Thickness (µm)* value in the
 
 ## The delay origin without a fitted τ₀: `delay_origin="marginal_peak"`
 
-Preprocessing centres a measured trace on its delay-marginal peak, whereas the
-forward model defaults to gate–probe coincidence. These origins need not agree
-for an asymmetric trace. An inconsistent origin can bias the retrieved field.
-To compare traces centred by the same rule, use:
+Preprocessing centres a measured trace on its delay-marginal peak, but the
+forward model puts delay zero at gate–probe coincidence. For a delay-symmetric
+trace those coincide; for a coherently collected single-cycle trace they do not,
+and a retrieval with the origin held at coincidence can only absorb the
+misalignment by distorting the pulse. Rather than fitting `tau0`, which on a
+chirped pulse trades against the chirp, use the same convention on both sides:
 
 ```python
 res = croak.retrieve(trace, omega, delays, "pg", algorithm="lbfgs-ad",

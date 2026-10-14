@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: >-
-  Cite this record for the croak software. Associated scientific papers are
-  currently unpublished drafts; see the manual bibliography for their titles.
+  If you use croak in published work, please cite the paper
+  (preferred-citation below), and this record for the software itself.
 type: software
 title: "croak: complete retrieval of ultrashort laser pulses from FROG traces"
 version: 0.1.0
@@ -27,3 +27,18 @@ keywords:
   - ultrashort pulses
   - nonlinear optics
 doi: 10.5281/zenodo.22182305
+preferred-citation:
+  type: article
+  title: "Differentiable physical models for ultrashort-pulse retrieval"
+  authors:
+    - family-names: Travers
+      given-names: John C.
+      orcid: "https://orcid.org/0000-0003-0350-9104"
+      affiliation: "Heriot-Watt University"
+    - family-names: Brahms
+      given-names: Christian
+      orcid: "https://orcid.org/0000-0002-8009-3547"
+      affiliation: "Heriot-Watt University"
+  year: 2026
+  # TODO on publication: add journal, volume, pages, doi
+  notes: "in preparation"

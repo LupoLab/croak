@@ -32,8 +32,8 @@ $\omega_0$. This single number has two consequences:
 
 ```{admonition} TG-FROG uses the PG kernel
 :class: tip
-Transient-grating FROG — the geometry demonstrated in the
-[companion paper](validation.md) — has the third-order signal
+Transient-grating FROG — the geometry of croak's
+[validation](validation.md) — has the third-order signal
 $E_1 E_2^* E_3$ with three replicas of the pulse. When the gate replicas coincide in time and share the same local field, this
 reduces to $E\,\lvert G\rvert^2$, i.e. the **PG** kernel. Use
 `interaction="pg"` for TG-FROG data.

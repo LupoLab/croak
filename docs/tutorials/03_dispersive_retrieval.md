@@ -18,9 +18,9 @@ compares retrievals with and without the slab's propagation. It follows
 
 The recovered pulse is defined at the slab entrance in this one-dimensional
 model. Generation and retrieval use the same model, so this is a controlled
-consistency demonstration. It does not validate the model against an independent
-instrument simulation or an experiment. The [model guide](../user_guide/models.md)
-and [validation chapter](../explanation/validation.md) discuss those distinctions.
+demonstration; the [validation chapter](../explanation/validation.md) tests the
+models against an independent simulation of the whole instrument, and the
+[model guide](../user_guide/models.md) explains which to choose.
 
 ```{code-cell} ipython3
 %matplotlib inline
@@ -93,8 +93,7 @@ print(f"delay-edge signal / peak = {trace[:, [0, -1]].max() / trace.max():.2e}")
 ## Dispersion-aware retrieval
 
 The retrieval must use the *same* dispersive model — pass the slab parameters to
-{func}`~croak.retrieve` as well. We use COPRA here; these tutorial settings are
-not the retrieval protocol of either associated draft paper.
+{func}`~croak.retrieve` as well. We use COPRA here.
 
 ```{code-cell} ipython3
 near = croak.gaussian_pulse(g, 2.0e-15)
@@ -156,10 +155,11 @@ ax.set_title("dispersive vs thin-medium retrieval")
 fig.tight_layout()
 ```
 
-Compare the thin-model duration and residual with the dispersive result.
-A model that neglects the medium can fit much of the trace while assigning
-propagation-induced changes to the unknown pulse. The following values quantify
-that bias for this particular pulse and slab:
+The thin model returns a pulse almost **twice as long as the truth** — about
+2.8 fs for the 1.5 fs pulse. The slab's dispersion has been misattributed to the
+pulse, because a thin-medium model has nowhere else to put it. Yet its trace error
+is around $3\times10^{-3}$ — **0.3 %**, the kind of number usually reported as a
+well-converged FROG retrieval:
 
 ```{code-cell} ipython3
 print(f"dispersive model:  R = {res.error:.1e}   FWHM = {fwhm_fs(res.t, res.intensity_t):.2f} fs")
@@ -167,21 +167,24 @@ print(f"thin model:        R = {res_thin.error:.1e}   FWHM = {fwhm_fs(res_thin.t
 print(f"truth:                              FWHM = {fwhm_fs(g.t, I_true):.2f} fs")
 ```
 
-A small trace error measures agreement with the supplied trace, conditional on
-the chosen model. It is not a field-error estimate. More iterations or starts
-cannot supply missing physics, although they remain necessary checks on
-convergence. For a real experiment, also examine collection, beam geometry,
-calibration and the reference plane of any comparison spectrum.
+A small trace error only means the model reproduces the *measurement*. It says
+nothing about whether the model is the right one, and no amount of iterating, no
+better optimiser and no random restart will supply a missing term in the physics.
+The defence is to model the medium, which costs one extra keyword.
 
-The [validation chapter](../explanation/validation.md) discusses the more complete
-spatial models and the successes and failures reported in the unpublished drafts.
-A dispersive slab alone is not a substitute for that full instrument model.
+The effect grows with shorter pulses and deeper into the ultraviolet. In simulations
+of a complete TG-FROG instrument ([validation](../explanation/validation.md)), a
+thin-medium model retrieves a 1.05 fs pulse at 260 nm as 1.35–2.41 fs depending on
+the substrate thickness, at trace errors below 0.54 %, while croak's full model —
+the dispersive slab plus the beam geometry and collection aperture — recovers
+1.047–1.079 fs at every thickness from 1 to 40 µm. For a real experiment, the beam
+geometry and collection matter as well as the slab.
 
 ```{note}
 The slab parameters are available across the retrieval solvers for PG and SD.
 Selected solvers can [fit thickness and delay zero](../howto/fitting_thickness_tau0.md).
-Such a fit can correlate with pulse phase and does not replace an independent
-thickness calibration. The [uncertainty guide](../user_guide/uncertainty.md)
+Such a fit correlates with the pulse phase, so an independent thickness
+calibration is better where available. The [uncertainty guide](../user_guide/uncertainty.md)
 explains how uncertainty in the slab propagates to duration.
 ```
 
