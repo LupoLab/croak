@@ -70,3 +70,25 @@ def test_gridparams_omega_window_and_nyquist():
 def test_gridparams_lambda_matches_omega():
     n, dt, w0 = gridparams_lambda(1e-12, lambda_min=700e-9, lambda_max=900e-9)
     assert n > 0 and dt > 0 and w0 > 0
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"dt": 1e-15, "domega": 1e13}])
+def test_grid_requires_exactly_one_spacing(kwargs):
+    with pytest.raises(ValueError, match="exactly one of `dt` or `domega`"):
+        Grid(16, **kwargs)
+
+
+def test_grid_from_domega_matches_dt():
+    a = Grid(64, dt=0.5e-15)
+    b = Grid(64, domega=a.domega)
+    np.testing.assert_allclose(b.dt, a.dt, rtol=1e-12)
+
+
+def test_gridparams_omega_honours_an_explicit_carrier():
+    # An off-centre carrier widens the largest offset, which sets dt = pi/maxshift.
+    n, dt, w0 = gridparams_omega(
+        1e-12, omega_min=2.0e15, omega_max=2.8e15, omega0=2.2e15
+    )
+    assert w0 == 2.2e15
+    assert dt == pytest.approx(np.pi / 0.6e15)
+    assert n * dt >= 1e-12

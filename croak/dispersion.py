@@ -245,7 +245,7 @@ def _peak_power(grid, ew: Complex) -> float:
     return float(np.max(np.abs(grid.ifft(ew)) ** 2))
 
 
-def _optimize(func, bounds, method: str, *, x0=None, simplex_steps=None):
+def _optimize(func, bounds, method: str, *, x0=None):
     """Minimise ``func`` over ``bounds`` with the chosen scipy optimiser.
 
     ``bounds`` is a sequence of ``(lo, hi)`` pairs. Global methods
@@ -275,15 +275,18 @@ def _optimize(func, bounds, method: str, *, x0=None, simplex_steps=None):
         res = direct(func, bounds, maxiter=5000)
         x = np.atleast_1d(res.x)
     else:  # local Nelder–Mead from x0
-        if simplex_steps is None:
-            simplex_steps = [0.25 * (hi - lo) for lo, hi in bounds]
+        # initial simplex: x0 plus a quarter of the box along each axis
+        simplex_steps = [0.25 * (hi - lo) for lo, hi in bounds]
         simplex = np.vstack(
             [x0] + [x0 + np.eye(n)[i] * simplex_steps[i] for i in range(n)]
         )
+        # bounds= keeps the simplex inside the box (SciPy >= 1.7 clips vertices);
+        # without it the local polish could return a value outside ``bounds``.
         res = minimize(
             func,
             x0,
             method="Nelder-Mead",
+            bounds=bounds,
             options={
                 "maxiter": 5000,
                 "xatol": 1e-2,

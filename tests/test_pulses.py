@@ -175,3 +175,60 @@ def test_spectral_penalty_phase_only_is_noop():
     target = np.abs(ew)
     assert p.spectral_penalty(u0, target) == 0.0
     assert np.allclose(p.spectral_penalty_grad(u0, target), 0.0)
+
+
+def test_complex_pulse_inherits_neutral_bounds_and_penalties(grid):
+    p = ComplexPulse(grid, gaussian_pulse(grid, 5e-15))
+    lo, hi = p.bounds()
+    assert lo.shape == hi.shape == (p.nparams,)
+    assert np.all(lo == -np.inf) and np.all(hi == np.inf)
+    u = p.get_params()
+    # the base class provides "no regularisation" for the gradients and the phase
+    assert p.phase_penalty(u) == 0.0
+    np.testing.assert_array_equal(p.phase_penalty_grad(u), np.zeros(p.nparams))
+    np.testing.assert_array_equal(p.amplitude_penalty_grad(u), np.zeros(p.nparams))
+
+
+def test_complex_pulse_amplitude_penalty_measures_roughness(grid):
+    smooth = ComplexPulse(grid, gaussian_pulse(grid, 5e-15))
+    rough_ew = gaussian_pulse(grid, 5e-15) * (1.0 + 0.2 * (-1.0) ** np.arange(grid.n))
+    rough = ComplexPulse(grid, rough_ew)
+    assert smooth.amplitude_penalty(smooth.get_params()) >= 0.0
+    # a bin-to-bin alternation is pure curvature: far rougher than the Gaussian
+    assert rough.amplitude_penalty(rough.get_params()) > 100 * smooth.amplitude_penalty(
+        smooth.get_params()
+    )
+
+
+def test_phase_only_array_pulse_has_no_amplitude_penalty(grid):
+    amp = np.abs(gaussian_pulse(grid, 5e-15))
+    p = ArrayPulse(grid, amp, phase_only=True)
+    u = np.random.default_rng(0).standard_normal(p.nparams)
+    assert p.amplitude_penalty(u) == 0.0
+    np.testing.assert_array_equal(p.amplitude_penalty_grad(u), np.zeros(p.nparams))
+
+
+def test_second_difference_penalty_is_zero_below_three_points():
+    from croak.pulses import _second_diff_penalty, _second_diff_penalty_grad
+
+    a = np.array([1.0, 2.0])
+    assert _second_diff_penalty(a) == 0.0
+    np.testing.assert_array_equal(_second_diff_penalty_grad(a), np.zeros(2))
+
+
+def test_second_difference_penalty_grad_of_an_all_zero_amplitude():
+    from croak.pulses import _second_diff_penalty_grad
+
+    # max(a) = 0: the epsilon floor guards the division and the max-term is skipped
+    np.testing.assert_array_equal(_second_diff_penalty_grad(np.zeros(5)), np.zeros(5))
+
+
+def test_pulse_base_class_defaults_to_no_amplitude_penalty(grid):
+    from croak.pulses import Pulse
+
+    class Constant(Pulse):
+        """A one-parameter pulse overriding nothing but its size."""
+
+        nparams = 1
+
+    assert Constant().amplitude_penalty(np.zeros(1)) == 0.0

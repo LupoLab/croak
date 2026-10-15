@@ -347,3 +347,173 @@ def test_resolve_time_direction_keeps_an_already_correct_result():
     )
     _, sym_flipped = processing.resolve_time_direction(sym, sym_truth)
     assert not sym_flipped
+
+
+# ---------------------------------------------------------------------------
+# Degenerate inputs and the less common options
+# ---------------------------------------------------------------------------
+def test_post_filter_of_an_empty_spectrum_stays_empty(chirped_result):
+    from dataclasses import replace
+
+    res, *_ = chirped_result
+    empty = replace(res, spectrum=np.zeros_like(res.spectrum))
+    # the time window would normalise by the peak; a zero peak is left alone
+    out = processing.post_filter(empty, tau_lims=(-20e-15, 20e-15))
+    np.testing.assert_array_equal(out.spectrum, 0.0)
+
+
+def test_residuals_accept_per_frequency_weights():
+    rng = np.random.default_rng(1)
+    retrieved = rng.random((6, 4))
+    measured = 2.0 * retrieved
+    w = np.array([1.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+    # mu = 2 makes every weighted residual exactly zero
+    np.testing.assert_allclose(
+        processing.residuals(measured, retrieved, weights=w), 0.0
+    )
+    measured[1] += 5.0  # an error only in the zero-weight row is invisible
+    np.testing.assert_allclose(
+        processing.residuals(measured, retrieved, weights=w), 0.0, atol=1e-12
+    )
+
+
+def test_normalize_temporal_phase_needs_two_supported_samples():
+    with pytest.raises(ValueError, match="at least two supported samples"):
+        processing.normalize_temporal_phase(
+            np.arange(3.0), np.ones(3, complex), np.array([True, False, False])
+        )
+
+
+def test_spectrogram_defaults_cover_the_whole_band(chirped_result):
+    res, *_ = chirped_result
+    tc, lam, S = processing.spectrogram(res)
+    assert tc.size == min(res.grid.n, 256)
+    # the open interval (min, max) of the grid's wavelengths drops only the ends
+    assert lam.size == res.grid.n - 2
+    assert S.max() == pytest.approx(1.0)
+
+
+def test_truth_from_an_empty_spectrum_raises():
+    g = Grid(32, dt=1e-15)
+    with pytest.raises(ValueError, match="truth spectrum is identically zero"):
+        TruthPulse.from_spectrum(g, np.zeros(g.n, complex), float(wlfreq(800e-9)))
+
+
+def test_truth_from_intensity_with_a_spectrum_and_no_phase():
+    t = np.linspace(-20e-15, 20e-15, 41)
+    lam = np.array([820e-9, 800e-9, 780e-9])  # descending: sorted on the way in
+    truth = TruthPulse.from_intensity(
+        t, np.exp(-((t / 5e-15) ** 2)), lam=lam, Iw=np.array([1.0, 4.0, 2.0])
+    )
+    np.testing.assert_allclose(truth.lam, lam[::-1])
+    np.testing.assert_allclose(truth.Iw, [0.5, 1.0, 0.25])
+    assert truth.phi_w is None
+
+
+def test_truth_from_intensity_reorders_the_phase_with_the_spectrum():
+    t = np.linspace(-20e-15, 20e-15, 41)
+    It = np.exp(-((t / 5e-15) ** 2))
+    lam = np.array([820e-9, 800e-9, 780e-9])
+    phi = np.array([3.0, 2.0, 1.0])
+    truth = TruthPulse.from_intensity(t, It, lam=lam, Iw=np.ones(3), phi_w=phi)
+    # each phase stays paired with its own wavelength after the ascending sort
+    np.testing.assert_array_equal(truth.phi_w, [1.0, 2.0, 3.0])
+    # without a spectrum the phase is kept in the order given
+    alone = TruthPulse.from_intensity(t, It, phi_w=phi)
+    np.testing.assert_array_equal(alone.phi_w, phi)
+
+
+def test_truth_from_intensity_keeps_all_zero_inputs_unscaled():
+    t = np.linspace(-20e-15, 20e-15, 41)
+    truth = TruthPulse.from_intensity(
+        t, np.zeros_like(t), lam=np.array([7e-7, 8e-7]), Iw=np.zeros(2), fwhm=1e-15
+    )
+    np.testing.assert_array_equal(truth.It, 0.0)
+    np.testing.assert_array_equal(truth.Iw, 0.0)
+    # an all-zero envelope integrates to no duration, so no peak power
+    assert truth.peak_power(1e-6) is None
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"phi_t": np.zeros(3)}, "phi_t must have the same shape as t"),
+        ({"omega": np.ones(4)}, "omega and Eomega must be provided together"),
+        (
+            {"omega": np.ones(4), "Eomega": np.ones(3, complex)},
+            "omega and Eomega must have the same shape",
+        ),
+    ],
+)
+def test_truth_from_intensity_rejects_inconsistent_fields(kwargs, match):
+    t = np.linspace(-1.0, 1.0, 5)
+    with pytest.raises(ValueError, match=match):
+        TruthPulse.from_intensity(t, np.exp(-(t**2)), **kwargs)
+
+
+def test_truth_spectrum_is_interpolated_onto_a_different_grid():
+    """A stored complex field regrids by amplitude and unwrapped phase."""
+    native = Grid(256, dt=0.4e-15)
+    omega0 = float(wlfreq(800e-9))
+    ew = gaussian_pulse(native, 4e-15, phases=[5e-30])
+    truth = TruthPulse.from_spectrum(native, ew, omega0)
+    finer = Grid(512, dt=0.4e-15)  # half the frequency step over the same span
+    on_fine = truth.spectrum_on_grid(finer, omega0)
+    reference = gaussian_pulse(finer, 4e-15, phases=[5e-30])
+    # Linear interpolation at the native step d_omega = 6.1e13 rad/s errs by
+    # ~ f'' d_omega**2 / 8: 2.3e-3 rad for the 5 fs^2 phase, and ~1e-3 of the
+    # unit peak for the amplitude, whose spectral FWHM spans ~11 native bins.
+    np.testing.assert_allclose(on_fine, reference, atol=5e-3)
+
+
+def test_truth_spectrum_on_grid_rejects_a_degenerate_stored_field():
+    g = Grid(32, dt=1e-15)
+    t = g.t
+    omega = np.linspace(2e15, 3e15, 8)
+    zero = TruthPulse.from_intensity(
+        t, np.exp(-((t / 5e-15) ** 2)), omega=omega, Eomega=np.zeros(8, complex)
+    )
+    with pytest.raises(ValueError, match="identically zero"):
+        zero.spectrum_on_grid(g, 2.5e15)
+    one_bin = np.zeros(8, complex)
+    one_bin[3] = 1.0
+    spike = TruthPulse.from_intensity(
+        t, np.exp(-((t / 5e-15) ** 2)), omega=omega, Eomega=one_bin
+    )
+    with pytest.raises(ValueError, match="fewer than two bins"):
+        spike.spectrum_on_grid(g, 2.5e15)
+
+
+def test_edge_energy_fraction_of_empty_or_short_spectra_is_zero():
+    assert processing.edge_energy_fraction(np.zeros(64)) == 0.0
+    assert processing.edge_energy_fraction(np.ones(3), collar_bins=2) == 0.0
+
+
+def test_peak_normalised_correlation_of_a_flat_profile_is_zero():
+    assert processing._peak_normalised_correlation(np.ones(5), np.arange(5.0)) == 0.0
+
+
+def test_process_result_scales_the_measured_spectrum(chirped_result):
+    res, *_ = chirped_result
+    pr = processing.process_result(res, Iomega_meas=3.0 * np.abs(res.spectrum) ** 2)
+    assert pr.Iw_meas is not None and pr.Iw_meas.max() == pytest.approx(1.0)
+
+
+def test_process_result_requires_a_simulated_trace(chirped_result):
+    from dataclasses import replace
+
+    res, *_ = chirped_result
+    with pytest.raises(
+        ValueError, match="requires a result carrying a simulated trace"
+    ):
+        processing.process_result(replace(res, trace=None))
+
+
+def test_spectrogram_gate_width_sets_the_spectral_resolution(chirped_result):
+    res, *_ = chirped_result
+    # a short gate broadens each slice spectrally (time-bandwidth), so the
+    # normalised spectrogram's total weight grows
+    _, _, narrow = processing.spectrogram(res, n_t=16, fw=1e-15)
+    _, _, wide = processing.spectrogram(res, n_t=16, fw=20e-15)
+    assert narrow.shape == wide.shape
+    assert narrow.sum() > wide.sum()

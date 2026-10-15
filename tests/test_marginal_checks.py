@@ -196,3 +196,52 @@ def test_unknown_interaction_raises(gaussian_spectrum):
 def test_degenerate_axis_raises():
     with pytest.raises(ValueError, match="at least 4 samples"):
         mc.predicted_marginal(np.array([0.0, 1.0]), np.array([1.0, 1.0]), "shg")
+
+
+def test_apply_marginal_correction_of_all_zero_inputs_is_zero():
+    """No spectrum or no trace power: the peak normalisations are skipped."""
+    g = Grid(32, dt=0.5e-15)
+    Iomega = np.exp(-0.5 * (g.omega / (0.05 * g.omega.max())) ** 2)
+    np.testing.assert_array_equal(
+        mc.apply_marginal_correction(np.zeros((g.n, 4)), Iomega), 0.0
+    )
+    np.testing.assert_array_equal(
+        mc.apply_marginal_correction(np.ones((g.n, 4)), np.zeros(g.n)), 0.0
+    )
+
+
+def test_predicted_marginal_rejects_mismatched_spectrum():
+    with pytest.raises(ValueError, match="same shape"):
+        mc.predicted_marginal(np.arange(5.0), np.ones(4), "pg")
+
+
+def _tilted_marginal():
+    lam = np.linspace(700e-9, 900e-9, 200)
+    spec = np.exp(-((lam - 800e-9) ** 2) / (2 * (25e-9) ** 2))
+    return lam, spec, spec / (lam / 1e-6) ** 2.0
+
+
+def test_auto_exponent_target_override_still_needs_marginal_signal():
+    lam, spec, marg = _tilted_marginal()
+    with pytest.raises(ValueError, match="trace marginal has no signal"):
+        mc.auto_third_order_exponent(
+            lam, marg, lam, spec, "pg", window=(200e-9, 300e-9), target_centroid=1e15
+        )
+
+
+@pytest.mark.parametrize("hi", [1e3, 1e4, 1e6])
+def test_auto_exponent_is_unaffected_by_wide_bounds(hi):
+    """Regression: (lambda/um)^n underflowed to zero for n >~ 3000 below 1 um,
+    the far end then read as +inf (the wrong sign) and the fit returned the
+    lower bound (0) instead of the true exponent (2)."""
+    lam, spec, marg = _tilted_marginal()
+    n = mc.auto_third_order_exponent(lam, marg, lam, spec, "pg", bounds=(0.0, hi))
+    # same tolerance as test_auto_exponent_recovers_known_tilt
+    assert n == pytest.approx(2.0, abs=0.02)
+
+
+def test_auto_exponent_root_at_a_bound_returns_that_bound():
+    lam, spec, marg = _tilted_marginal()
+    # the base marginal is spec / (lam/um)^2: n = 2 restores spec exactly
+    n = mc.auto_third_order_exponent(lam, marg, lam, spec, "pg", bounds=(2.0, 5.0))
+    assert n == pytest.approx(2.0, abs=1e-9)

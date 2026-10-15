@@ -72,3 +72,8 @@ def test_signal_adjoint_matches_finite_differences(interaction):
     assert np.allclose(pred_e_im, fd_e_im, atol=1e-4, rtol=1e-4)
     assert np.allclose(pred_g_re, fd_g_re, atol=1e-4, rtol=1e-4)
     assert np.allclose(pred_g_im, fd_g_im, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("cls", [SHG, SD, PG])
+def test_interaction_repr_names_the_class(cls):
+    assert repr(cls()) == f"{cls.__name__}()"

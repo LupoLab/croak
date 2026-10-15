@@ -14,6 +14,7 @@ import pytest
 from croak.delay_origin import (
     DELAY_ORIGINS,
     marginal_peak_delay_jax,
+    marginal_peak_delay_np,
     recentre_trace,
     recentring,
 )
@@ -75,6 +76,10 @@ def test_recentring_wrapper_validates_and_passes_through(setup):
         recentring(fn, delays, "peak")
     with pytest.raises(ValueError, match="uniform"):
         recentring(fn, np.concatenate([delays[:40], delays[41:]]), "marginal_peak")
+    # two delays define no spacing to check: accepted, and still re-centred
+    two = np.array([-1e-15, 1e-15])
+    wrapped = recentring(lambda: jnp.ones((3, 2)), two, "marginal_peak")
+    assert np.asarray(wrapped()).shape == (3, 2)
 
 
 def test_lbfgs_ad_marginal_peak_origin_absorbs_a_data_offset(setup):
@@ -150,3 +155,11 @@ def test_recentring_with_data_weights_uses_the_data_row_weighting(setup):
     )
     assert abs(peak_plain) < 0.02 * dtau
     assert peak_heavy_model != pytest.approx(0.0, abs=0.05 * dtau)
+
+
+def test_numpy_convenience_matches_the_jax_peak_on_a_trace():
+    tau = np.linspace(-10e-15, 10e-15, 81)
+    marg = np.exp(-(((tau - 0.37e-15) / 3e-15) ** 2))
+    trace = np.stack([marg, 2.0 * marg])  # the marginal is summed over rows
+    expected = float(marginal_peak_delay_jax(jnp.asarray(tau), jnp.asarray(3.0 * marg)))
+    assert marginal_peak_delay_np(tau, trace) == pytest.approx(expected, abs=1e-21)

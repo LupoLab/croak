@@ -15,6 +15,7 @@ from croak.pulses import gaussian_pulse
 from croak.smearing import (
     AIRY6_RMS_COEFF,
     SmearingKernel,
+    deconvolve_delay,
     delay_frequency_grid,
     kernel_from_arms,
     square_boxcars_delay_width,
@@ -698,3 +699,58 @@ def test_session_selects_the_two_beam_sd_kernel():
     boxcars = smearing_kernel(RetrieveParams(**common), _TD())
     assert sd2.sigma_p == 0.0
     assert boxcars.sigma_p > 0.0
+
+
+# -- deconvolve_delay ---------------------------------------------------------
+def _gaussian_blur(trace, delays, sigma):
+    """Circular Gaussian blur along delay: the forward map deconvolve_delay inverts."""
+    n = delays.size
+    omega = 2.0 * np.pi * np.fft.rfftfreq(n, d=delays[1] - delays[0])
+    h = np.exp(-0.5 * (sigma * omega) ** 2)
+    return np.fft.irfft(np.fft.rfft(trace, axis=1) * h[None, :], n=n, axis=1)
+
+
+def test_deconvolve_delay_undoes_a_gaussian_blur():
+    delays = np.linspace(-60e-15, 60e-15, 121)
+    centres = np.array([-10e-15, 0.0, 15e-15])
+    # Narrow enough to vanish at the window edges (the filter is circular) and
+    # wide enough to have no spectral content where the Wiener term cuts in.
+    widths = np.array([6e-15, 7e-15, 8e-15])
+    trace = np.exp(-0.5 * ((delays[None, :] - centres[:, None]) / widths[:, None]) ** 2)
+    sigma = 2e-15
+    blurred = _gaussian_blur(trace, delays, sigma)
+    restored = deconvolve_delay(blurred, delays, sigma, reg=1e-9)
+    # Noiseless input: only the Wiener term (reg = 1e-9 of the filter's peak
+    # power) separates the result from the original, far below 1e-6.
+    np.testing.assert_allclose(restored, trace, atol=1e-6)
+    # Heavy regularisation leaves the blur largely in place.
+    assert np.abs(deconvolve_delay(blurred, delays, sigma, reg=1e3) - trace).max() > (
+        0.5 * np.abs(blurred - trace).max()
+    )
+
+
+def test_deconvolve_delay_with_no_width_returns_a_copy():
+    delays = np.linspace(-1e-15, 1e-15, 5)
+    trace = np.arange(10.0).reshape(2, 5)
+    out = deconvolve_delay(trace, delays, 0.0)
+    np.testing.assert_array_equal(out, trace)
+    assert out is not trace
+
+
+def test_deconvolve_delay_single_column_is_returned_unchanged():
+    # One delay: the only frequency is DC, where the blur's transfer is 1.
+    out = deconvolve_delay(np.array([[1.0], [2.0]]), np.array([0.0]), 1e-15, reg=0.0)
+    np.testing.assert_allclose(out, [[1.0], [2.0]])
+
+
+@pytest.mark.parametrize(
+    ("trace", "delays", "match"),
+    [
+        (np.ones(5), np.arange(5.0), "must be 2-D"),
+        (np.ones((2, 5)), np.arange(4.0), "4 points but the trace has 5"),
+        (np.ones((2, 4)), np.array([0.0, 1.0, 3.0, 4.0]), "uniformly spaced"),
+    ],
+)
+def test_deconvolve_delay_rejects_bad_input(trace, delays, match):
+    with pytest.raises(ValueError, match=match):
+        deconvolve_delay(trace, delays, 1.0)

@@ -497,3 +497,144 @@ def test_reimaged_beamlet_truth_is_read_and_selectable(tmp_path, simulated_truth
     np.testing.assert_allclose(scan2.It, simulated_truth.It)
     assert _reference_spectrum(scan2, "beamlet_reimaged") is scan2.Iomega_beamlet
     assert "beamlet_reimaged" not in read_simulated_truth_keys(legacy)
+
+
+# ---------------------------------------------------------------------------
+# Malformed and unusual files
+# ---------------------------------------------------------------------------
+_READERS = [
+    io.read_simulated_scan,
+    io.read_simulated_mask_window,
+    io.read_simulated_z_positions,
+    io.read_simulated_window_keys,
+    io.read_simulated_truth_keys,
+    io.read_simulated_wavelength_range,
+]
+
+
+@pytest.mark.parametrize("reader", _READERS)
+def test_simulated_readers_require_hdf5(tmp_path, reader):
+    with pytest.raises(ValueError, match="simulated scans must be HDF5; got '.npz'"):
+        reader(str(tmp_path / "scan.npz"))
+
+
+@pytest.mark.parametrize(
+    "reader", [r for r in _READERS if r is not io.read_simulated_window_keys]
+)
+def test_simulated_readers_require_a_grid_group(tmp_path, reader):
+    path = tmp_path / "flat.h5"
+    with h5py.File(path, "w") as f:
+        f["grid"] = np.zeros(3)  # a dataset where the group belongs
+    with pytest.raises(KeyError, match="/grid is not an HDF5 group"):
+        reader(str(path))
+
+
+def _edit(path, edit):
+    with h5py.File(path, "a") as f:
+        edit(f)
+    return path
+
+
+def test_mask_window_needs_two_kx_bins(tmp_path, simulated_truth):
+    record = {
+        "type": "PhysicalMaskWindow",
+        "holex": 0.0,
+        "holey": 0.0,
+        "holediam": 5e-4,
+        "zmask": 0.1,
+        "apod": "tanh",
+        "apod_param": "default",
+        "delta_k": 7.8e3,
+        "reference_wavelength": 350e-9,
+    }
+    path = write_simulated_h5(tmp_path / "w.h5", simulated_truth, mask_window=record)
+    assert io.read_simulated_mask_window(path) is not None
+
+    def one_bin(f):
+        del f["grid/kx"]
+        f["grid/kx"] = np.zeros(1)
+
+    # one k bin cannot define the momentum step a "default" width needs
+    assert io.read_simulated_mask_window(_edit(path, one_bin)) is None
+
+
+def test_require_dataset_rejects_a_group(tmp_path):
+    path = tmp_path / "g.h5"
+    with h5py.File(path, "w") as f:
+        f.create_group("grid/sub")
+        with pytest.raises(TypeError, match="'sub' is not an HDF5 dataset"):
+            io._require_dataset(f["grid"], "sub")
+
+
+def test_unknown_truth_source_is_rejected(simulated_scan_h5):
+    """Regression: an unknown source silently fell back to the beamlet truth."""
+    with pytest.raises(ValueError, match="truth source must be one of"):
+        io.read_simulated_scan(simulated_scan_h5, truth_source="probe")
+
+
+def test_missing_truth_dataset_raises(tmp_path, simulated_truth):
+    path = write_simulated_h5(tmp_path / "s.h5", simulated_truth)
+
+    def drop_truth(f):
+        del f["grid/It"]
+
+    with pytest.raises(KeyError, match="no time-domain truth dataset"):
+        io.read_simulated_scan(_edit(path, drop_truth), truth_source="source")
+
+
+def test_window_orientation_errors(tmp_path, simulated_truth):
+    path = write_simulated_h5(tmp_path / "s.h5", simulated_truth)
+    with pytest.raises(IndexError, match="out of range for 'Iω_win'"):
+        io._orient_simulated_trace(np.zeros((4, 2, 3)), 3, 4, 5, "Iω_win")
+    with pytest.raises(ValueError, match="expected 2-D/3-D"):
+        io._orient_simulated_trace(np.zeros(12), 3, 4, 0, "Iω_win")
+    with pytest.raises(ValueError, match="matches neither"):
+        io._orient_simulated_trace(np.zeros((5, 5)), 3, 4, 0, "Iω_win")
+    # a 2-D window stored (Nomega, Ndelay) is taken as-is
+    win = np.arange(12.0).reshape(3, 4)
+    np.testing.assert_array_equal(io._orient_simulated_trace(win, 3, 4, 0, "k"), win)
+    assert path  # the fixture file is only used to anchor the scan dimensions
+
+
+def test_z_index_out_of_range_raises(simulated_scan_multi_h5):
+    with pytest.raises(IndexError, match="out of range"):
+        io.read_simulated_scan(simulated_scan_multi_h5, z_index=99)
+
+
+def test_non_numeric_geometry_scalar_reads_as_missing(tmp_path, simulated_truth):
+    path = write_simulated_h5(
+        tmp_path / "g.h5", simulated_truth, geometry=(1e-3, 0.5e-3, "tg")
+    )
+
+    def stringify(f):
+        del f["grid/mask_diam"]
+        f["grid/mask_diam"] = "one millimetre"
+        f.create_group("grid/f_foc")
+
+    scan = io.read_simulated_scan(_edit(path, stringify))
+    assert scan.mask_diameter is None
+    assert scan.mask_spacing == pytest.approx(0.5e-3)
+
+
+def test_window_keys_skip_vectors_and_sort_unnumbered_last(tmp_path, simulated_truth):
+    path = write_simulated_h5(tmp_path / "w.h5", simulated_truth)
+
+    def extras(f):
+        f["Iω_win_ωdep"] = np.zeros((2, 2))
+        f["Iω_win_3"] = np.zeros((2, 2))
+        f["Iω_marginal"] = np.zeros(4)  # 1-D: not a trace window
+
+    keys = io.read_simulated_window_keys(_edit(path, extras))
+    assert keys == ["Iω_win", "Iω_win_reimaged", "Iω_win_3", "Iω_win_ωdep"]
+
+
+def test_wavelength_range_needs_positive_frequencies(tmp_path, simulated_truth):
+    path = write_simulated_h5(tmp_path / "w.h5", simulated_truth)
+
+    def negate(f):
+        omega = f["grid/ω"][()]
+        del f["grid/ω"]
+        f["grid/ω"] = -np.abs(omega)
+
+    with pytest.raises(ValueError, match="no positive-frequency bins"):
+        io.read_simulated_wavelength_range(_edit(path, negate))

@@ -143,3 +143,75 @@ def test_auto_material_compensates(setup):
     )
     thickness = dispersion.auto_material(g, chirped, omega0, "SiO2")
     assert thickness == pytest.approx(-1e-3, abs=2e-4)
+
+
+@pytest.mark.parametrize("method", ["dual_annealing", "direct", "nelder-mead"])
+def test_auto_material_with_every_optimizer(setup, method):
+    g, omega0, ew = setup
+    chirped = dispersion.apply_dispersion(
+        g.omega, omega0, ew, material_thicknesses={"SiO2": 1e-3}
+    )
+    # A narrower box than the default keeps the global searches quick; the
+    # tolerance is the same as the differential-evolution test's.
+    thickness = dispersion.auto_material(
+        g, chirped, omega0, "SiO2", bounds=(-3e-3, 3e-3), method=method
+    )
+    assert thickness == pytest.approx(-1e-3, abs=2e-4)
+
+
+def test_optimize_never_returns_worse_than_the_seed():
+    # The box excludes the seed x0 = 0, so every point the search can return is
+    # worse than "no change": the seed comes back.
+    x = dispersion._optimize(lambda x: float(x[0] ** 2), [(1.0, 2.0)], "direct")
+    np.testing.assert_array_equal(x, [0.0])
+    # an explicit seed is honoured the same way
+    x = dispersion._optimize(
+        lambda x: float((x[0] - 0.5) ** 2), [(1.0, 2.0)], "direct", x0=[0.4]
+    )
+    np.testing.assert_array_equal(x, [0.4])
+
+
+def test_dispersion_phase_skips_unknown_and_zero_bounce_mirrors(setup):
+    g, omega0, _ = setup
+    plain = dispersion.dispersion_phase(g.omega, omega0, gdd=10e-30)
+    dispersion.register_mirror("TestMirror", lambda w: np.ones_like(w))
+    try:
+        skipped = dispersion.dispersion_phase(
+            g.omega,
+            omega0,
+            gdd=10e-30,
+            mirror_bounces={"NoSuchMirror": 3, "TestMirror": 0},
+        )
+        bounced = dispersion.dispersion_phase(
+            g.omega, omega0, gdd=10e-30, mirror_bounces={"TestMirror": 2}
+        )
+    finally:
+        dispersion.unregister_mirror("TestMirror")
+    np.testing.assert_array_equal(skipped, plain)
+    # two bounces of a constant 1 rad per-bounce phase add exactly 2 rad
+    np.testing.assert_allclose(bounced - plain, 2.0)
+
+
+def test_material_tod_of_fused_silica(setup):
+    _, omega0, _ = setup
+    # Fused silica at 800 nm: ~27 fs^3 per mm (tabulated values 26-28 fs^3/mm);
+    # the bracket allows for the Sellmeier fit and the finite-difference estimate.
+    tod_fs3 = dispersion.material_tod("SiO2", omega0, 1e-3)
+    assert 25.0 < tod_fs3 < 30.0
+    # linear in thickness
+    assert dispersion.material_tod("SiO2", omega0, 2e-3) == pytest.approx(2 * tod_fs3)
+
+
+def test_auto_material_nelder_mead_respects_the_bounds(setup):
+    """Regression: the Nelder-Mead polish was unbounded and returned -1.5 mm for a
+    +-1 mm box when the optimum (-1.5 mm) lay outside it."""
+    g, omega0, ew = setup
+    chirped = dispersion.apply_dispersion(
+        g.omega, omega0, ew, material_thicknesses={"SiO2": 1.5e-3}
+    )
+    thickness = dispersion.auto_material(
+        g, chirped, omega0, "SiO2", bounds=(-1e-3, 1e-3), method="nelder-mead"
+    )
+    assert -1e-3 <= thickness <= 1e-3
+    # the best point inside the box is its edge nearest the true optimum
+    assert thickness == pytest.approx(-1e-3, abs=2e-4)

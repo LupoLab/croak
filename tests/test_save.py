@@ -248,3 +248,80 @@ def test_split_smear_scales_round_trip(tmp_path, result_and_trace):
     rebuilt = save.result_from_saved(data, grid=res.grid)
     assert rebuilt.smear_scale == pytest.approx(1.31)
     assert rebuilt.smear_scale_delta == pytest.approx(0.87)
+
+
+def test_save_result_records_every_optional_processed_field(tmp_path, result_and_trace):
+    """Thickness and the independent spectrum are stored; missing extras are omitted."""
+    from dataclasses import replace
+
+    from croak.processing import process_result
+
+    res, trace = result_and_trace
+    res = replace(res, thickness=12e-6)
+    Iomega = np.abs(res.spectrum) ** 2
+    pr = process_result(res, Iomega_meas=Iomega, energy=50e-6)
+    # an energy without a transform-limited peak power (and no measured trace)
+    pr = replace(pr, peak_power_tl=None)
+    data = save.load_result(save.save_result(res, str(tmp_path / "r.h5"), processed=pr))
+    assert data["thickness"] == pytest.approx(12e-6)
+    assert data["pulse_energy_J"] == pytest.approx(50e-6)
+    assert "peak_power_tl_W" not in data
+    assert "trace_meas" not in data
+    np.testing.assert_allclose(data["Ilam_meas"], pr.Iw_meas)
+
+
+def test_save_result_with_an_intensity_only_truth(tmp_path, result_and_trace):
+    """A truth with only a temporal intensity stores just that, no spectral fields."""
+    from croak.processing import TruthPulse
+
+    res, _ = result_and_trace
+    t = np.linspace(-20e-15, 20e-15, 81)
+    truth = TruthPulse.from_intensity(t, np.exp(-((t / 5e-15) ** 2)))
+    data = save.load_result(save.save_result(res, str(tmp_path / "r.h5"), truth=truth))
+    np.testing.assert_allclose(data["It_truth"], truth.It)
+    for key in ("lam_truth", "Ilam_truth", "phit_truth", "phiw_truth", "Ew_truth"):
+        assert key not in data
+
+
+def test_load_result_skips_named_datatypes(tmp_path):
+    """Only groups and datasets are read; a committed HDF5 datatype is ignored."""
+    import h5py
+
+    path = tmp_path / "typed.h5"
+    with h5py.File(path, "w") as f:
+        f["x"] = np.arange(3.0)
+        f["a_type"] = np.dtype("f8")  # a named datatype: neither group nor dataset
+    data = save.load_result(str(path))
+    assert set(data) == {"x"}
+
+
+def test_save_uncertainty_records_components_and_thicknesses(tmp_path):
+    from dataclasses import replace
+
+    u = replace(
+        _mk_uresult("combined"),
+        components=("parametric", "thickness"),
+        thicknesses=np.array([99e-6, 101e-6]),
+    )
+    p = save.save_uncertainty({"combined": u}, str(tmp_path / "u.h5"))
+    grp = save.load_result(p)["uncertainty"]["combined"]
+    assert grp["components"] == "parametric,thickness"
+    np.testing.assert_allclose(grp["thicknesses_um"], [99.0, 101.0])
+
+
+def test_tomlify_converts_arrays_and_numpy_scalars():
+    out = save._tomlify(
+        {"a": np.array([1, 2]), "b": np.float64(0.5), "c": None, "d": (np.int64(3),)}
+    )
+    assert out == {"a": [1, 2], "b": 0.5, "d": [3]}
+    assert type(out["b"]) is float and type(out["d"][0]) is int
+
+
+def test_croak_version_is_unknown_without_package_metadata(monkeypatch):
+    import importlib.metadata
+
+    def missing(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    assert save._croak_version() == "unknown"

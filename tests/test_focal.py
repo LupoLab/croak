@@ -503,3 +503,50 @@ def test_make_trace_fn_honours_focal_without_smearing():
     assert np.array_equal(got, want)
     plain = np.asarray(make_trace_fn(om, delays, "pg", omega0=om0)(ew))
     assert not np.allclose(got / got.max(), plain / plain.max())
+
+
+def test_focal_mixture_rejects_an_unknown_profile():
+    with pytest.raises(ValueError, match="profile must be 'airy' or 'gaussian'"):
+        focal_mixture(
+            hole_diameter=1e-3,
+            hole_spacing=1e-3,
+            f_foc=0.1,
+            wavelength=260e-9,
+            profile="tophat",
+        )
+
+
+def test_mixture_from_nodes_validates_the_profile():
+    from croak.focal import mixture_from_nodes
+
+    polar = _mix(n_radial=3, n_azimuth=4)
+    kw = dict(
+        x=polar.r * np.cos(polar.phi),
+        y=polar.r * np.sin(polar.phi),
+        area=polar.area,
+        arms=polar.arms,
+        hole_diameter=polar.hole_diameter,
+        f_foc=polar.f_foc,
+    )
+    with pytest.raises(ValueError, match="profile must be 'airy' or 'gaussian'"):
+        mixture_from_nodes(profile="tophat", **kw)
+    with pytest.raises(ValueError, match="needs `waist`"):
+        mixture_from_nodes(profile="gaussian", **kw)
+
+
+def test_evolved_profiles_need_arms_and_an_evolve_spec():
+    import dataclasses
+
+    from croak.focal import evolved_arm_filters, evolved_profile_table
+
+    mix = _mix(n_radial=3, n_azimuth=4)
+    omega = np.zeros(3)
+    z = np.zeros(1)
+    with pytest.raises(ValueError, match="need the mask hole positions"):
+        evolved_profile_table(dataclasses.replace(mix, arms=None), omega, 1e15, z)
+    # a plain focal_mixture carries no EvolveSpec
+    assert mix.evolve is None
+    with pytest.raises(ValueError, match="no EvolveSpec"):
+        evolved_profile_table(mix, omega, 1e15, z)
+    with pytest.raises(ValueError, match="no EvolveSpec"):
+        evolved_arm_filters(mix, omega, 1e15)

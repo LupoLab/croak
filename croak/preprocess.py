@@ -717,6 +717,12 @@ def _second_diff_normal(n: int) -> NDArray[np.float64]:
     return ab
 
 
+#: Residual (in units of the row's peak) below which a point counts as lying
+#: *on* the arPLS baseline rather than under it: ~1e4 x double-precision
+#: roundoff of the banded solve, far below any measurable noise floor.
+_ARPLS_ROUNDOFF = 1e-12
+
+
 def _arpls_row(
     y: NDArray[np.float64],
     penalty: NDArray[np.float64],
@@ -761,13 +767,16 @@ def _arpls_row(
         d = yn - z
         # arPLS: reweight from the *negative* residuals only (the noise floor /
         # background), so points well above the baseline (signal) lose weight.
-        neg = d[keep & (d < 0.0)]
-        if neg.size == 0:
-            break  # baseline already at/above every point — converged
-        m = float(neg.mean())
-        s = float(neg.std())
+        # Residuals within roundoff of the (unit-normalised) baseline are not
+        # "below" it: counting them would make the stop below depend on the last
+        # bits of the banded solve.
+        neg = d[keep & (d < -_ARPLS_ROUNDOFF)]
+        s = float(neg.std()) if neg.size > 1 else 0.0
         if s <= 0.0:
-            break  # degenerate row (z fits exactly); keep current z
+            # Nothing (or one point) sits below the baseline, so there is no
+            # noise level to reweight from: z already fits every kept point.
+            break
+        m = float(neg.mean())
         arg = np.clip(2.0 * (d - (2.0 * s - m)) / s, -700.0, 700.0)
         w = 1.0 / (1.0 + np.exp(arg))
         w[exclude] = 0.0

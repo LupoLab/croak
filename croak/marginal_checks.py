@@ -504,23 +504,23 @@ def auto_third_order_exponent(
         raise ValueError("trace marginal has no signal in the trust window")
     lam_w = lam[in_window]
     omega_w = wlfreq(lam_w)
-    base = marginal[in_window] * lam_w**2  # omega-density of the *base* marginal
-    # (lambda/um)^1, raised to n below; matches croak.preprocess.third_order_scale.
-    tilt = lam_w / 1e-6
+    # omega-density of the *base* marginal, and (lambda/um)^1 raised to n below
+    # (matching croak.preprocess.third_order_scale), both as logarithms: the
+    # weights base * tilt**n are formed relative to their largest, so a wide
+    # ``bounds`` cannot underflow them all to zero (tilt < 1 below 1 um) or
+    # overflow them -- either would leave the centroid undefined at that end.
+    log_base = np.log(marginal[in_window] * lam_w**2)
+    log_tilt = np.log(lam_w / 1e-6)
 
     def centroid_offset(n: float) -> float:
-        weights = base * tilt**n
-        total = weights.sum()
-        if total <= 0:
-            return np.inf
-        return float(np.sum(omega_w * weights) / total) - target
+        log_weights = log_base + n * log_tilt
+        weights = np.exp(log_weights - log_weights.max())
+        return float(np.sum(omega_w * weights) / weights.sum()) - target
 
     lo, hi = bounds
     f_lo, f_hi = centroid_offset(lo), centroid_offset(hi)
-    if f_lo == 0.0:
-        return lo
-    if f_hi == 0.0:
-        return hi
+    # (a root exactly at an end has sign 0, so it falls through to brentq,
+    # which returns that end)
     if np.sign(f_lo) == np.sign(f_hi):
         # Target centroid is outside the achievable range; return the nearer end.
         return lo if abs(f_lo) <= abs(f_hi) else hi

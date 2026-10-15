@@ -105,7 +105,7 @@ class Interaction:
         """
         raise NotImplementedError
 
-    def __repr__(self) -> str:  # pragma: no cover - cosmetic
+    def __repr__(self) -> str:
         """Return ``ClassName()``."""
         return f"{type(self).__name__}()"
 

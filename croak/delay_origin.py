@@ -33,10 +33,9 @@ map is only piecewise differentiable where competing peaks exchange order. See
 
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import ArrayLike
 
 __all__ = ["DELAY_ORIGINS", "marginal_peak_delay_jax", "recentre_trace", "recentring"]
 
@@ -186,10 +185,3 @@ def marginal_peak_delay_np(delays: ArrayLike, trace: ArrayLike) -> float:
             jnp.asarray(np.sum(np.asarray(trace, dtype=float), axis=0)),
         )
     )
-
-
-def _check_grad_flows() -> NDArray[np.float64]:  # pragma: no cover - dev aid
-    delays = jnp.linspace(-5e-15, 5e-15, 41)
-    trace = jnp.exp(-(((delays - 0.3e-15) / 1e-15) ** 2))[None, :] * jnp.ones((3, 1))
-    g = jax.grad(lambda t: jnp.sum(recentre_trace(t, delays)[:, 20]))(trace)
-    return np.asarray(g)

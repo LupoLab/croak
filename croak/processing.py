@@ -359,9 +359,8 @@ def spectrogram(
         windowed = field * gauss(t, fwhm=fw, x0=tc)
         spec = np.abs(grid.fft(windowed)) ** 2 * weight
         S[:, j] = spec[order][keep]
-    peak = S.max()
-    if peak > 0:
-        S /= peak
+    # the field is peak-normalised (shiftnorm), so S has a positive maximum
+    S /= S.max()
     return t_centers, lam_sorted[keep], S
 
 
@@ -446,19 +445,18 @@ class TruthPulse:
             Known pulse retaining ``ew`` for truth-seeded retrievals.
         """
         ew = np.asarray(ew, dtype=complex)
+        if not np.any(ew):
+            raise ValueError("the truth spectrum is identically zero")
         field = shiftnorm(grid, grid.ifft(ew))
         t_over, e_over = oversample(grid.t, field, oversampling)
         It = np.abs(e_over) ** 2
-        peak = It.max()
-        if peak > 0:
-            It = It / peak
+        It = It / It.max()
         t = t_over - t_over[int(np.argmax(It))]
         fwhm = _fwhm(t, It)
 
         omega_abs = grid.omega + omega0
         Iw = np.abs(ew) ** 2 * omega_abs**2
-        if Iw.max() > 0:
-            Iw = Iw / Iw.max()
+        Iw = Iw / Iw.max()
         lam = wlfreq(omega_abs)
         order = np.argsort(lam)
         mask_t = It > 0.01

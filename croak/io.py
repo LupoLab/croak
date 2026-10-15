@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import h5py
@@ -85,7 +86,7 @@ class DatasetInfo:
     ndim: int
     shape: tuple[int, ...]
 
-    def __str__(self) -> str:  # pragma: no cover - cosmetic
+    def __str__(self) -> str:
         """Return ``"name shape"``."""
         return f"{self.name} {self.shape}"
 
@@ -659,6 +660,26 @@ def _mask_window_spec(
     )
 
 
+@contextlib.contextmanager
+def _scan_file(path: str) -> Iterator[h5py.File]:
+    """Open a simulated scan read-only, refusing anything but HDF5."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in (".h5", ".hdf5"):
+        raise ValueError(f"simulated scans must be HDF5; got {ext!r}")
+    with h5py.File(path, "r") as f:
+        yield f
+
+
+def _grid_group(f: h5py.File, path: str) -> h5py.Group:
+    """Return the ``/grid`` group every ``scansave`` file carries."""
+    if "grid" not in f:
+        raise KeyError(f"{path!r}: missing /grid group (not a scansave file?)")
+    g = f["grid"]
+    if not isinstance(g, h5py.Group):
+        raise KeyError(f"{path!r}: /grid is not an HDF5 group")
+    return g
+
+
 def read_simulated_mask_window(
     path: str, window: str | int | None = None
 ) -> MaskWindowSpec | None:
@@ -687,15 +708,8 @@ def read_simulated_mask_window(
     KeyError
         If the ``/grid`` group is missing (not a ``scansave`` file).
     """
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in (".h5", ".hdf5"):
-        raise ValueError(f"simulated scans must be HDF5; got {ext!r}")
-    with h5py.File(path, "r") as f:
-        if "grid" not in f:
-            raise KeyError(f"{path!r}: missing /grid group (not a scansave file?)")
-        g = f["grid"]
-        if not isinstance(g, h5py.Group):
-            raise KeyError(f"{path!r}: /grid is not an HDF5 group")
+    with _scan_file(path) as f:
+        g = _grid_group(f, path)
         return _mask_window_spec(g, window)
 
 
@@ -725,10 +739,6 @@ def _truth_dataset_names(source: str) -> tuple[str, str]:
     ``It_beamlet_reimaged``, and the pre-mask ``"source"`` input as ``Ito``/``It``.
     All share the ``To``/``t`` time axes.
     """
-    if source not in _TRUTH_SUFFIX:
-        raise ValueError(
-            f"truth source must be one of {SIMULATED_TRUTH_SOURCES}, got {source!r}"
-        )
     suffix = _TRUTH_SUFFIX[source]
     return f"Ito{suffix}", f"It{suffix}"
 
@@ -744,6 +754,11 @@ def _resolve_truth_keys(g: h5py.Group, truth_source: str) -> tuple[str, str]:
     on-axis truth, or an older file storing only ``It`` — so the loader always
     returns *some* truth.
     """
+    if truth_source not in SIMULATED_TRUTH_SOURCES:
+        raise ValueError(
+            f"truth source must be one of {SIMULATED_TRUTH_SOURCES}, "
+            f"got {truth_source!r}"
+        )
     if truth_source == "beamlet_reimaged":
         order: tuple[str, ...] = ("beamlet_reimaged", "beamlet", "source")
     elif truth_source == "source":
@@ -883,17 +898,12 @@ def read_simulated_scan(
         ``z_thickness`` is requested but the file has no ``/grid/zsave``.
     IndexError
         If ``z_index`` is out of range for the window's ``nz`` axis.
+    ValueError
+        If ``path`` is not an HDF5 file or ``truth_source`` is not one of
+        :data:`SIMULATED_TRUTH_SOURCES`.
     """
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in (".h5", ".hdf5"):
-        raise ValueError(f"simulated scans must be HDF5; got {ext!r}")
-
-    with h5py.File(path, "r") as f:
-        if "grid" not in f:
-            raise KeyError(f"{path!r}: missing /grid group (not a scansave file?)")
-        g = f["grid"]
-        if not isinstance(g, h5py.Group):
-            raise KeyError(f"{path!r}: /grid is not an HDF5 group")
+    with _scan_file(path) as f:
+        g = _grid_group(f, path)
         omega = _read_array(g, "ω")
         omega0 = _read_scalar(g, "ω0")
         Iomega = _read_array(g, "Iω")
@@ -929,8 +939,8 @@ def read_simulated_scan(
                 return None
             try:
                 return float(np.asarray(_require_dataset(g, name)).ravel()[0])
-            except Exception:
-                return None
+            except TypeError, ValueError:
+                return None  # a group or a non-numeric record: not a usable scalar
 
         # Mask geometry, when recorded. Deliberately NOT reconstructed from the
         # signal-window fields: those pin it only for the boxcars layout, and
@@ -1046,15 +1056,8 @@ def read_simulated_z_positions(path: str) -> NDArray[np.float64] | None:
     KeyError
         If the ``/grid`` group is missing (not a ``scansave`` file).
     """
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in (".h5", ".hdf5"):
-        raise ValueError(f"simulated scans must be HDF5; got {ext!r}")
-    with h5py.File(path, "r") as f:
-        if "grid" not in f:
-            raise KeyError(f"{path!r}: missing /grid group (not a scansave file?)")
-        g = f["grid"]
-        if not isinstance(g, h5py.Group):
-            raise KeyError(f"{path!r}: /grid is not an HDF5 group")
+    with _scan_file(path) as f:
+        g = _grid_group(f, path)
         return _read_array(g, "zsave") if "zsave" in g else None
 
 
@@ -1095,10 +1098,7 @@ def read_simulated_window_keys(path: str) -> list[str]:
     list of str
         The available trace-window dataset names (possibly empty).
     """
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in (".h5", ".hdf5"):
-        raise ValueError(f"simulated scans must be HDF5; got {ext!r}")
-    with h5py.File(path, "r") as f:
+    with _scan_file(path) as f:
         canonical = [k for k in SIMULATED_WINDOW_KEYS if k in f]
         extra: list[str] = []
         for key in f.keys():
@@ -1138,15 +1138,8 @@ def read_simulated_truth_keys(path: str) -> tuple[str, ...]:
     KeyError
         If the ``/grid`` group is missing (not a ``scansave`` file).
     """
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in (".h5", ".hdf5"):
-        raise ValueError(f"simulated scans must be HDF5; got {ext!r}")
-    with h5py.File(path, "r") as f:
-        if "grid" not in f:
-            raise KeyError(f"{path!r}: missing /grid group (not a scansave file?)")
-        g = f["grid"]
-        if not isinstance(g, h5py.Group):
-            raise KeyError(f"{path!r}: /grid is not an HDF5 group")
+    with _scan_file(path) as f:
+        g = _grid_group(f, path)
         present: list[str] = []
         for src in SIMULATED_TRUTH_SOURCES:
             over, native = _truth_dataset_names(src)
@@ -1182,15 +1175,8 @@ def read_simulated_wavelength_range(path: str) -> tuple[float, float]:
     ValueError
         If the grid has no positive-frequency bins.
     """
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in (".h5", ".hdf5"):
-        raise ValueError(f"simulated scans must be HDF5; got {ext!r}")
-    with h5py.File(path, "r") as f:
-        if "grid" not in f:
-            raise KeyError(f"{path!r}: missing /grid group (not a scansave file?)")
-        g = f["grid"]
-        if not isinstance(g, h5py.Group):
-            raise KeyError(f"{path!r}: /grid is not an HDF5 group")
+    with _scan_file(path) as f:
+        g = _grid_group(f, path)
         omega = _read_array(g, "ω")
     pos = omega[omega > 0.0]
     if pos.size == 0:

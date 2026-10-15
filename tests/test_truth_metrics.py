@@ -198,3 +198,34 @@ def test_frame_p_undoes_the_retrieval_frame(grid, spectrum, truth):
     assert fixed.eps_It < 1e-9
     assert fixed.eps_Iw is not None and fixed.eps_Iw < 1e-9
     assert fixed.eps_Ew is not None and fixed.eps_Ew < 1e-6
+
+
+def test_eps_temporal_intensity_needs_two_truth_samples():
+    with pytest.raises(ValueError, match="at least two time samples"):
+        eps_temporal_intensity([0.0, 1.0], [1.0, 0.5], [0.0], [1.0])
+
+
+def test_eps_spectral_intensity_rejects_an_all_zero_truth(spectrum):
+    with pytest.raises(ValueError, match="identically zero"):
+        eps_spectral_intensity(spectrum, np.zeros_like(spectrum))
+    with pytest.raises(ValueError, match="identically zero"):
+        eps_spectral_intensity(np.zeros(0), np.zeros(0))
+
+
+def test_eps_complex_field_rejects_an_all_zero_spectrum(spectrum):
+    with pytest.raises(ValueError, match="neither spectrum"):
+        eps_complex_field(np.zeros_like(spectrum), spectrum)
+
+
+def test_truth_outside_the_retrieval_band_reports_the_temporal_error_alone(
+    grid, spectrum
+):
+    """A complex truth with no overlap with the retrieval grid has no spectral score."""
+    # The same pulse stored around 10x the carrier: the grid spans only
+    # +-pi/dt = +-3.1e15 rad/s about each carrier, so the stored range misses the
+    # retrieval grid entirely and the interpolated truth is identically zero.
+    far = TruthPulse.from_spectrum(grid, spectrum, 10.0 * OMEGA0)
+    errs = truth_errors(_result(grid, spectrum), far)
+    assert errs.eps_Iw is None and errs.eps_Ew is None
+    # the temporal envelope does not depend on the carrier
+    assert errs.eps_It < 1e-12
