@@ -501,7 +501,7 @@ class Wizard(QMainWindow):
             return False
         try:
             data = assemble_load_data(st.load)
-        except Exception as exc:  # pragma: no cover - surfaced in the GUI
+        except Exception as exc:
             self.goto_stage(1)
             self.set_status(f"Options loaded, but reloading the trace failed: {exc}")
             return False
@@ -537,7 +537,7 @@ class Wizard(QMainWindow):
         self.simulated.seed_widgets(st.simulated)
         try:
             data = assemble_simulated_load_data(st.simulated)
-        except Exception as exc:  # pragma: no cover - surfaced in the GUI
+        except Exception as exc:
             self._show_simulated_page()
             self.simulated.set_status(
                 f"Options loaded, but reloading the simulated scan failed: {exc}"
@@ -550,7 +550,7 @@ class Wizard(QMainWindow):
         if st.simulated.raw_direct:
             try:
                 st.set_tracedata(assemble_simulated_tracedata(st.simulated))
-            except Exception as exc:  # pragma: no cover - surfaced in the GUI
+            except Exception as exc:
                 self._show_simulated_page()
                 self.simulated.set_status(
                     f"Options loaded, but the raw simulated trace failed: {exc}"
