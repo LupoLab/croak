@@ -1048,7 +1048,7 @@ def estimate_fwhm_uncertainty(
     >>> u = croak.estimate_fwhm_uncertainty(
     ...     res, trace, method="parametric", noise=0.01,
     ...     n_resamples=20, maxiters=30, rng=np.random.default_rng(0))
-    >>> u.point_estimate > 0
+    >>> bool(u.point_estimate > 0)
     True
     """
     if method == "parametric":

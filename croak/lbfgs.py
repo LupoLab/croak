@@ -13,8 +13,6 @@ amplitude and phase.
 
 from __future__ import annotations
 
-import warnings
-
 import nlopt
 import numpy as np
 from numpy.typing import NDArray
@@ -29,6 +27,7 @@ from .solver import (
     guard_nonfinite,
     resolve_reg,
     spectral_target_amplitude,
+    warn_nlopt_salvage,
 )
 
 __all__ = ["LBFGS"]
@@ -260,12 +259,7 @@ class LBFGS(Retriever):
         except (nlopt.RoundoffLimited, nlopt.runtime_error) as err:
             # Salvage the best iterate on an internal NLopt failure instead of
             # aborting the retrieval (see croak.lbfgs_ad for the twin case).
-            warnings.warn(
-                f"NLopt stopped early ({type(err).__name__}); returning the "
-                f"best iterate found (R = {best_err:.3e})",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+            warn_nlopt_salvage(err, best_err)
             u = best_u
 
         # Assemble the final result exactly as the live snapshots (shared

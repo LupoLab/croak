@@ -574,7 +574,13 @@ def test_combine_uncertainties_needs_two():
 # Propagation to a different beamline point (apply H(ω) before the FWHM/band)
 # ---------------------------------------------------------------------------
 def _gdd_transfer(grid, omega0: float, gdd: float) -> np.ndarray:
-    """Pure-GDD spectral transfer function H(ω) = exp(i·GDD·ω²/2)."""
+    """Pure-GDD spectral transfer function H(ω) = exp(i·GDD·ω²/2).
+
+    Keep ``gdd`` small for the ``problem`` fixture: its grid spans only 32 fs, and
+    a 6 fs pulse given ~80 fs² of GDD stretches past that and wraps around, so its
+    FWHM is undefined (NaN) or depends on numerical noise in the base retrieval.
+    25 fs² on top of the pulse's own 15 fs² keeps it under ~20 fs.
+    """
     return np.exp(1j * dispersion_phase(grid.omega, omega0, gdd=gdd))
 
 
@@ -607,14 +613,14 @@ def test_propagation_identity_matches_unpropagated(problem):
 def test_propagation_point_estimate_matches_applied_dispersion(problem):
     """The reported point estimate is the FWHM of the propagated retrieved pulse."""
     exp, _noisy, res = problem
-    H = _gdd_transfer(res.grid, res.omega0, gdd=120e-30)
+    H = _gdd_transfer(res.grid, res.omega0, gdd=25e-30)
     u = parametric_bootstrap(
         res,
         noise=0.01,
         n_resamples=4,
         maxiters=30,
         propagation=H,
-        propagation_label="+120 fs²",
+        propagation_label="+25 fs²",
         rng=np.random.default_rng(3),
     )
     expected, _, _ = _fwhm_and_profile(res.grid, _apply_propagation(res.spectrum, H), 8)
@@ -622,13 +628,13 @@ def test_propagation_point_estimate_matches_applied_dispersion(problem):
     # the GDD changes the temporal width (direction depends on the retrieved chirp)
     plain, _, _ = _fwhm_and_profile(res.grid, res.spectrum, 8)
     assert not np.isclose(u.point_estimate, plain, rtol=0.05, atol=0.0)
-    assert "+120 fs²" in u.summary()
+    assert "+25 fs²" in u.summary()
 
 
 def test_resampling_bootstrap_accepts_propagation(problem):
     """Delay resampling threads the transfer function without error."""
     exp, noisy, res = problem
-    H = _gdd_transfer(res.grid, res.omega0, gdd=80e-30)
+    H = _gdd_transfer(res.grid, res.omega0, gdd=20e-30)
     u = resampling_bootstrap(
         res,
         noisy,
@@ -636,9 +642,9 @@ def test_resampling_bootstrap_accepts_propagation(problem):
         n_resamples=6,
         maxiters=30,
         propagation=H,
-        propagation_label="+80 fs²",
+        propagation_label="+20 fs²",
         rng=np.random.default_rng(9),
     )
     assert u.method == "delay"
-    assert u.propagation_label == "+80 fs²"
+    assert u.propagation_label == "+20 fs²"
     assert u.point_estimate > 0

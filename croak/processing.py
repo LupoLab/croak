@@ -937,7 +937,11 @@ def process_result(
     omega_abs = omega + omega0
     Ilam = Iw * omega_abs**2
     Ilam /= Ilam.max()
-    wavelength = wlfreq(omega_abs)
+    # A grid whose lower edge reaches zero absolute frequency maps that bin to an
+    # infinite wavelength; it carries no light (it is masked below), so the
+    # division is expected there.
+    with np.errstate(divide="ignore"):
+        wavelength = wlfreq(omega_abs)
     mask_w = (Iw / Iw.max()) > 0.01
     phi_w = normalize_spectral_phase(omega, ew, mask_w, Iw)
     # quartic phase fit -> GDD/TOD/FOD; also a smooth fit curve of the displayed

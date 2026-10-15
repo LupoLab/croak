@@ -319,7 +319,7 @@ def scaled_rc(scale: PlotScale) -> dict[str, float]:
 
     Examples
     --------
-    >>> scaled_rc(PlotScale(0.7))["axes.titlesize"]
+    >>> round(scaled_rc(PlotScale(0.7))["axes.titlesize"], 2)
     8.4
     """
     return {key: base * scale.font for key, base in _SCALED_RC_BASE.items()}

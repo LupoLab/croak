@@ -1059,7 +1059,11 @@ def run_retrieval(
         depth_weight=generation_envelope(p),
         reg_amp=p.reg_amp,
         reg_phase=p.reg_phase,
-        reg_spectrum=p.reg_spectrum,
+        # A session always carries a weight (the dataclass default), so it cannot
+        # tell an explicit request from the default. Without a measured spectrum
+        # the penalty has no target either way: pass None, which the retriever
+        # resolves silently, rather than warning on every default session.
+        reg_spectrum=p.reg_spectrum if td.Iomega is not None else None,
         reg_time=p.reg_time,
         time_window=(p.reg_time_lo_fs * 1e-15, p.reg_time_hi_fs * 1e-15),
         # warm-start centres for the extras (nominal unless reusing a result)

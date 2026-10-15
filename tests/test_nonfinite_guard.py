@@ -31,6 +31,9 @@ def test_guard_traps_nonfinite_total_and_gradient():
     assert penalty == NONFINITE_PENALTY and np.all(bad == 0.0)
 
 
+# Whether this run hits the salvage path (and so warns) is platform-dependent;
+# the test is about finishing, not about the warning.
+@pytest.mark.filterwarnings("ignore:NLopt stopped early:RuntimeWarning")
 def test_retrieval_survives_nlopt_line_search_failure():
     """Regression: the seed-0 dispersive retrieval that aborted mid line search.
 
