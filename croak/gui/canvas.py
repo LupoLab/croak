@@ -145,7 +145,7 @@ class MplCanvas(FigureCanvasQTAgg):
 
     def _draw_at(self, scale: PlotScale) -> None:
         """Run the remembered plot function at ``scale`` and repaint."""
-        if self._plot_fn is None:  # pragma: no cover — guarded by both callers
+        if self._plot_fn is None:
             raise RuntimeError("no plot function to draw; call render() first")
         self._drawn_scale = scale
         with matplotlib.rc_context(scaled_rc(scale)):
