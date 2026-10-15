@@ -1,11 +1,20 @@
-"""Shared fixtures for the phase-2 tests.
+"""Shared fixtures for the whole suite.
 
 Provides helpers that synthesise *experimental-style* FROG data files (a
 wavelength axis, a delay/position axis and a 2-D trace) from a known pulse, so
-the loading/preprocessing/retrieval pipeline can be exercised end-to-end.
+the loading/preprocessing/retrieval pipeline can be exercised end-to-end, and
+the settings isolation every GUI test (under ``tests/gui/``) runs with.
+
+This is the suite's only ``conftest.py``: test modules import its helpers with
+``from conftest import ...``, which a second ``conftest`` module would shadow.
 """
 
 from __future__ import annotations
+
+import os
+
+# Before anything imports Qt: GUI tests never open a window.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from dataclasses import dataclass
 
@@ -366,4 +375,25 @@ def simulated_scan_multi_h5(tmp_path, simulated_truth) -> str:
     """
     return write_simulated_h5(
         tmp_path / "scan_multi.h5", simulated_truth, zsave=SIMULATED_ZSAVE
+    )
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(request):
+    """Point QSettings at a per-test directory for every GUI test.
+
+    ``croak.gui.settings`` only ever uses the explicit ``QSettings(IniFormat,
+    UserScope, org, app)`` constructor, which honours this redirect, so no GUI
+    test reads or writes the developer's real preferences. Tests outside
+    ``tests/gui/`` are left alone (and do not import Qt).
+    """
+    if "gui" not in request.path.parent.parts[-1:]:
+        return
+    from PyQt6.QtCore import QSettings
+
+    tmp_path = request.getfixturevalue("tmp_path")
+    QSettings.setPath(
+        QSettings.Format.IniFormat,
+        QSettings.Scope.UserScope,
+        str(tmp_path / "settings"),
     )

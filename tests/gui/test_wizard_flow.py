@@ -20,7 +20,7 @@ import croak
 
 pytest.importorskip("PyQt6")
 
-from PyQt6.QtCore import QSettings, QSize, Qt
+from PyQt6.QtCore import QSize, Qt
 
 from croak.gui import settings
 from croak.gui.base import CONTROLS_MIN_WIDTH
@@ -55,20 +55,6 @@ def _uresult(method, sd, rng):
         base_error=0.01,
         profiles=prof,
         t_profile=t,
-    )
-
-
-@pytest.fixture(autouse=True)
-def isolated_settings(tmp_path):
-    """Point QSettings at a per-test directory so no test touches real preferences.
-
-    ``croak.gui.settings`` only ever uses the explicit ``QSettings(IniFormat,
-    UserScope, org, app)`` constructor, which honours this redirect.
-    """
-    QSettings.setPath(
-        QSettings.Format.IniFormat,
-        QSettings.Scope.UserScope,
-        str(tmp_path / "settings"),
     )
 
 
