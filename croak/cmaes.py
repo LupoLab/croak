@@ -82,7 +82,7 @@ def _import_strategy(strategy: str):
         from evosax import (  # pyright: ignore[reportMissingImports]
             algorithms as evo_algos,
         )
-    except ImportError as exc:  # pragma: no cover - optional dependency
+    except ImportError as exc:
         raise ImportError(
             "the 'cma-es' retriever needs evosax — install with: pip install croak[evo]"
         ) from exc

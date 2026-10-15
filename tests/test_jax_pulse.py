@@ -101,3 +101,13 @@ def test_parameterisations_reject_unknown_bases(builder):
 def test_augment_rejects_non_positive_scales(spec, message):
     with pytest.raises(ValueError, match=message):
         augment(np.zeros(4), spec)
+
+
+def test_spline_basis_with_two_linear_nodes_has_no_roughness_penalty():
+    """Two degree-1 nodes are a straight line: the P-spline penalty is identically 0."""
+    ew = np.asarray(gaussian_pulse(GRID, 6e-15))
+    _, c0, penalty, _ = make_spline_phase_basis(
+        np.abs(ew), np.angle(ew), GRID.omega, n_nodes=2, degree=1
+    )
+    assert c0.shape == (2,)
+    assert float(penalty(jnp.asarray([3.0, -7.0]))) == 0.0

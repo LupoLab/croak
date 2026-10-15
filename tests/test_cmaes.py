@@ -80,3 +80,13 @@ def test_cmaes_without_a_seed_draws_its_key_from_the_rng(small):
 
     a, b = run(3), run(3)
     np.testing.assert_array_equal(a.spectrum, b.spectrum)
+
+
+def test_import_strategy_says_how_to_install_the_extra(monkeypatch):
+    """Without the 'evo' extra the retriever names the install command."""
+    import sys
+
+    # a None entry makes ``import evosax`` raise ImportError, as in a base install
+    monkeypatch.setitem(sys.modules, "evosax", None)
+    with pytest.raises(ImportError, match=r"pip install croak\[evo\]"):
+        _import_strategy("cma")
