@@ -219,10 +219,9 @@ def _fwhm_and_profile(
     """
     field = shiftnorm(grid, grid.ifft(spectrum))
     t_over, e_over = oversample(grid.t, field, oversampling)
+    # shiftnorm already set the peak to 1; renormalise after the interpolation.
     intensity = np.abs(e_over) ** 2
-    peak = intensity.max()
-    if peak > 0:
-        intensity = intensity / peak
+    intensity = intensity / intensity.max()
     return _fwhm(t_over, intensity), t_over, intensity
 
 

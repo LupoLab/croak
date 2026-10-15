@@ -1,11 +1,14 @@
 """Tests for :mod:`croak.pipeline` and the solver omega0/callback plumbing."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 from croak import preprocess
 from croak.focal import focal_mixture
 from croak.pipeline import initial_guess, retrieve_from_tracedata
+from croak.retrieve import ALGORITHMS
 from croak.smearing import square_boxcars_kernel
 
 
@@ -233,3 +236,40 @@ def test_focal_forwarded_to_supported_algorithms(tracedata):
         tracedata, algorithm="lbfgs-ad", maxiters=3, focal=mix
     )
     assert res.spectrum.shape == (tracedata.grid.n,)
+
+
+def test_initial_guess_rejects_unknown_modes(tracedata):
+    with pytest.raises(ValueError, match="unknown guess mode 'psychic'"):
+        initial_guess(tracedata, mode="psychic")
+
+
+def test_depth_transverse_rejected_for_unsupported_algorithms(tracedata):
+    with pytest.raises(ValueError, match="cannot model the depth integral"):
+        retrieve_from_tracedata(
+            tracedata, algorithm="copra", maxiters=1, depth_transverse=True
+        )
+
+
+def test_reg_spectrum_silently_off_in_phase_only_mode(tracedata, monkeypatch):
+    """Phase-only retrieval has no amplitude to pull: the weight drops, no warning."""
+    seen = {}
+
+    class Spy:
+        def __init__(self, reg_spectrum=None, spectrum_target=None):
+            seen.update(reg_spectrum=reg_spectrum, target=spectrum_target)
+
+        def run(self, *args, **kwargs):
+            return "result"
+
+    monkeypatch.setitem(ALGORITHMS, "lbfgs", Spy)
+    td = replace(tracedata, Iomega=np.ones(tracedata.grid.n))
+    out = retrieve_from_tracedata(td, algorithm="lbfgs", full=False, reg_spectrum=0.5)
+    assert out == "result"
+    assert seen["reg_spectrum"] == 0.0
+
+
+def test_depth_weight_rejected_for_unsupported_algorithms(tracedata):
+    with pytest.raises(ValueError, match="cannot model a generation envelope"):
+        retrieve_from_tracedata(
+            tracedata, algorithm="copra", maxiters=1, depth_weight=np.ones(3)
+        )

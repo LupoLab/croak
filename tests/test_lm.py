@@ -185,3 +185,26 @@ def test_lm_thickness_fit_shg_guard(setup):
         LM(
             material="SiO2", thickness=10e-6, omega0=wlfreq(400e-9), fit_thickness=True
         ).run(trace, g.omega, delays, "shg", guess=ew)
+
+
+@pytest.mark.parametrize("phase_only", [False, True])
+def test_lm_phase_penalty_rows_verbose_and_callback(phase_only, capsys):
+    """A phase-smoothness penalty adds residual rows; progress is reported per eval."""
+    g = Grid(32, dt=1e-15)
+    ew = gaussian_pulse(g, 6e-15, phases=(10e-30,))
+    delays = np.linspace(-15e-15, 15e-15, 11)
+    trace = maketrace(g.omega, delays, ew, "pg")
+    seen = []
+    res = LM(maxiters=10, reg_phase=1e-6, phase_only=phase_only, verbose=True).run(
+        trace,
+        g.omega,
+        delays,
+        "pg",
+        guess=0.9 * ew,
+        callback=lambda i, err, best, snapshot=None: seen.append((i, err, best)),
+    )
+    assert "  eval    1: R = " in capsys.readouterr().out
+    assert [s[0] for s in seen] == list(range(1, len(res.errors) + 1))
+    assert seen[-1][2] == pytest.approx(min(res.errors))
+    # a light smoothness penalty on a smooth truth keeps the fit good
+    assert res.error < 1e-2

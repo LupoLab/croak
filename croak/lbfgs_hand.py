@@ -34,6 +34,7 @@ from .solver import (
     assemble_result,
     resolve_reg,
     spectral_target_amplitude,
+    warn_nlopt_salvage,
 )
 
 __all__ = ["LBFGSHand"]
@@ -211,10 +212,17 @@ class LBFGSHand(Retriever):
                 omega0=self.omega0,
             )
 
+        best_err = np.inf
+        best_u = np.array(u0, dtype=float, copy=True)
+
         def evaluate(u: NDArray[np.float64], grad: NDArray[np.float64] | None) -> float:
             total, ferr, g = value_and_grad(jnp.asarray(u))
             total, ferr = float(total), float(ferr)
             err_log.append(ferr)
+            nonlocal best_err, best_u
+            if ferr < best_err:
+                best_err = ferr
+                best_u = np.array(u, dtype=float, copy=True)
             if self.verbose:
                 print(f"  eval {len(err_log):4d}: R = {ferr:.6e}")
             if callback is not None:
@@ -235,7 +243,13 @@ class LBFGSHand(Retriever):
         opt.set_ftol_abs(self.abstol)
         if self.targeterr > 0:
             opt.set_stopval(self.targeterr)
-        u = opt.optimize(u0)
+        try:
+            u = opt.optimize(u0)
+        except (nlopt.RoundoffLimited, nlopt.runtime_error) as err:
+            # Salvage the best iterate on an internal NLopt failure instead of
+            # aborting the retrieval, exactly as croak.lbfgs and croak.lbfgs_ad do.
+            warn_nlopt_salvage(err, best_err)
+            u = best_u
 
         # Assemble the final result exactly as the live snapshots (shared
         # :func:`make_snapshot` / `assemble_result`).

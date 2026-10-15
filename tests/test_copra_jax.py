@@ -4,11 +4,13 @@ import numpy as np
 import pytest
 
 from croak.copra import COPRA
-from croak.copra_jax import COPRAJax
+from croak.copra_jax import COPRAJax, run_copra_jax
 from croak.forward import maketrace
+from croak.forward_jax import make_forward_adjoint_fns
 from croak.grid import Grid
 from croak.maths import wlfreq
 from croak.pulses import gaussian_pulse
+from croak.smearing import square_boxcars_kernel
 
 
 @pytest.fixture
@@ -206,3 +208,88 @@ def test_copra_numpy_callback_supplies_a_live_snapshot(setup):
     )
     assert len(snaps) == 3
     assert all(s is not None and s.spectrum.shape == (g.n,) for s in snaps)
+
+
+@pytest.fixture
+def small():
+    g = Grid(32, dt=1e-15)
+    ew = gaussian_pulse(g, 6e-15, phases=(10e-30,))
+    delays = np.linspace(-15e-15, 15e-15, 11)
+    return g, ew, delays, maketrace(g.omega, delays, ew, "pg")
+
+
+@pytest.mark.parametrize(
+    ("kw", "message"),
+    [
+        ({"abstol": 1.0}, "COPRA(jax): reached abstol (1.00e+00) at iter 1"),
+        ({"reltol": 1e9}, "COPRA(jax): best error plateaued (reltol 1.00e+09)"),
+    ],
+)
+def test_copra_jax_verbose_reports_each_stop(small, capsys, kw, message):
+    g, ew, delays, trace = small
+    COPRAJax(maxiters=50, verbose=True, **kw).run(
+        trace, g.omega, delays, "pg", guess=0.9 * ew, rng=np.random.default_rng(0)
+    )
+    out = capsys.readouterr().out
+    assert "COPRA(jax): initial R = " in out and "  iter    1: R = " in out
+    assert message in out
+
+
+def test_run_copra_jax_callback_without_snapshots(small):
+    g, ew, delays, trace = small
+    signal_tape, adjoint = make_forward_adjoint_fns(g.omega, delays, "pg")
+    calls = []
+    _, errors, _, _, _ = run_copra_jax(
+        signal_tape,
+        adjoint,
+        delays,
+        trace / trace.max(),
+        0.9 * ew,
+        np.ones(g.n),
+        maxiters=3,
+        rng=np.random.default_rng(0),
+        callback=lambda *args: calls.append(args),
+    )
+    assert [c[0] for c in calls] == [1, 2, 3]
+    assert [c[1] for c in calls] == errors
+
+
+def test_copra_jax_smeared_global_stage_fits_the_smeared_model():
+    """With a smearing kernel the global stage descends on the smeared trace.
+
+    stall_patience=0 switches to the global stage at once, so every iteration is
+    a smeared-gradient step, and the reported error is the smeared-model error.
+    """
+    # the delay convolution needs a span of at least 12 kernel widths (~31 fs)
+    g = Grid(64, dt=1e-15)
+    ew = gaussian_pulse(g, 6e-15, phases=(10e-30,))
+    delays = np.linspace(-30e-15, 30e-15, 21)
+    kernel = square_boxcars_kernel(
+        "pg", hole_diameter=1e-3, hole_spacing=2.5e-3, wavelength=800e-9
+    )
+    trace = maketrace(g.omega, delays, ew, "pg", smearing=kernel)
+    start = 0.9 * gaussian_pulse(g, 7e-15)
+    res = COPRAJax(maxiters=15, smearing=kernel, stall_patience=0).run(
+        trace, g.omega, delays, "pg", guess=start, rng=np.random.default_rng(0)
+    )
+    assert res.error < res.errors[0]  # each global step descends
+    # the generating pulse scores ~0 under the smeared model the stage fits
+    exact = COPRAJax(maxiters=1, smearing=kernel, stall_patience=0).run(
+        trace, g.omega, delays, "pg", guess=ew, rng=np.random.default_rng(0)
+    )
+    assert exact.error < 1e-6
+
+
+@pytest.mark.parametrize("cls", [COPRA, COPRAJax])
+def test_copra_reltol_keeps_iterating_while_improving(small, cls):
+    """A tiny reltol never fires while the error is still falling."""
+    g, _, delays, trace = small
+    res = cls(maxiters=15, reltol=1e-300).run(
+        trace,
+        g.omega,
+        delays,
+        "pg",
+        guess=gaussian_pulse(g, 9e-15),
+        rng=np.random.default_rng(0),
+    )
+    assert len(res.errors) == 15

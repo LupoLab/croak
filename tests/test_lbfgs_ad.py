@@ -6,8 +6,10 @@ comparable final error (they minimise the identical objective with the identical
 optimiser, differing only in gradient source).
 """
 
+import nlopt
 import numpy as np
 import pytest
+from nlopt_harness import script_nlopt
 
 from croak.forward import maketrace
 from croak.grid import Grid
@@ -346,3 +348,70 @@ def test_lbfgs_ad_thickness_fit_shg_guard(setup):
         LBFGSAD(
             material="SiO2", thickness=10e-6, omega0=wlfreq(400e-9), fit_thickness=True
         ).run(trace, g.omega, delays, "shg", guess=ew)
+
+
+# ---------------------------------------------------------------------------
+# Options and NLopt contracts on a small problem
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def small():
+    g = Grid(32, dt=1e-15)
+    ew = gaussian_pulse(g, 6e-15, phases=(10e-30,))
+    delays = np.linspace(-15e-15, 15e-15, 11)
+    return g, ew, delays, maketrace(g.omega, delays, ew, "pg")
+
+
+def test_lbfgs_ad_phase_penalty_without_amplitude_penalty(small):
+    """reg_amp=0 drops the amplitude term; a light phase penalty keeps the fit."""
+    g, ew, delays, trace = small
+    res = LBFGSAD(maxiters=60, reg_amp=0.0, reg_phase=1e-8).run(
+        trace, g.omega, delays, "pg", guess=0.95 * ew
+    )
+    # a 1e-8 smoothness weight barely moves the noiseless optimum
+    assert res.error < 1e-3
+
+
+def test_lbfgs_ad_verbose_target_error_and_callback(small, capsys):
+    g, ew, delays, trace = small
+    seen = []
+    res = LBFGSAD(maxiters=200, targeterr=1e-2, verbose=True).run(
+        trace,
+        g.omega,
+        delays,
+        "pg",
+        guess=gaussian_pulse(g, 7e-15),
+        callback=lambda i, err, best, snapshot=None: seen.append(snapshot().error),
+    )
+    assert res.error <= 1e-2 and len(res.errors) < 200
+    assert "  eval    1: R = " in capsys.readouterr().out
+    # each snapshot is the in-progress result at its evaluation
+    np.testing.assert_allclose(seen, res.errors, rtol=1e-6)
+
+
+def test_lbfgs_ad_value_only_evaluation(small, monkeypatch):
+    """NLopt may ask for the objective without a gradient (an empty buffer)."""
+    g, ew, delays, trace = small
+    script_nlopt(monkeypatch, value_only_probe=True)
+    res = LBFGSAD(maxiters=10).run(trace, g.omega, delays, "pg", guess=ew)
+    assert res.error < 1e-6
+
+
+def test_lbfgs_ad_salvages_a_line_search_failure(small, monkeypatch):
+    g, _, delays, trace = small
+    script_nlopt(
+        monkeypatch, fail_after=2, error=nlopt.runtime_error("line search failed")
+    )
+    with pytest.warns(RuntimeWarning, match=r"NLopt stopped early \(runtime_error\)"):
+        res = LBFGSAD(maxiters=10).run(
+            trace, g.omega, delays, "pg", guess=gaussian_pulse(g, 12e-15)
+        )
+    assert len(res.errors) == 2
+
+
+def test_lbfgs_ad_non_finite_objective_is_trapped(small):
+    """A NaN in the data makes every objective non-finite: penalised, not fatal."""
+    g, ew, delays, trace = small
+    bad = trace.copy()
+    bad[0, 0] = np.nan
+    with pytest.warns(RuntimeWarning, match="non-finite"):
+        LBFGSAD(maxiters=3).run(bad, g.omega, delays, "pg", guess=ew)

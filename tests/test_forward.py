@@ -139,3 +139,29 @@ def test_adjoint_matches_fd_dispersive(grid):
     fd_re, fd_im = _fd_grad(loss_only, ew)
     assert np.allclose(2 * np.real(ew_bar), fd_re, atol=1e-4, rtol=1e-4)
     assert np.allclose(2 * np.imag(ew_bar), fd_im, atol=1e-4, rtol=1e-4)
+
+
+def test_quadrature_uniform_and_unknown_methods():
+    nodes, weights = quadrature_nodes_weights(10e-6, 3, "uniform")
+    np.testing.assert_allclose(nodes, [0.0, 5e-6, 10e-6])
+    np.testing.assert_array_equal(weights, np.ones(3))
+    with pytest.raises(ValueError, match="unknown quadrature method 'simpson'"):
+        quadrature_nodes_weights(10e-6, 3, "simpson")
+
+
+def test_signal_smeared_requires_a_kernel(grid):
+    model = ForwardModel(grid.omega, np.zeros(1), "pg")
+    with pytest.raises(RuntimeError, match="requires a smearing kernel"):
+        model.signal_smeared(np.ones(grid.n, complex), 0.0)
+
+
+def test_adjoint_requires_a_matching_recorded_forward_pass(grid):
+    """The adjoint reuses the forward tape; a different delay must be refused."""
+    model = ForwardModel(grid.omega, np.array([0.0, 1e-15]), "pg")
+    ew = np.ones(grid.n, complex)
+    psi_bar = np.ones(grid.n, complex)
+    with pytest.raises(RuntimeError, match="matching recorded forward pass"):
+        model.adjoint_single(psi_bar, 0.0)  # nothing recorded yet
+    model.signal_single(ew, 0.0, record=True)
+    with pytest.raises(RuntimeError, match="matching recorded forward pass"):
+        model.adjoint_single(psi_bar, 1e-15)

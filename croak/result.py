@@ -128,7 +128,7 @@ class RetrievalResult:
         r"""Temporal phase :math:`\arg E(t)`, unwrapped."""
         return np.unwrap(np.angle(self.field))
 
-    def __repr__(self) -> str:  # pragma: no cover - cosmetic
+    def __repr__(self) -> str:
         """Return a concise summary repr (algorithm, interaction, error)."""
         return (
             f"RetrievalResult(algorithm={self.algorithm!r}, "

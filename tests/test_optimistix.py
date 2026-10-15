@@ -461,3 +461,59 @@ def test_optx_lm_bspline_phase_basis(linear_solver):
     ).run(trace, g.omega, delays, "pg", guess=guess)
     assert res.error < 5e-3
     assert res.spectrum.shape == (g.n,)
+
+
+@pytest.fixture
+def small():
+    g = Grid(32, dt=1e-15)
+    ew = gaussian_pulse(g, 6e-15, phases=(10e-30,))
+    delays = np.linspace(-15e-15, 15e-15, 11)
+    return g, ew, delays, maketrace(g.omega, delays, ew, "pg")
+
+
+@pytest.mark.parametrize("cls", [OptxLM, OptxLBFGS])
+def test_optx_phase_penalty_without_amplitude_penalty(small, cls):
+    g, ew, delays, trace = small
+    res = cls(maxiters=10, reg_amp=0.0, reg_phase=1e-6).run(
+        trace, g.omega, delays, "pg", guess=0.95 * ew
+    )
+    # a light smoothness penalty on a smooth truth keeps the fit good
+    assert res.error < 1e-2
+
+
+def test_optx_target_error_stops_early_and_verbose_logs(small, capsys):
+    g, ew, delays, trace = small
+    res = OptxLBFGS(maxiters=200, targeterr=5e-2, verbose=True).run(
+        trace, g.omega, delays, "pg", guess=gaussian_pulse(g, 7e-15)
+    )
+    assert res.error <= 5e-2 and len(res.errors) < 200
+    assert "  iter    1: R = " in capsys.readouterr().out
+
+
+def test_optx_plateau_stop_is_reported_when_verbose(small, capsys):
+    """A huge reltol makes every step a plateau: the loop stops and says why."""
+    g, ew, delays, trace = small
+    res = OptxLBFGS(maxiters=200, reltol=1e9, verbose=True).run(
+        trace, g.omega, delays, "pg", guess=0.9 * ew
+    )
+    assert len(res.errors) < 200
+    assert "best error plateaued (reltol 1.00e+09)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("cls", [OptxLM, OptxLBFGS])
+def test_optx_callback_snapshots_are_in_progress_results(small, cls):
+    """Every step can be previewed; with no spectral weight that term is skipped."""
+    g, ew, delays, trace = small
+    seen = []
+    res = cls(maxiters=4, reg_spectrum=0.0).run(
+        trace,
+        g.omega,
+        delays,
+        "pg",
+        guess=0.9 * ew,
+        callback=lambda i, err, best, snapshot=None: seen.append(snapshot()),
+    )
+    assert len(seen) == len(res.errors)
+    assert all(s.spectrum.shape == (g.n,) for s in seen)
+    # the last snapshot is the returned pulse's own state, up to rounding
+    assert seen[-1].error == pytest.approx(res.error, rel=1e-6)

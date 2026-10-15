@@ -1,13 +1,22 @@
 """Tests for the terminal/notebook progress reporting in :mod:`croak.progress`."""
 
 import io
+import sys
+import types
 import warnings
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 import croak
-from croak.progress import ProgressReporter, format_report, make_reporter
+from croak import progress
+from croak.progress import (
+    ProgressReporter,
+    detect_environment,
+    format_report,
+    make_reporter,
+)
 
 
 @pytest.fixture
@@ -133,3 +142,118 @@ def test_reporter_falls_back_to_text_bar_without_ipywidgets(monkeypatch):
         warnings.simplefilter("error")
         rep = ProgressReporter(total=5, env="notebook", live=True)
     assert type(rep._tqdm).__module__ == "tqdm.std"
+
+
+# ---------------------------------------------------------------------------
+# Environment detection (IPython/ipywidgets are faked: not dev dependencies)
+# ---------------------------------------------------------------------------
+def _fake_ipython(monkeypatch, shell_class_name):
+    shell = type(shell_class_name, (), {})() if shell_class_name else None
+    module = types.ModuleType("IPython")
+    module.get_ipython = lambda: shell
+    monkeypatch.setitem(sys.modules, "IPython", module)
+
+
+def test_detect_environment_notebook(monkeypatch):
+    _fake_ipython(monkeypatch, "ZMQInteractiveShell")
+    assert detect_environment() == "notebook"
+
+
+def test_detect_environment_terminal_and_plain(monkeypatch):
+    _fake_ipython(monkeypatch, "TerminalInteractiveShell")  # IPython, not a kernel
+    monkeypatch.setattr(sys, "stderr", SimpleNamespace(isatty=lambda: True))
+    assert detect_environment() == "terminal"
+    monkeypatch.setattr(sys, "stderr", SimpleNamespace(isatty=lambda: False))
+    assert detect_environment() == "plain"
+
+
+def test_have_ipywidgets_reflects_importability(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ipywidgets", types.ModuleType("ipywidgets"))
+    assert progress._have_ipywidgets() is True
+    monkeypatch.setitem(sys.modules, "ipywidgets", None)  # import raises
+    assert progress._have_ipywidgets() is False
+
+
+def test_make_reporter_auto_reports_in_a_terminal(monkeypatch):
+    monkeypatch.setattr(progress, "detect_environment", lambda: "terminal")
+    rep = make_reporter("auto", total=7)
+    assert rep is not None and rep.live and rep.total == 7 and rep.env == "terminal"
+    rep._tqdm.close()
+
+
+def test_notebook_with_ipywidgets_uses_the_notebook_bar(monkeypatch):
+    calls = []
+    fake_notebook = types.ModuleType("tqdm.notebook")
+    fake_notebook.tqdm = lambda **kw: calls.append(kw) or "notebook-bar"
+    monkeypatch.setitem(sys.modules, "tqdm.notebook", fake_notebook)
+    monkeypatch.setattr(progress, "_have_ipywidgets", lambda: True)
+    rep = ProgressReporter(total=5, env="notebook", live=True)
+    assert rep._tqdm == "notebook-bar"
+    assert calls[0]["total"] == 5 and calls[0]["desc"] == "retrieving"
+    # notebooks render stderr in red: the fallback stream is stdout there
+    assert rep.stream is sys.stdout
+
+
+def test_broken_tqdm_falls_back_to_the_builtin_bar(monkeypatch):
+    def broken(**kw):
+        raise RuntimeError("tqdm is broken")
+
+    monkeypatch.setattr("tqdm.std.tqdm", broken)
+    rep = ProgressReporter(total=5, env="terminal", live=True)
+    assert rep._tqdm is None
+
+
+# ---------------------------------------------------------------------------
+# Built-in bar details
+# ---------------------------------------------------------------------------
+def _builtin(**kw) -> tuple[ProgressReporter, io.StringIO]:
+    rep = ProgressReporter(env="plain", live=True, use_tqdm=False, **kw)
+    buf = io.StringIO()
+    rep.stream = buf
+    return rep, buf
+
+
+def test_builtin_bar_without_a_total_counts_iterations():
+    rep, buf = _builtin()
+    rep.callback(4, 0.25, 0.2)
+    assert buf.getvalue().startswith("\rretrieving  iter 4  R=25.000%  best=20.000%")
+
+
+def test_builtin_bar_throttles_redraws_until_the_end():
+    rep, buf = _builtin(total=10, min_interval=3600.0)
+    rep.callback(1, 0.5, 0.5)  # first draw always happens
+    rep.callback(2, 0.4, 0.4)  # within the interval: skipped
+    assert buf.getvalue().count("\r") == 1
+    rep.callback(10, 0.1, 0.1)  # the final iteration always draws
+    assert buf.getvalue().count("\r") == 2
+
+
+def test_builtin_bar_stops_drawing_on_a_broken_stream():
+    rep, _ = _builtin(total=3)
+
+    class Closed:
+        def write(self, text):
+            raise ValueError("I/O operation on closed file")
+
+    rep.stream = Closed()
+    rep.callback(1, 0.5, 0.5)
+    assert rep.live is False and rep._drawn is False
+
+
+def test_tqdm_update_never_moves_backwards():
+    rep = ProgressReporter(total=10, env="terminal", live=True)
+    rep.callback(5, 0.3, 0.3)
+    rep.callback(3, 0.2, 0.2)  # e.g. a restarted solver stage
+    assert rep._tqdm.n == 5
+    rep._tqdm.close()
+
+
+def test_finish_measures_elapsed_and_uses_a_given_summary(problem, capsys):
+    """Without ``elapsed`` the wall time is measured; ``processed`` is reused."""
+    g, ew, delays, trace = problem
+    res = croak.retrieve(trace, g.omega, delays, "shg", guess=ew, maxiters=5)
+    processed = SimpleNamespace(fwhm_retr=float("nan"), fwhm_tl=2.5e-15)
+    rep, _ = _builtin(total=5)
+    rep.finish(res, processed=processed)
+    out = capsys.readouterr().out
+    assert "retrieved FWHM   : n/a" in out and "2.50 fs" in out
