@@ -264,6 +264,9 @@ semantic versioning.
   spectrum.
 - The arPLS baseline's stopping rule no longer depends on the last bits of its
   banded solve: residuals within 1e-12 of the baseline count as on it.
+- The known-truth intensity errors `eps_It` and `eps_Iw` score a perfect match as
+  zero to machine precision, as `eps_Ew` already did. Their `sqrt(1 - x²)` form
+  floored it at a platform-dependent ~1.5e-8.
 
 ## [0.1.0] - 2026-08-31
 
