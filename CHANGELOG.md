@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-16
+
 ### Changed
 
 - **Material and gas indices come from [optmat](https://optmat.readthedocs.io)**,
@@ -661,6 +663,7 @@ Added in the run-up to the release:
   materials (missing `SiO2-Franta`); and `croak.solver`'s docstring described
   `Retriever` as the base of two solvers rather than of all of them.
 
-[Unreleased]: https://github.com/LupoLab/croak/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/LupoLab/croak/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/LupoLab/croak/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/LupoLab/croak/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/LupoLab/croak/releases/tag/v0.1.0
