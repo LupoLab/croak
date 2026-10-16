@@ -115,7 +115,9 @@ A gas is dispersive like a solid, but its refractive index depends on the gas
 gas at a chosen pressure (bar) and temperature (K, defaulting to 20 °C). The
 dispersion is optmat's recommended model of the gas's polarisability $\alpha$; for
 air, optmat's dry air, the sum of its constituents' models. The index follows from
-the Lorentz–Lorenz relation at the **ideal-gas** density $N = P/(k_B T)$:
+the Lorentz–Lorenz relation at the **real-gas** density $N = P/(Z k_B T)$, with the
+compressibility factor $Z$ of the gas's reference equation of state (CoolProp,
+through optmat):
 
 ```python
 import croak
@@ -135,8 +137,10 @@ path length at the set pressure. The available gases are in
 {data}`croak.gases.GASES`: `Air` and optmat's species (`He`, `Ne`, `Ar`, `Kr`,
 `Xe`, `H2`, `D2`, `N2`, `O2`, `CH4`, `SF6`, `N2O`, `CO2`, `O3`, `CO`). The earlier
 name `Helium` still resolves to `He`. {func}`croak.gases.gas_model` returns the
-optmat model behind a name. The ideal gas is accurate to about 0.1 % for helium and
-air up to a few bar; at tens of bar a real-gas equation of state would differ.
+optmat model behind a name. The real gas matters most for the heavy gases: at 20 °C
+and 10 bar its index differs from the ideal gas's by 0.5 % for helium and air, 6 %
+for CO₂ and xenon and 15 % for SF₆. A state where the gas would condense raises a
+`ValueError`.
 
 The GUI's **Gases** group selects the gas, pressure and path length. Pressure
 ranges from 0–10 bar in 1 mbar steps; path length ranges to ±999 cm. Negative

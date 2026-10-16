@@ -26,11 +26,11 @@ def test_gas_reference_refractive_index():
 
 
 @pytest.mark.parametrize("gas", gases.GASES)
-def test_every_gas_is_optmats_model_at_the_ideal_gas_density(gas):
+def test_every_gas_is_optmats_model_at_the_real_gas_density(gas):
     # croak adds the bar → Pa conversion, the real part and the mask, nothing more.
     lam = np.array([400e-9, 800e-9, 1600e-9])
     model = gases.gas_model(gas)
-    expected = model.refractive_index(lam, State(2e5, 300.0), ideal=True, warn=False)
+    expected = model.refractive_index(lam, State(2e5, 300.0), warn=False)
     np.testing.assert_array_equal(
         gases.gas_refractive_index(gas, 2.0, 300.0)(lam), np.real(expected)
     )
@@ -55,8 +55,9 @@ def test_an_unphysical_wavelength_is_nan():
 
 
 def test_gas_pressure_scaling_linear():
-    # N ∝ pressure (ideal gas), and n−1 ≈ Nα/(2ε₀), so n−1 doubles from 1 to 2 bar;
-    # Lorentz–Lorenz's local-field term departs from that by ~n−1 (3e-4).
+    # N ∝ pressure, and n−1 ≈ Nα/(2ε₀), so n−1 doubles from 1 to 2 bar; air's
+    # compressibility (Z−1 ≈ −4e-4 per bar at 0 °C) and Lorentz–Lorenz's
+    # local-field term (~n−1, 3e-4) each depart from that by a few 1e-4.
     n1 = gases.gas_refractive_index("Air", 1.0, _ZERO_C)
     n2 = gases.gas_refractive_index("Air", 2.0, _ZERO_C)
     assert float(n2(800e-9)) - 1.0 == pytest.approx(
@@ -65,7 +66,7 @@ def test_gas_pressure_scaling_linear():
 
 
 def test_gas_temperature_scaling_inverse():
-    # n−1 ∝ 1/T at fixed pressure: doubling T halves it (same tolerance as above).
+    # n−1 ∝ 1/T at fixed pressure: doubling T halves it (to a few 1e-4, as above).
     n_t = gases.gas_refractive_index("Air", 1.0, _ZERO_C)
     n_2t = gases.gas_refractive_index("Air", 1.0, 2.0 * _ZERO_C)
     assert float(n_2t(800e-9)) - 1.0 == pytest.approx(
@@ -162,3 +163,19 @@ def test_gas_auto_material_compensates(air_key):
     )
     length = dispersion.auto_material(g, chirped, omega0, air_key, bounds=(-3.0, 3.0))
     assert length == pytest.approx(-1.0, abs=0.1)
+
+
+def test_the_real_gas_density_matters_for_a_heavy_gas():
+    # At 10 bar and 20 °C SF6 is 15 % denser than the ideal gas (Z ≈ 0.87).
+    state = State(10e5, gases.ROOM_TEMPERATURE_K)
+    ideal = gases.gas_model("SF6").refractive_index(800e-9, state, ideal=True)
+    n = gases.gas_refractive_index("SF6", 10.0)(800e-9)
+    assert (float(n) - 1.0) / (float(np.real(ideal)) - 1.0) == pytest.approx(
+        1.15, abs=0.01
+    )
+
+
+def test_a_condensed_state_is_refused_when_the_gas_is_built():
+    # SF6's vapour pressure at 20 °C is about 21 bar.
+    with pytest.raises(ValueError, match="condensed"):
+        gases.gas_refractive_index("SF6", 30.0)

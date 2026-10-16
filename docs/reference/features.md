@@ -120,7 +120,7 @@ Further reading: [The forward model](../explanation/forward_model.md),
   each [optmat](https://optmat.readthedocs.io)'s recommended model, with its
   provenance from {func}`croak.materials.material_model`.
 - **Gases** — air and optmat's fifteen gases (helium, argon, nitrogen, …) at the
-  ideal-gas density for a pressure and temperature; registered as ordinary
+  real-gas density for a pressure and temperature; registered as ordinary
   materials, so optical path length plays the role of thickness.
 - **Measured data** — {func}`croak.materials.make_tabulated_material` turns
   noisy samples into a smoothing spline in log-λ, so its derivatives stay

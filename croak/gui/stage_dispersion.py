@@ -31,8 +31,8 @@ _GAS_NONE = "(none)"
 # Gas controls: pressure in bar at millibar resolution (see _GAS_PRESSURE_KW) and
 # path length in cm (gas paths run cm–m, far longer than the ±20 mm solid range);
 # a negative path pre-compensates, mirroring the solid-thickness convention.
-# The 10 bar ceiling covers hollow-fibre compression and is also where the
-# ideal-gas scaling stops being quantitative (see croak.gases).
+# The 10 bar ceiling covers hollow-fibre compression and keeps every gas below its
+# vapour pressure at room temperature (SF6 condenses at about 21 bar; croak.gases).
 _GAS_PRESSURE_RANGE_BAR = (0.0, 10.0)
 _GAS_PATH_RANGE_CM = (-999.0, 999.0)
 
@@ -105,7 +105,7 @@ class StageDispersion(Stage):
                     "gas",
                     "Gas filling the beam path — air or one of optmat's gases "
                     "(He, Ar, N₂, …) — or '(none)'. The index is optmat's "
-                    "polarisability model at the ideal-gas density, 20 °C.",
+                    "polarisability model at the real-gas density, 20 °C.",
                 ),
                 (
                     "pressure (bar)",

@@ -22,12 +22,14 @@ mole-fraction sum of its constituents' models. The index at a number density
 
     \frac{n^2 - 1}{n^2 + 2} = \frac{N\alpha}{3\varepsilon_0},
 
-and the density from the **ideal-gas law**, :math:`N = P/(k_\mathrm{B}T)`, so that
-:math:`n - 1` is very nearly proportional to :math:`P/T`. The ideal gas is accurate
-to ~0.1 % for helium and air up to a few bar; it departs from a real-gas equation
-of state only at high pressure (tens of bar, e.g. hollow-core-fibre compression).
-optmat's real-gas equations of state (CoolProp) are installed with croak but not
-used here.
+and the density from the **real gas**, :math:`N = P/(Z k_\mathrm{B}T)`, with the
+compressibility factor :math:`Z` of each gas's reference equation of state
+(CoolProp, through optmat; air is Lemmon et al.'s pseudo-pure dry air, and ozone
+has none, so it is taken as ideal). :math:`n - 1` is then nearly proportional to
+:math:`P/T`, but not exactly: at 20 °C the real gas differs from the ideal by
+0.05 % for helium and air at 1 bar, 0.5 % at 10 bar, and up to 15 % for SF₆ at
+10 bar. A state where the gas would condense (SF₆ above about 21 bar at 20 °C, for
+example) is refused.
 """
 
 from __future__ import annotations
@@ -135,7 +137,7 @@ def gas_refractive_index(
     r"""Build an ``n(wavelength_m)`` callable for a gas at given pressure/temperature.
 
     The index follows from optmat's polarisability model of the gas through the
-    Lorentz–Lorenz relation at the ideal-gas density :math:`P/(k_\mathrm{B}T)` (see
+    Lorentz–Lorenz relation at the real-gas density :math:`P/(Z k_\mathrm{B}T)` (see
     the module docstring). The returned callable has the same contract as
     :func:`croak.materials.refractive_index`'s result, so it can be registered with
     :func:`croak.materials.register_material` and used wherever a material is.
@@ -161,8 +163,10 @@ def gas_refractive_index(
     Raises
     ------
     ValueError
-        If ``gas`` is not a known gas, the pressure is negative or not finite, or
-        the temperature is not positive and finite.
+        If ``gas`` is not a known gas, the pressure is negative or not finite, the
+        temperature is not positive and finite, or the gas is not a gas at that
+        state (condensed, or beyond its equation of state's range;
+        ``optmat.exceptions.StateError``, a ``ValueError``).
 
     Examples
     --------
@@ -180,6 +184,10 @@ def gas_refractive_index(
     state = (
         State(pressure_bar * _PASCAL_PER_BAR, temperature_k) if pressure_bar else None
     )
+    if state is not None:
+        # Fail here, not on the first use: the equation of state refuses a state
+        # where the gas condenses, and the density depends only on the state.
+        model.refractive_index(1e-6, state, warn=False)
 
     def n(wavelength_m: ArrayLike) -> NDArray[np.float64]:
         lam = np.asarray(wavelength_m, dtype=float)
@@ -190,7 +198,7 @@ def gas_refractive_index(
         if state is None:
             out[physical] = 1.0
             return out
-        index = model.refractive_index(lam[physical], state, ideal=True, warn=False)
+        index = model.refractive_index(lam[physical], state, warn=False)
         # The propagation model is lossless: the real part.
         out[physical] = np.real(index)
         return out
