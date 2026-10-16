@@ -222,6 +222,10 @@ def _mirror_amplitude(
     return np.clip(amp, 1.0 / _MIRROR_AMPLITUDE_CAP, _MIRROR_AMPLITUDE_CAP)
 
 
+#: Relative step (of ω) of both nested differences in :func:`material_tod`.
+_TOD_STEP = 3e-3
+
+
 def material_gdd(material: str, omega0: float, thickness: float) -> float:
     r"""GDD (fs²) of ``thickness`` of ``material`` at the carrier ``omega0``."""
     beta2 = derivative(lambda w: _beta_abs(material, w), float(omega0), 2)
@@ -233,9 +237,13 @@ def material_tod(material: str, omega0: float, thickness: float) -> float:
 
     Estimated from the third derivative of β via two second-derivative samples.
     """
-    dw = (abs(omega0) + 1.0) * 1e-4
-    b2p = derivative(lambda w: _beta_abs(material, w), float(omega0) + dw, 2)
-    b2m = derivative(lambda w: _beta_abs(material, w), float(omega0) - dw, 2)
+    # A nested difference amplifies rounding in n as h⁻³, so the steps are wide:
+    # at 3e-3·ω the truncation error is O(h²) ≈ 1e-5, while noise of 6e-15 in n
+    # (optmat's fused-silica model; a Sellmeier formula has 3e-16) costs below 1e-4.
+    # At 1e-4·ω that noise moved fused silica's TOD at 1030 nm by 10 %.
+    dw = (abs(omega0) + 1.0) * _TOD_STEP
+    b2p = derivative(lambda w: _beta_abs(material, w), float(omega0) + dw, 2, dx=dw)
+    b2m = derivative(lambda w: _beta_abs(material, w), float(omega0) - dw, 2, dx=dw)
     beta3 = (b2p - b2m) / (2 * dw)
     return beta3 * thickness / 1e-45
 

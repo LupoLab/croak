@@ -6,6 +6,63 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **Material and gas indices come from [optmat](https://optmat.readthedocs.io)**,
+  now a dependency (`optmat[gas]>=0.8.1`, which brings CoolProp for the
+  real-gas equations of state; SciPy ≥ 1.18 with it). Each built-in name is
+  optmat's recommended, documented model of the material, with absolute (vacuum)
+  indices; croak no longer carries its own Sellmeier coefficients or the
+  `SiO2-Franta` data file. Values move slightly: fused silica's index rises by
+  about 3e-4 at 800 nm, and helium's n−1 at 1 bar is 1.4 % lower (3.43e-5 at
+  800 nm, 0 °C; croak's earlier coefficient matched the literature's value at
+  1 atm). Results through a slab change accordingly. Beyond a model's stated
+  range the index is extrapolated without a warning, as the Sellmeier formulae
+  were; a non-positive frequency gives `nan`, which `beta` masks.
+- **`SiO2-Franta` is now `SiO2`** (optmat's fused silica is Franta's model refitted
+  to absolute refractometry), and the gas **`Helium` is now `He`**. The old names
+  still resolve, and sessions that saved them load under the new names; two
+  thicknesses of what is now one material add. `RetrieveParams.material` defaults
+  to `SiO2`.
+- **Gases use the real-gas density**, from each gas's reference equation of state
+  (CoolProp), not the ideal-gas law. At 20 °C it changes n−1 by 0.05 % for helium
+  and air at 1 bar and 0.5 % at 10 bar, but by 6 % for CO₂ and xenon and 15 % for
+  SF₆ at 10 bar. A state where the gas would condense raises `ValueError`.
+- `croak.gases.GAS_REFERENCE_PRESSURE_BAR` and `GAS_REFERENCE_TEMPERATURE_K` are
+  removed: the gas index is computed at the requested state from optmat's
+  polarisability, not scaled from a reference. A negative pressure or a
+  non-positive temperature now raises `ValueError`.
+
+### Added
+
+- **More materials and gases.** Sapphire (`Al2O3`, ordinary ray) and silicon
+  (`Si`) join the built-in materials; the gases are air and optmat's fifteen
+  species (He, Ne, Ar, Kr, Xe, H2, D2, N2, O2, CH4, SF6, N2O, CO2, O3, CO).
+- `croak.materials.material_model(name)` and `croak.gases.gas_model(name)` return
+  the optmat model behind a name (its source, range and identity), and
+  `croak.materials.canonical_name` / `croak.gases.canonical_name` map an earlier
+  name to the current one. `croak.materials.DESCRIPTIONS` describes each built-in
+  material.
+
+### Fixed
+
+- **`croak.dispersion.material_tod` was noise-limited.** Its nested finite
+  difference used steps of 1e-4·ω, which amplify rounding in n as h⁻³: about
+  0.4 % error for a Sellmeier formula, and 10 % for optmat's fused silica at
+  1030 nm. The steps are now 3e-3·ω, and the TOD agrees with the derivative of
+  optmat's analytic GVD to 1e-3. GDD was not affected.
+
+### Removed
+
+- **The refractiveindex.info bridge** (`croak.refractive_db`, the `ridb` extra and
+  the dispersion stage's "refractiveindex.info material" group). It downloaded a
+  database of hundreds of MB on first use and was not in use. A material croak does
+  not ship is registered with `croak.materials.register_material`. The session
+  fields `ri_shelf`, `ri_book`, `ri_page` and `ri_thickness_mm` are gone: a saved
+  session that applied such a material (a page at non-zero thickness) now fails to
+  load with a `ValueError` naming the page, rather than silently losing that
+  dispersion; one with a page at zero thickness loads as before.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added

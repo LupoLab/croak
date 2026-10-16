@@ -2,7 +2,7 @@
 
 Loading files, cleaning and regridding measured traces, the high-level pipeline,
 post-processing, dispersion tuning (including chirped mirrors, back-propagated
-beam-path coating mirrors and the refractiveindex.info database) and saving. The
+and beam-path coating mirrors) and saving. The
 dispersion sources here are described in
 [Materials and mirrors](../../howto/materials_and_mirrors.md).
 
@@ -77,16 +77,6 @@ back-propagated) — registered into the {data}`croak.dispersion.MIRRORS` table 
 
 ```{eval-rst}
 .. automodule:: croak.mirrors
-   :members:
-```
-
-## Refractive-index database
-
-Optional bridge to the [refractiveindex.info](https://refractiveindex.info)
-database for browsing arbitrary materials (requires the `croak[ridb]` extra).
-
-```{eval-rst}
-.. automodule:: croak.refractive_db
    :members:
 ```
 

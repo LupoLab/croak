@@ -1,4 +1,4 @@
-"""Tests for the dispersion model (Sellmeier + tabulated) in :mod:`croak.materials`."""
+"""Tests for the dispersion model (optmat and tabulated) in :mod:`croak.materials`."""
 
 from pathlib import Path
 
@@ -8,12 +8,15 @@ import pytest
 from croak import materials
 from croak.maths import wlfreq
 
-# the built-in tabulated SiO2-Franta dataset shipped with the package
-_FRANTA_CSV = Path(materials.__file__).parent / "data" / "materials" / "FrantaSiO2.csv"
+# Franta et al.'s broadband fused-silica optical constants (24.8 nm – 125 µm), the
+# measured data make_tabulated_material was written for; test data only.
+_FRANTA_CSV = Path(__file__).parent / "data" / "FrantaSiO2.csv"
 
 
 def test_known_refractive_indices():
-    # Reference values from refractiveindex.info for the same Sellmeier formulae.
+    # Literature values (Malitson 1965; Daimon & Masumura 2002). The tolerance
+    # covers optmat's absolute (vacuum) indices against the printed ones, which
+    # are relative to air (3e-4), and the choice of model.
     n_sio2 = materials.refractive_index("SiO2")
     assert float(n_sio2(1.0e-6)) == pytest.approx(1.4504, abs=2e-3)
     assert float(n_sio2(0.5e-6)) == pytest.approx(1.4623, abs=2e-3)
@@ -22,10 +25,57 @@ def test_known_refractive_indices():
     assert float(n_caf2(0.5e-6)) == pytest.approx(1.4365, abs=2e-3)
 
 
+@pytest.mark.parametrize("name", materials.MATERIALS)
+def test_each_material_is_optmats_recommended_model(name):
+    # croak adds nothing to optmat's index but the real part and the mask, so the
+    # two agree exactly at physical wavelengths.
+    lam = np.array([600e-9, 800e-9, 1500e-9])
+    model = materials.material_model(name)
+    np.testing.assert_array_equal(
+        materials.refractive_index(name)(lam),
+        np.real(model.refractive_index(lam, warn=False)),
+    )
+    assert model.status == "validated"
+    assert name in materials.DESCRIPTIONS
+
+
+def test_uniaxial_crystals_use_the_ordinary_ray():
+    assert materials.material_model("MgF2").axis == "o"
+    assert materials.material_model("Al2O3").axis == "o"
+
+
+def test_an_unphysical_wavelength_is_nan():
+    # A centred grid can reach ω ≤ 0: λ ≤ 0 or ∞. optmat refuses those; croak
+    # returns nan there, which beta() masks.
+    n = materials.refractive_index("SiO2")(np.array([-1e-6, 0.0, np.inf, np.nan]))
+    assert np.all(np.isnan(n))
+
+
+def test_beyond_its_range_a_material_is_extrapolated_without_a_warning():
+    # N-BK7's catalogue formula covers 0.31-2.33 µm; the FFT grid goes far
+    # beyond, so croak extrapolates silently (warnings are errors in the suite).
+    n = materials.refractive_index("BK7")(np.array([3e-6, 5e-6]))
+    assert np.all(np.isfinite(n))
+
+
+def test_a_retired_name_resolves_to_its_material():
+    lam = np.array([400e-9, 800e-9])
+    np.testing.assert_array_equal(
+        materials.refractive_index("SiO2-Franta")(lam),
+        materials.refractive_index("SiO2")(lam),
+    )
+    assert materials.canonical_name("sio2-franta") == "SiO2"
+    assert materials.canonical_name("caf2") == "CaF2"
+    assert materials.canonical_name("MyGlass") == "MyGlass"
+    assert "SiO2-Franta" not in materials.MATERIALS
+
+
 def test_case_insensitive_and_unknown():
     assert float(materials.refractive_index("sio2")(1e-6)) > 1.0
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unknown material 'unobtainium'"):
         materials.refractive_index("unobtainium")
+    with pytest.raises(ValueError, match="unknown material 'unobtainium'"):
+        materials.material_model("unobtainium")
 
 
 def test_beta_none_is_zero():
@@ -75,43 +125,49 @@ def test_register_custom_material():
         materials.refractive_index("MyGlass")
 
 
-def test_sio2_franta_registered_and_resolves():
-    # the built-in tabulated material is listed and resolves case-insensitively
-    assert "SiO2-Franta" in materials.MATERIALS
-    n = materials.refractive_index("sio2-franta")
-    # fused silica at 800 nm ~ 1.4535
-    assert float(n(800e-9)) == pytest.approx(1.4535, abs=2e-3)
+@pytest.fixture
+def franta_spline():
+    """Register Franta's measured fused silica, as a smoothing spline."""
+    lam_m, n = materials.read_nk_csv(_FRANTA_CSV)
+    n_func, _ = materials.make_tabulated_material(lam_m, n)
+    materials.register_material("FrantaSpline", n_func)
+    yield n_func
+    materials.unregister_material("FrantaSpline")
 
 
-def test_sio2_franta_out_of_range_is_masked():
-    n = materials.refractive_index("SiO2-Franta")
-    # 200 µm is beyond the tabulated range (24.8 nm – 125 µm) → nan
-    assert np.isnan(float(n(200e-6)))
-    # ... and beta masks the non-finite entry to zero
-    omega0 = wlfreq(800e-9)
-    omega = np.array([0.0, 1e18])  # second point maps to a deep-UV, out-of-range λ
-    b = materials.beta("SiO2-Franta", omega, omega0)
-    assert np.all(np.isfinite(b))
+def test_franta_data_agree_with_optmats_fused_silica(franta_spline):
+    """GDD/TOD of the smoothed measured data agree with optmat's SiO2.
 
-
-def test_sio2_franta_dispersion_matches_sellmeier():
-    """GDD/TOD from the tabulated data agree with the SiO2 Sellmeier model.
-
-    The key invariant: differentiating the smoothing-spline ``n(λ)`` up to third
-    order reproduces fused silica's known dispersion, confirming the derivatives
-    are well conditioned. A raw interpolant of the same noisy data would not (see
-    :func:`test_tabulated_smoothing_tames_derivative_noise`).
+    optmat's fused silica is Franta's model refitted to absolute refractometry, so
+    the two must agree; and differentiating the smoothing-spline ``n(λ)`` up to
+    third order must be well conditioned. A raw interpolant of the same noisy data
+    would not be (see :func:`test_tabulated_smoothing_tames_derivative_noise`).
+    The tolerances are the spline's: 5 % in GDD and 25 % in TOD.
     """
     from croak import dispersion
 
     for lam0 in (400e-9, 800e-9, 1030e-9):
         omega0 = wlfreq(lam0)
-        gdd_tab = dispersion.material_gdd("SiO2-Franta", omega0, 1e-3)
+        gdd_tab = dispersion.material_gdd("FrantaSpline", omega0, 1e-3)
         gdd_ref = dispersion.material_gdd("SiO2", omega0, 1e-3)
         assert gdd_tab == pytest.approx(gdd_ref, rel=0.05)
-        tod_tab = dispersion.material_tod("SiO2-Franta", omega0, 1e-3)
+        tod_tab = dispersion.material_tod("FrantaSpline", omega0, 1e-3)
         tod_ref = dispersion.material_tod("SiO2", omega0, 1e-3)
         assert tod_tab == pytest.approx(tod_ref, rel=0.25)
+    # The refit moved the index by 0.8-3.4e-4 (optmat TC-399): within 5e-4.
+    assert float(franta_spline(800e-9)) == pytest.approx(
+        float(materials.refractive_index("SiO2")(800e-9)), abs=5e-4
+    )
+
+
+def test_a_tabulated_material_is_nan_out_of_range(franta_spline):
+    # 200 µm is beyond the tabulated range (24.8 nm – 125 µm) → nan ...
+    assert np.isnan(float(franta_spline(200e-6)))
+    # ... and beta masks the non-finite entry to zero
+    omega0 = wlfreq(800e-9)
+    omega = np.array([0.0, 1e18])  # second point maps to a deep-UV, out-of-range λ
+    b = materials.beta("FrantaSpline", omega, omega0)
+    assert np.all(np.isfinite(b))
 
 
 def test_make_tabulated_material_clean_recovery_and_contract():
@@ -140,15 +196,15 @@ def test_make_tabulated_material_clean_recovery_and_contract():
         materials.make_tabulated_material([1e-6, 2e-6], [1.5, 1.4])
 
 
-def test_tabulated_smoothing_tames_derivative_noise():
+def test_tabulated_smoothing_tames_derivative_noise(franta_spline):
     """A raw interpolant of the experimental data yields a meaningless GDD where
     the smoothing spline recovers the physical value."""
     from croak import dispersion
 
     omega0 = wlfreq(800e-9)
     gdd_ref = dispersion.material_gdd("SiO2", omega0, 1e-3)
-    # shipped material (smoothing spline) ~ physical fused-silica GDD
-    gdd_smooth = dispersion.material_gdd("SiO2-Franta", omega0, 1e-3)
+    # the smoothing spline of the data ~ physical fused-silica GDD
+    gdd_smooth = dispersion.material_gdd("FrantaSpline", omega0, 1e-3)
     assert gdd_smooth == pytest.approx(gdd_ref, rel=0.05)
 
     # a raw piecewise-linear interpolant of the SAME data: its second derivative

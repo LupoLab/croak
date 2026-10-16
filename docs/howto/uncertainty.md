@@ -112,7 +112,7 @@ u = croak.thickness_bootstrap(
     result, td.trace,
     central_thickness=9.952e-6,   # measured L0 (m)
     thickness_sigma=0.539e-6,     # measured σ_L (m)
-    material="SiO2-Franta",
+    material="SiO2",
     npoints=20,                   # reproduce the retrieval's dispersive settings
     maxiters=...,                 # …and the rest of its solver settings
     n_resamples=300, collect_profiles=True,

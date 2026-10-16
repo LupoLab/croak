@@ -8,13 +8,11 @@ default).
 
 from __future__ import annotations
 
-import contextlib
 import os
 from dataclasses import replace
 
 import numpy as np
 from PyQt6.QtWidgets import (
-    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -22,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import dispersion, gases, materials, plotting, refractive_db, save
+from .. import dispersion, gases, materials, plotting, save
 from ..processing import process_result, spectrogram
 from .base import Stage
 from .canvas import MplCanvas, combo, group, with_toolbar
@@ -33,13 +31,13 @@ _GAS_NONE = "(none)"
 # Gas controls: pressure in bar at millibar resolution (see _GAS_PRESSURE_KW) and
 # path length in cm (gas paths run cm–m, far longer than the ±20 mm solid range);
 # a negative path pre-compensates, mirroring the solid-thickness convention.
-# The 10 bar ceiling covers hollow-fibre compression and is also where the
-# ideal-gas scaling stops being quantitative (see croak.gases).
+# The 10 bar ceiling covers hollow-fibre compression and keeps every gas below its
+# vapour pressure at room temperature (SF6 condenses at about 21 bar; croak.gases).
 _GAS_PRESSURE_RANGE_BAR = (0.0, 10.0)
 _GAS_PATH_RANGE_CM = (-999.0, 999.0)
 
 # Material thickness controls follow the single source of truth in
-# ``materials.MATERIALS`` (built-in Sellmeier + tabulated), so new materials
+# ``materials.MATERIALS`` (the built-in optmat materials), so new materials
 # surface here automatically and stay in sync with the other GUI stages.
 _MATERIALS = list(materials.MATERIALS)
 # Slider bounds (fs² / fs³ / fs⁴, mm). Chosen to span the residual dispersion a
@@ -92,41 +90,12 @@ class StageDispersion(Stage):
             "Materials (mm)",
             [
                 (
-                    "SiO2",
-                    "Thickness (mm) of fused silica to add; negative "
-                    "pre-compensates. 'Auto' optimises it.",
-                ),
-                ("BK7", "Thickness (mm) of N-BK7 to add (negative pre-compensates)."),
-                ("CaF2", "Thickness (mm) of CaF₂ to add (negative pre-compensates)."),
-                ("BaF2", "Thickness (mm) of BaF₂ to add (negative pre-compensates)."),
-                ("MgF2", "Thickness (mm) of MgF₂ to add (negative pre-compensates)."),
-                (
-                    "SiO2-Franta",
-                    "Thickness (mm) of fused silica using Franta et al. broadband "
-                    "tabulated optical constants (24.8 nm – 125 µm), valid far "
-                    "beyond the Sellmeier range.",
-                ),
-            ],
-        ),
-        (
-            "refractiveindex.info material",
-            [
-                (
-                    "shelf",
-                    "Top-level refractiveindex.info category (click 'Load "
-                    "database' first; the catalogue downloads on first use).",
-                ),
-                ("book", "Material within the selected shelf."),
-                (
-                    "page",
-                    "Data source/reference for the material; the valid wavelength "
-                    "range is shown below.",
-                ),
-                (
-                    "thickness (mm)",
-                    "Thickness of the selected refractiveindex.info material to "
-                    "add (negative pre-compensates). 'Auto' optimises it.",
-                ),
+                    name,
+                    f"Thickness (mm) of {description} to add; negative "
+                    "pre-compensates. 'Auto' optimises it. The index is optmat's "
+                    "recommended model of the material.",
+                )
+                for name, description in materials.DESCRIPTIONS.items()
             ],
         ),
         (
@@ -134,14 +103,14 @@ class StageDispersion(Stage):
             [
                 (
                     "gas",
-                    "Gas filling the beam path (Helium or Air), or '(none)'. "
-                    "Sellmeier data ported from Luna.jl; the index scales with "
-                    "pressure via the ideal-gas law.",
+                    "Gas filling the beam path — air or one of optmat's gases "
+                    "(He, Ar, N₂, …) — or '(none)'. The index is optmat's "
+                    "polarisability model at the real-gas density, 20 °C.",
                 ),
                 (
                     "pressure (bar)",
-                    "Gas pressure in bar (n−1 scales linearly with it; 0 is "
-                    "vacuum). Coefficients are referenced to 1 bar.",
+                    "Gas pressure in bar (n−1 is very nearly proportional to it; "
+                    "0 is vacuum).",
                 ),
                 (
                     "path length (cm)",
@@ -206,13 +175,8 @@ class StageDispersion(Stage):
     def __init__(self, state):
         super().__init__(state)
         self._base = None  # original retrieved spectrum
-        self._ri_key = None  # registered refractiveindex.info material name
-        self._ri_range = None  # (lo, hi) m valid range of the selected RI material
         self._gas_key = None  # registered active-gas material name, or None
         self._gas_name = ""  # name of the active gas (for re-registration)
-        self._ri_shelf_ids: list[str] = []
-        self._ri_book_ids: list[str] = []
-        self._ri_page_ids: list[str] = []
 
         box, form = group("Optimiser")
         self.method = combo(
@@ -263,7 +227,6 @@ class StageDispersion(Stage):
             form.addRow(mat, row)
         self.controls.addWidget(box)
 
-        self._build_ri_group()
         self._build_gas_group()
         self._build_mirror_group()
 
@@ -302,47 +265,6 @@ class StageDispersion(Stage):
         self.apply_help()
 
     # -- group builders -----------------------------------------------------
-    def _build_ri_group(self):
-        box, form = group("refractiveindex.info material")
-        self.ri_load_btn = QPushButton("Load database")
-        self.ri_load_btn.clicked.connect(self._load_ri_db)
-        form.addRow(self.ri_load_btn)
-        self.ri_shelf = QComboBox()
-        self.ri_book = QComboBox()
-        self.ri_page = QComboBox()
-        self.ri_shelf.currentIndexChanged.connect(self._on_ri_shelf)
-        self.ri_book.currentIndexChanged.connect(self._on_ri_book)
-        self.ri_page.currentIndexChanged.connect(self._on_ri_page)
-        for c in (self.ri_shelf, self.ri_book, self.ri_page):
-            c.setEnabled(False)
-        form.addRow("shelf", self.ri_shelf)
-        form.addRow("book", self.ri_book)
-        form.addRow("page", self.ri_page)
-        self.ri_range_label = QLabel("–")
-        form.addRow("valid λ", self.ri_range_label)
-        self.ri_thickness = ValueControl(
-            *_MAT_RANGE_MM, 0.0, decimals=3, slider_scale=100.0
-        )
-        self.ri_thickness.changed.connect(self._changed)
-        row = QWidget()
-        rl = QHBoxLayout(row)
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.addWidget(self.ri_thickness, stretch=1)
-        btn = QPushButton("Auto")
-        btn.clicked.connect(self._auto_ri)
-        rl.addWidget(btn)
-        form.addRow("thickness (mm)", row)
-        if not refractive_db.available():
-            self.ri_load_btn.setEnabled(False)
-            self.ri_load_btn.setText("Install 'ridb' extra")
-            self.ri_load_btn.setToolTip(
-                "The optional 'refractiveindex' package is not installed. Install "
-                "it (e.g. `uv pip install 'croak[ridb]'` or `pip install "
-                "'croak[ridb]'`) and restart; this button then downloads the "
-                "refractiveindex.info database on first use."
-            )
-        self.controls.addWidget(box)
-
     def _build_mirror_group(self):
         box, form = group("Mirrors")
         self.mirror_stack = MirrorStack()
@@ -381,108 +303,6 @@ class StageDispersion(Stage):
         rl.addWidget(auto)
         form.addRow("path length (cm)", row)
         self.controls.addWidget(box)
-
-    @staticmethod
-    def _range_text(rng):
-        """Format a ``(lo, hi)`` wavelength range (m) as ``"lo–hi nm"``."""
-        return f"{rng[0] / 1e-9:.0f}–{rng[1] / 1e-9:.0f} nm" if rng else "(unknown)"
-
-    def _fill_combo(self, box, items, index):
-        box.blockSignals(True)
-        box.clear()
-        box.addItems([str(i) for i in items])
-        if index is not None and 0 <= index < len(items):
-            box.setCurrentIndex(index)
-        box.blockSignals(False)
-
-    # -- refractiveindex.info handlers --------------------------------------
-    def _load_ri_db(self):
-        if not refractive_db.available():
-            self.set_status("pip install croak[ridb] to enable refractiveindex.info")
-            return
-        self.set_status(
-            "Loading refractiveindex.info catalogue (first use may "
-            "download the database)…"
-        )
-        try:
-            shelves = refractive_db.shelves()
-        except Exception as exc:
-            self.set_status(f"refractiveindex.info unavailable: {exc}")
-            return
-        self._ri_shelf_ids = [sid for sid, _ in shelves]
-        self._fill_combo(self.ri_shelf, [label for _, label in shelves], 0)
-        for c in (self.ri_shelf, self.ri_book, self.ri_page):
-            c.setEnabled(True)
-        self._on_ri_shelf()  # cascade-fill books, pages and register material
-        self.set_status(f"{len(shelves)} shelves loaded.")
-
-    def _on_ri_shelf(self, *_):
-        if not self._ri_shelf_ids:
-            return
-        sid = self._ri_shelf_ids[self.ri_shelf.currentIndex()]
-        self.state.dispersion.ri_shelf = sid
-        bks = refractive_db.books(sid)
-        self._ri_book_ids = [bid for bid, _ in bks]
-        self._fill_combo(self.ri_book, [label for _, label in bks], 0)
-        self._on_ri_book()
-
-    def _on_ri_book(self, *_):
-        if not self._ri_book_ids:
-            return
-        sid = self._ri_shelf_ids[self.ri_shelf.currentIndex()]
-        bid = self._ri_book_ids[self.ri_book.currentIndex()]
-        self.state.dispersion.ri_book = bid
-        pgs = refractive_db.pages(sid, bid)
-        self._ri_page_ids = [pid for pid, _ in pgs]
-        self._fill_combo(self.ri_page, [label for _, label in pgs], 0)
-        self._on_ri_page()
-
-    def _on_ri_page(self, *_):
-        if not self._ri_page_ids:
-            return
-        sid = self._ri_shelf_ids[self.ri_shelf.currentIndex()]
-        bid = self._ri_book_ids[self.ri_book.currentIndex()]
-        pid = self._ri_page_ids[self.ri_page.currentIndex()]
-        self.state.dispersion.ri_page = pid
-        try:
-            n_func, rng = refractive_db.make_material(sid, bid, pid)
-        except Exception as exc:
-            self.set_status(f"Could not load material: {exc}")
-            return
-        if self._ri_key:
-            materials.unregister_material(self._ri_key)
-        self._ri_key = f"RI:{bid}/{pid}"
-        materials.register_material(self._ri_key, n_func)
-        self._ri_range = rng
-        self.ri_range_label.setText(self._range_text(rng))
-        self._changed()
-
-    def _auto_ri(self):
-        if self._base is None or not self._ri_key:
-            return
-        r = self.state.result
-        if r is None:
-            return
-        base = self._mirror_base(r)
-        pr = process_result(replace(r, spectrum=base))
-        gdd_per_mm = dispersion.material_gdd(self._ri_key, r.omega0, 1e-3)
-        if gdd_per_mm and np.isfinite(gdd_per_mm):
-            t_need = -pr.gdd_fs2 / gdd_per_mm
-            span = max(10.0 * abs(t_need), 1.0)  # mm
-        else:
-            span = 20.0
-        thickness = dispersion.auto_material(
-            r.grid,
-            base,
-            r.omega0,
-            self._ri_key,
-            bounds=(-span * 1e-3, span * 1e-3),
-            method=self.method.currentText(),
-        )
-        self.ri_thickness.blockSignals(True)
-        self.ri_thickness.set_value(thickness * 1e3)
-        self.ri_thickness.blockSignals(False)
-        self._changed()
 
     # -- mirror-stack handlers ----------------------------------------------
     def _auto_row(self, row):
@@ -592,9 +412,7 @@ class StageDispersion(Stage):
         d.gas_name = self._gas_name
         d.gas_pressure_bar = self.gas_pressure.value()
         d.gas_path_cm = self.gas_path.value()
-        d.ri_thickness_mm = self.ri_thickness.value()
         d.mirrors = self.mirror_stack.to_specs()
-        # ri_shelf/ri_book/ri_page are kept current by the RI selection handlers.
 
     def _restore_from_params(self) -> None:
         """Populate the controls from ``state.dispersion`` (signals blocked)."""
@@ -603,7 +421,6 @@ class StageDispersion(Stage):
             (self.gdd, d.gdd_fs2),
             (self.tod, d.tod_fs3),
             (self.fod, d.fod_fs4),
-            (self.ri_thickness, d.ri_thickness_mm),
             (self.gas_pressure, d.gas_pressure_bar),
             (self.gas_path, d.gas_path_cm),
         ):
@@ -626,39 +443,19 @@ class StageDispersion(Stage):
         self.mirror_stack.blockSignals(True)
         self.mirror_stack.load_specs(d.mirrors)
         self.mirror_stack.blockSignals(False)
-        self._restore_ri(d)
-
-    def _restore_ri(self, d) -> None:
-        """Re-register a saved refractiveindex.info material if the db is available.
-
-        Best-effort: the cascading shelf/book/page combos are only populated once
-        the user loads the database, but the saved page is enough to re-register
-        the material (and thus re-apply it) so the reloaded pulse matches.
-        """
-        if not (d.ri_page and refractive_db.available()):
-            return
-        with contextlib.suppress(Exception):
-            n_func, rng = refractive_db.make_material(d.ri_shelf, d.ri_book, d.ri_page)
-            if self._ri_key:
-                materials.unregister_material(self._ri_key)
-            self._ri_key = f"RI:{d.ri_book}/{d.ri_page}"
-            materials.register_material(self._ri_key, n_func)
-            self._ri_range = rng
 
     # -- tuning -------------------------------------------------------------
     def _extra_dispersion(self):
         """Material thicknesses (m) and mirror bounces from all controls.
 
-        Combines the built-in Sellmeier rows, the optional refractiveindex.info
-        material, the optional active gas (path length as thickness, pressure
+        Combines the built-in material rows, the optional active gas (path length
+        as thickness, pressure
         baked into its registered ``n(λ)``), and the mirror stack (signed bounce
         counts; negative back-propagates a beam-path mirror out of the pulse).
         """
         mats = {
             m: c.value() * 1e-3 for m, c in self._mat_ctrls.items() if c.value() != 0
         }
-        if self._ri_key and self.ri_thickness.value() != 0:
-            mats[self._ri_key] = self.ri_thickness.value() * 1e-3
         if self._gas_key and self.gas_path.value() != 0:
             mats[self._gas_key] = self.gas_path.value() * 1e-2  # cm -> m
         bounces = self.mirror_stack.bounces_dict() or None
@@ -834,7 +631,6 @@ class StageDispersion(Stage):
             self.gdd,
             self.tod,
             self.fod,
-            self.ri_thickness,
             self.gas_path,
             *self._mat_ctrls.values(),
         ):

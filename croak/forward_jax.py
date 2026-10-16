@@ -23,8 +23,8 @@ Additional paths implement chromatic focusing and coherent collection. The modul
   ``_ifft0``;
 * treats the slab propagation constant :math:`\beta(\omega)` as a **static
   constant**: it does not depend on the optimisation variables, so it is built
-  once with the numpy :func:`croak.materials.beta` and captured (no need to port
-  the Sellmeier formulae to JAX).
+  once with the numpy :func:`croak.materials.beta` and captured (no need to
+  evaluate the refractive-index models in JAX).
 
 See :class:`croak.forward.ForwardModel` for the physical model and notation.
 """

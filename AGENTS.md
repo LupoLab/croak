@@ -19,7 +19,7 @@ rather than style, ask rather than guess.
 | Type checker | `pyright`, `basic` mode, over `croak/` |
 | Numerics | NumPy/SciPy, with JAX (optimistix, lineax) for the differentiable solvers |
 | GUI | the `gui` extra (PyQt6, superqt); the dev group always installs it, and its tests run offscreen with pytest-qt |
-| Optional extras | `evo` (evosax, the `cma-es` retriever; in the dev group) and `ridb` (refractiveindex.info; *not* in the dev group, tested against a fake database) |
+| Optional extras | `evo` (evosax, the `cma-es` retriever; in the dev group) |
 
 ## Guiding principles
 

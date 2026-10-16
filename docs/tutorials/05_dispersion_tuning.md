@@ -118,7 +118,7 @@ register mirrors with {func}`~croak.dispersion.register_mirror`. The
 [Materials and mirrors](../howto/materials_and_mirrors.md) how-to covers the built-in
 chirped mirrors ({data}`croak.mirrors.BUILTIN_MIRRORS`) and coatings
 ({data}`croak.mirrors.BUILTIN_COATINGS`), building a mirror from your own measurement,
-custom materials and the refractiveindex.info database.
+and custom materials.
 
 ```{admonition} Sign convention
 :class: note

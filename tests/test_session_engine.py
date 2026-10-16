@@ -170,6 +170,50 @@ def test_dispersion_from_mapping_rebuilds_nested_values_and_drops_unknowns():
     assert not hasattr(p, "from_the_future")
 
 
+def test_dispersion_from_mapping_refuses_an_applied_refractiveindex_material():
+    # croak 0.2 could apply a refractiveindex.info page; dropping it as an unknown
+    # key would silently change the compensated pulse, so it is refused.
+    with pytest.raises(ValueError, match="refractiveindex.info material SiO2/Malitson"):
+        _dispersion_from_mapping(
+            {"ri_book": "SiO2", "ri_page": "Malitson", "ri_thickness_mm": 0.2}
+        )
+
+
+def test_dispersion_from_mapping_drops_an_unapplied_refractiveindex_page():
+    # A page selected at zero thickness changed nothing, so the session loads.
+    p = _dispersion_from_mapping(
+        {
+            "gdd_fs2": 5.0,
+            "ri_book": "SiO2",
+            "ri_page": "Malitson",
+            "ri_thickness_mm": 0.0,
+        }
+    )
+    assert p == DispersionParams(gdd_fs2=5.0)
+
+
+def test_a_session_with_retired_names_loads_under_the_current_ones():
+    # croak 0.2 saved SiO2-Franta and Helium; both now name optmat's models under
+    # SiO2 and He, and two slabs of what is now one material add.
+    options = SessionOptions.from_dict(
+        {
+            "retrieve": {"material": "SiO2-Franta"},
+            "dispersion": {
+                "gas_name": "Helium",
+                "material_thickness_mm": {"SiO2-Franta": 0.5, "SiO2": 0.25},
+            },
+        }
+    )
+    assert options.retrieve.material == "SiO2"
+    assert options.dispersion.gas_name == "He"
+    assert options.dispersion.material_thickness_mm == {"SiO2": 0.75}
+
+
+def test_a_session_with_an_unknown_gas_is_refused():
+    with pytest.raises(ValueError, match="unknown gas 'Plasma'"):
+        _dispersion_from_mapping({"gas_name": "Plasma"})
+
+
 def test_session_options_round_trip_through_toml(tmp_path):
     options = SessionOptions(
         entry="simulated",

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from croak import dispersion
+from croak import dispersion, materials
 from croak.grid import Grid
 from croak.maths import fwhm, wlfreq
 from croak.pulses import gaussian_pulse
@@ -195,11 +195,31 @@ def test_dispersion_phase_skips_unknown_and_zero_bounce_mirrors(setup):
 def test_material_tod_of_fused_silica(setup):
     _, omega0, _ = setup
     # Fused silica at 800 nm: ~27 fs^3 per mm (tabulated values 26-28 fs^3/mm);
-    # the bracket allows for the Sellmeier fit and the finite-difference estimate.
+    # the bracket allows for the choice of model.
     tod_fs3 = dispersion.material_tod("SiO2", omega0, 1e-3)
     assert 25.0 < tod_fs3 < 30.0
     # linear in thickness
     assert dispersion.material_tod("SiO2", omega0, 2e-3) == pytest.approx(2 * tod_fs3)
+
+
+@pytest.mark.parametrize("material", ["SiO2", "BK7", "CaF2"])
+@pytest.mark.parametrize("wavelength", [800e-9, 1030e-9])
+def test_material_tod_matches_optmats_analytic_gvd(material, wavelength):
+    # Regression: with 1e-4·ω steps the nested difference amplified the 6e-15
+    # noise of optmat's fused silica into a 10 % error at 1030 nm. The reference
+    # differentiates optmat's gvd, which is built on the exact dn/dω, once
+    # (a 1e-3·ω step: truncation 1e-6); croak must agree to 1e-3.
+    model = materials.material_model(material)
+    omega0 = float(wlfreq(wavelength))
+    h = 1e-3 * omega0
+    beta3 = (
+        model.gvd(wlfreq(omega0 + h), warn=False)
+        - model.gvd(wlfreq(omega0 - h), warn=False)
+    ) / (2 * h)
+    expected_fs3 = float(beta3) * 1e-3 / 1e-45
+    assert dispersion.material_tod(material, omega0, 1e-3) == pytest.approx(
+        expected_fs3, rel=1e-3
+    )
 
 
 def test_auto_material_nelder_mead_respects_the_bounds(setup):

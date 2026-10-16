@@ -254,7 +254,7 @@ model it refuse loudly. Notes:
   or a `chromatic=False` window covering the whole k grid — with the flag off that
   route reproduces `collection=None` exactly, by Parseval).
 * **Assumptions.** The full $k_z$ square root is used (no paraxial expansion) with the
-  full Sellmeier $n(\omega)$; the input beams still propagate on-axis — only the
+  full material index $n(\omega)$; the input beams still propagate on-axis — only the
   generated signal's exit propagation is corrected. The *input*-side repair (evolved,
   walked, per-arm filters) is the depth-resolved mixture below, and the two compose.
 * **Cost.** One aperture contraction per depth node instead of one total: ≈2.5× the

@@ -1411,9 +1411,9 @@ def test_dispersion_gas_updates_pulse(qtbot):
     disp.on_enter()
 
     # selecting a gas registers a pressure-baked material under the active-gas key
-    disp.gas_combo.setCurrentText("Helium")
+    disp.gas_combo.setCurrentText("He")
     assert disp._gas_key is not None
-    assert disp._gas_name == "Helium"
+    assert disp._gas_name == "He"
 
     # a higher pressure re-registers; a non-zero path length updates the pulse
     disp.gas_pressure.set_value(5.0)

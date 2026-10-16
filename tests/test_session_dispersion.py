@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 import croak
-from croak import dispersion, materials, mirrors, refractive_db
+from croak import dispersion, materials, mirrors
 from croak.result import RetrievalResult
 from croak.session.dispersion import (
     compose_dispersion,
@@ -49,11 +49,9 @@ def _custom_mirror_csv(tmp_path, values) -> str:
         (DispersionParams(gdd_fs2=1.0), True),
         (DispersionParams(tod_fs3=1.0), True),
         (DispersionParams(fod_fs4=1.0), True),
-        # a page without a thickness, or a gas without a path, does nothing
-        (DispersionParams(ri_page="p"), False),
-        (DispersionParams(ri_page="p", ri_thickness_mm=1.0), True),
-        (DispersionParams(gas_name="Helium"), False),
-        (DispersionParams(gas_name="Helium", gas_path_cm=1.0), True),
+        # a gas without a path does nothing
+        (DispersionParams(gas_name="He"), False),
+        (DispersionParams(gas_name="He", gas_path_cm=1.0), True),
         (DispersionParams(material_thickness_mm={"SiO2": 0.0}), False),
         (DispersionParams(material_thickness_mm={"SiO2": 0.1}), True),
         (DispersionParams(mirrors=[BeamPathMirror(name="PC70")]), False),
@@ -80,9 +78,9 @@ def test_transfer_function_matches_taylor_phase(registries_untouched):
 
 def test_transfer_function_gas_matches_direct_registration(registries_untouched):
     """The gas row is the gas index at its pressure over the path length."""
-    params = DispersionParams(gas_name="Helium", gas_pressure_bar=3.0, gas_path_cm=50)
+    params = DispersionParams(gas_name="He", gas_pressure_bar=3.0, gas_path_cm=50)
     h = transfer_function(params, GRID, OMEGA0)
-    n_func = croak.gases.gas_refractive_index("Helium", 3.0)
+    n_func = croak.gases.gas_refractive_index("He", 3.0)
     materials.register_material("_test_gas", n_func)
     try:
         direct = croak.apply_dispersion(
@@ -96,41 +94,6 @@ def test_transfer_function_gas_matches_direct_registration(registries_untouched)
     # identical arithmetic on the same inputs
     np.testing.assert_allclose(h, direct, rtol=1e-12, atol=1e-12)
     assert not np.allclose(h, 1.0)
-
-
-def test_refractive_index_material_requires_the_extra(monkeypatch):
-    monkeypatch.setattr(refractive_db, "available", lambda: False)
-    params = DispersionParams(ri_shelf="main", ri_book="SiO2", ri_page="Malitson")
-    params.ri_thickness_mm = 1.0
-    with pytest.raises(RuntimeError, match="'ridb' extra is not installed"):
-        transfer_function(params, GRID, OMEGA0)
-
-
-def test_refractive_index_material_registers_and_cleans_up(
-    monkeypatch, registries_untouched
-):
-    """An RI page is propagated like a registered material of that index."""
-    calls = []
-
-    def fake_make_material(shelf, book, page):
-        calls.append((shelf, book, page))
-        return croak.materials.refractive_index("SiO2"), None
-
-    monkeypatch.setattr(refractive_db, "available", lambda: True)
-    monkeypatch.setattr(refractive_db, "make_material", fake_make_material)
-    params = DispersionParams(
-        ri_shelf="main", ri_book="SiO2", ri_page="Malitson", ri_thickness_mm=0.2
-    )
-    h = transfer_function(params, GRID, OMEGA0)
-    direct = croak.apply_dispersion(
-        GRID.omega,
-        OMEGA0,
-        np.ones(GRID.n, complex),
-        material_thicknesses={"SiO2": 0.2e-3},
-    )
-    assert calls == [("main", "SiO2", "Malitson")]
-    # the same index function through the same propagation
-    np.testing.assert_allclose(h, direct, rtol=1e-12, atol=1e-12)
 
 
 @pytest.mark.parametrize("datatype", ["gdd", "phase"])
@@ -200,7 +163,7 @@ def test_compose_dispersion_applies_the_transfer_function(registries_untouched):
         error=0.0,
         omega0=OMEGA0,
     )
-    params = DispersionParams(gdd_fs2=30.0, gas_name="Helium", gas_path_cm=10.0)
+    params = DispersionParams(gdd_fs2=30.0, gas_name="He", gas_path_cm=10.0)
     composed = compose_dispersion(params, result)
     h = transfer_function(params, GRID, OMEGA0)
     np.testing.assert_allclose(composed.spectrum, ew * h, rtol=1e-12, atol=1e-14)

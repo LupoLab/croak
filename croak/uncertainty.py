@@ -876,7 +876,7 @@ def thickness_bootstrap(
         Standard deviation :math:`\sigma_L` of the thickness prior in **metres**
         (``>= 0``; ``0`` gives a degenerate, zero-width distribution).
     material : str
-        Substrate material name (e.g. ``"SiO2-Franta"``), as accepted by
+        Substrate material name (e.g. ``"SiO2"``), as accepted by
         :func:`croak.materials.refractive_index`.
     n_resamples : int, optional
         Number of Monte-Carlo draws ``B`` (≈200–300 for a 1σ interval).

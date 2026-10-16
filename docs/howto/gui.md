@@ -270,8 +270,7 @@ and hand the trace straight to the marginal-check stage.
    [geometric smearing](geometric_smearing.md) for the reduced model.
 8. **Dispersion** — apply and auto-tune residual dispersion
    ({mod}`croak.dispersion`) to compress the retrieved pulse, including real glass
-   (built-in, custom, or [refractiveindex.info](../howto/materials_and_mirrors.md)
-   materials) and a **mirror stack** — add rows of `(mirror, polarisation, bounces,
+   (built-in or [custom](../howto/materials_and_mirrors.md) materials) and a **mirror stack** — add rows of `(mirror, polarisation, bounces,
    remove/add)` to back-propagate (remove) beam-path coating mirrors or add
    chirped-mirror bounces — with the temporal profile and spectrogram updating as you
    drag the sliders. Enter a **pulse energy** (J) (shared with the Load stage) to

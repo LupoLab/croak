@@ -314,7 +314,7 @@ def dispersive_problem():
     omega0 = float(wlfreq(800e-9))
     ew = croak.gaussian_pulse(g, 6e-15)
     delays = np.linspace(-40e-15, 40e-15, 40)
-    material, l0, npoints = "SiO2-Franta", 10e-6, 12
+    material, l0, npoints = "SiO2", 10e-6, 12
     trace = croak.maketrace(
         g.omega,
         delays,

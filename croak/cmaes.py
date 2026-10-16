@@ -77,8 +77,8 @@ def _import_strategy(strategy: str):
         )
     cls_name, family = _STRATEGIES[strategy]
     try:
-        # Optional 'evo' extra, mirroring croak.refractive_db's handling of the
-        # 'ridb' extra: the import is deliberately unresolvable in a base install.
+        # Optional 'evo' extra: the import is deliberately unresolvable in a base
+        # install.
         from evosax import (  # pyright: ignore[reportMissingImports]
             algorithms as evo_algos,
         )

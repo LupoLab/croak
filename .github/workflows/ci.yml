@@ -29,8 +29,7 @@ jobs:
         run: uv lock --check
 
       # The dev group includes the 'evo' extra (evosax) so the cma-es retriever
-      # is tested; 'ridb' is not installed (its refractiveindex.info database is
-      # a hundreds-of-megabyte download) and its tests use a fake database.
+      # is tested.
       - name: Install dependencies
         run: uv sync --frozen --group dev
 

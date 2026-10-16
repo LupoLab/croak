@@ -1,4 +1,4 @@
-"""The dispersion stage: tuning controls, auto-tuners, gases, RI materials, save."""
+"""The dispersion stage: tuning controls, auto-tuners, gases, save."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("PyQt6")
 
-from croak import materials, refractive_db
+from croak import materials
 from croak.forward import maketrace
 from croak.grid import Grid
 from croak.gui import stage_dispersion as sd
@@ -70,9 +70,8 @@ def _cleanup(stage):
     """
     stage.mirror_stack.blockSignals(True)
     stage.mirror_stack.clear()
-    for key in (stage._ri_key, stage._gas_key):
-        if key:
-            materials.unregister_material(key)
+    if stage._gas_key:
+        materials.unregister_material(stage._gas_key)
 
 
 def _fwhm(stage) -> float:
@@ -85,7 +84,6 @@ def test_without_a_result_everything_is_inert(qtbot):
     assert stage.status_label.text() == "Retrieve a pulse first."
     for action in (
         stage._auto_taylor,
-        stage._auto_ri,
         stage._auto_gas,
         stage._save,
         lambda: stage._auto_material("SiO2"),
@@ -110,7 +108,6 @@ def test_base_without_a_result_is_inert_for_the_tuners(qtbot, chirped_result):
     before = stage.gdd.value()
     stage._auto_taylor()
     stage._auto_material("SiO2")
-    stage._auto_ri()
     assert stage.gdd.value() == before
     _cleanup(stage)
 
@@ -203,7 +200,7 @@ def test_mirror_base_applies_only_the_mirrors(stage):
 def test_reset_clears_every_control(stage):
     stage.gdd.set_value(100.0)
     stage._mat_ctrls["SiO2"].set_value(1.0)
-    stage.gas_combo.setCurrentText("Helium")
+    stage.gas_combo.setCurrentText("He")
     stage.mirror_stack.add_row()
     stage._reset()
     assert stage.gdd.value() == 0.0
@@ -219,146 +216,17 @@ def test_saved_settings_are_restored_on_entry(qtbot, chirped_result):
     d = stage.state.dispersion
     d.gdd_fs2 = -30.0
     d.material_thickness_mm = {"BK7": 0.5}
-    d.gas_name = "Helium"
+    d.gas_name = "He"
     d.gas_pressure_bar = 3.0
     d.gas_path_cm = 10.0
     d.mirrors = [BeamPathMirror(name="", polarization="s", bounces=1)]
     stage.on_enter()
     assert stage.gdd.value() == pytest.approx(-30.0)
     assert stage._mat_ctrls["BK7"].value() == pytest.approx(0.5)
-    assert stage.gas_combo.currentText() == "Helium"
+    assert stage.gas_combo.currentText() == "He"
     assert stage._gas_key == "_active_gas"
     assert len(stage.mirror_stack.to_specs()) == 1
     _cleanup(stage)
-
-
-# -- refractiveindex.info (a fake catalogue: the extra is not installed) -------
-
-
-def _n_glass(lam_m):
-    """A normally dispersive Cauchy glass, n = 1.45 + 3600 nm² / λ²."""
-    lam_nm = np.asarray(lam_m, dtype=float) / 1e-9
-    return 1.45 + 3600.0 / lam_nm**2
-
-
-@pytest.fixture
-def fake_ridb(monkeypatch):
-    calls = []
-
-    def make_material(sid, bid, pid):
-        calls.append((sid, bid, pid))
-        if pid == "broken":
-            raise ValueError("no dispersion formula")
-        return _n_glass, (400e-9, 1200e-9)
-
-    monkeypatch.setattr(refractive_db, "available", lambda: True)
-    monkeypatch.setattr(refractive_db, "shelves", lambda: [("main", "Main")])
-    monkeypatch.setattr(refractive_db, "books", lambda sid: [("Glass", "A glass")])
-    monkeypatch.setattr(
-        refractive_db,
-        "pages",
-        lambda sid, bid: [
-            ("Cauchy", "Cauchy fit"),
-            ("broken", "Broken"),
-            ("Cauchy2", "Second fit"),
-        ],
-    )
-    monkeypatch.setattr(refractive_db, "make_material", make_material)
-    return calls
-
-
-def test_ri_unavailable_explains_how_to_install(qtbot, monkeypatch):
-    monkeypatch.setattr(refractive_db, "available", lambda: False)
-    stage = _make_stage(qtbot)
-    assert not stage.ri_load_btn.isEnabled()
-    assert stage.ri_load_btn.text() == "Install 'ridb' extra"
-    stage._load_ri_db()
-    assert "croak[ridb]" in stage.status_label.text()
-
-
-def test_ri_catalogue_failure_is_reported(qtbot, fake_ridb, monkeypatch):
-    def fail():
-        raise OSError("download failed")
-
-    monkeypatch.setattr(refractive_db, "shelves", fail)
-    stage = _make_stage(qtbot)
-    assert stage.ri_load_btn.isEnabled()
-    stage._load_ri_db()
-    assert stage.status_label.text() == (
-        "refractiveindex.info unavailable: download failed"
-    )
-
-
-def test_ri_cascade_registers_the_material_and_auto_tunes(stage, fake_ridb):
-    stage._load_ri_db()
-    assert stage.status_label.text() == "1 shelves loaded."
-    assert stage._ri_key == "RI:Glass/Cauchy"
-    assert stage.ri_range_label.text() == "400–1200 nm"
-    assert stage.state.dispersion.ri_page == "Cauchy"
-    stage._auto_ri()
-    assert stage.ri_thickness.value() < 0  # normal dispersion compensates +GDD
-    assert stage._ri_key in stage._extra_dispersion()[0]
-
-
-def test_ri_auto_without_a_usable_gdd_searches_a_fixed_span(
-    stage, fake_ridb, monkeypatch
-):
-    stage._load_ri_db()
-    monkeypatch.setattr(sd.dispersion, "material_gdd", lambda *a: float("nan"))
-    stage._auto_ri()  # the ±20 mm fallback box; the optimum is a thin negative slab
-    assert -20.0 < stage.ri_thickness.value() < 0.0
-
-
-def test_ri_page_that_fails_to_load_keeps_the_previous_material(stage, fake_ridb):
-    stage._load_ri_db()
-    stage.ri_page.setCurrentIndex(1)  # the broken page
-    assert stage.status_label.text() == "Could not load material: no dispersion formula"
-    assert stage._ri_key == "RI:Glass/Cauchy"
-
-
-def test_ri_selecting_another_page_replaces_the_registration(stage, fake_ridb):
-    stage._load_ri_db()
-    stage.ri_page.setCurrentIndex(2)
-    assert stage._ri_key == "RI:Glass/Cauchy2"
-    # The first page's material is no longer registered.
-    with pytest.raises(ValueError, match="unknown material"):
-        materials.refractive_index("RI:Glass/Cauchy")
-
-
-def test_ri_auto_without_a_result_does_nothing(stage, fake_ridb):
-    stage._load_ri_db()
-    stage.state.result = None
-    stage._auto_ri()
-    assert stage.ri_thickness.value() == 0.0
-
-
-def test_ri_shelf_with_no_books_stops_the_cascade(stage, fake_ridb, monkeypatch):
-    monkeypatch.setattr(refractive_db, "books", lambda sid: [])
-    stage._load_ri_db()
-    assert stage.ri_book.count() == 0
-    assert stage._ri_key is None
-
-
-def test_ri_handlers_without_a_catalogue_do_nothing(stage):
-    stage._on_ri_shelf()
-    stage._on_ri_book()
-    stage._on_ri_page()
-    stage._auto_ri()
-    assert stage._ri_key is None
-
-
-def test_ri_material_is_restored_from_saved_settings(stage, fake_ridb):
-    d = stage.state.dispersion
-    d.ri_shelf, d.ri_book, d.ri_page = "main", "Glass", "Cauchy"
-    stage._restore_ri(d)
-    assert stage._ri_key == "RI:Glass/Cauchy"
-    # Restoring again replaces the registration rather than leaking a second one.
-    stage._restore_ri(d)
-    assert fake_ridb[-1] == ("main", "Glass", "Cauchy")
-    # A page that no longer loads is skipped silently (best-effort restore).
-    d.ri_page = "broken"
-    stage._restore_ri(d)
-    assert stage._ri_key == "RI:Glass/Cauchy"
 
 
 # -- save ------------------------------------------------------------------------

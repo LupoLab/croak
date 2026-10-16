@@ -64,11 +64,12 @@ repository's `CITATION.cff` gives both citations.
   propagation physics. It produced the validation datasets summarised in
   [Validation](../explanation/validation.md), including the reduced scans
   shipped in `examples/data/`.
+- [optmat](https://optmat.readthedocs.io) — curated, validated optical properties
+  of gases, glasses, crystals and metals (MIT; Zenodo,
+  [doi:10.5281/zenodo.23422879](https://doi.org/10.5281/zenodo.23422879)). Every
+  built-in material and gas index in croak is optmat's recommended model; optmat's
+  manual cites the primary source of each.
 - [Luna.jl](https://github.com/LupoLab/Luna.jl) — an open-source (MIT) Julia
-  package for nonlinear optical pulse propagation. croak's Sellmeier
-  coefficients, gas-density scaling and bundled chirped-mirror tables are taken
-  from Luna's `PhysData` module, and {func}`~croak.io.read_simulated_scan` reads
+  package for nonlinear optical pulse propagation. croak's bundled
+  chirped-mirror tables are taken from Luna's `PhysData` module, and {func}`~croak.io.read_simulated_scan` reads
   the HDF5 files written by Luna's `scansave`.
-- [refractiveindex.info](https://refractiveindex.info) — the tabulated
-  refractive-index database reachable from {mod}`croak.refractive_db` (optional
-  `ridb` extra).
