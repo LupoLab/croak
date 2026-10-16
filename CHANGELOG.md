@@ -8,61 +8,6 @@ semantic versioning.
 
 ## [0.2.0] - 2026-10-16
 
-### Changed
-
-- Development: `uv run poe check` is the single definition-of-done gate, and CI
-  runs exactly it. The test suite now runs in parallel and in random order, treats
-  warnings as errors, executes the docstring examples, and requires 100%
-  statement and branch coverage of the whole package, GUI included.
-- Sessions without a measured independent spectrum no longer warn that
-  `reg_spectrum` is ignored on every run; the default weight is simply inert.
-- The NLopt L-BFGS solvers no longer warn that NLopt "stopped early" when the
-  trace error had already reached roundoff (R ≤ 1e-10); that stop is convergence.
-- Reorganised the manual into five sections: Introduction, User guide, Examples,
-  Developer's guide and API. Each User guide chapter opens with an orientation
-  page, the Examples gallery executes the example scripts, and contributor
-  material has moved to the Developer's guide. Existing page URLs are kept.
-- Updated the validation chapter, README and figures to the results of the two
-  companion papers in preparation, cited in the bibliography and
-  `CITATION.cff`. Corrected the stated definition of the trace error R (the
-  peak-normalised error) and of `RetrievalResult.trace` (already scaled by
-  `mu`), and reviewed the API docstrings against current behaviour.
-- `examples/example_thickness_uncertainty.py` now supplies the fundamental
-  spectrum as a target and uses `lbfgs-ad`. Without a target its noisy trace was
-  fitted with noise in the grid-edge bins and returned durations from about
-  1.9 to 3.2 fs for a 3 fs pulse. `examples/example_geometric_smearing.py` now runs every fit to
-  convergence from two starts and reports the trace error and rms width as well
-  as the FWHM.
-
-### Fixed
-
-- The package quick-start example now converges as stated (it used SHG from an
-  unseeded random guess, which can stall at R ≈ 2–4%).
-- The Preprocess stage no longer raises when its worker is destroyed with the stage
-  as the wizard rebuilds its stages.
-- **Back at Stage 1 could silently lose the session.** Pressing Back once too
-  often (or Main menu) reached the welcome menu, whose every entry starts a new
-  session, so going forward again found the loaded trace and retrieval gone. The
-  wizard now asks before leaving a session that holds data, with Cancel as the
-  default (`WizardState.has_data`, `Wizard.leave_to_welcome`).
-- **Two platform-sensitive numerical CI failures.** The known-truth complex-field
-  error now evaluates Geib's overlap through the equivalent least-squares
-  projection residual, avoiding the `sqrt(1 - x²)` cancellation that made an
-  identical field score either zero or `1.5e-8` depending on floating-point
-  rounding. The covariance/bootstrap cross-check now compares sample standard
-  deviations rather than bias-corrected interval widths, whose tail percentiles
-  were unstable with only 40 bootstrap samples.
-- **`delay_origin="marginal_peak"` stopped early.** The data-weighted model
-  marginal held its row factors out of the gradient, so the objective and its
-  gradient disagreed and L-BFGS terminated on a line-search failure (NLopt
-  `runtime_error`) a few dozen iterations in, returning an unconverged
-  iterate. The factors are now differentiated through.
-- **`collection="file"` on a multi-window scan used the first hole's record for
-  every window.** The session and the GUI now forward the loaded `window_key`
-  (`run_retrieval(..., scan_window=...)`, `focal_mixture_from_params(...,
-  scan_window)`), so retrieving `Iω_win_5` rebuilds the 2.0 mm aperture it was
-  recorded through rather than the 0.5 mm one.
-
 ### Added
 
 - **"Reverse delay axis" on the measured loader** (`LoadParams.reverse_trace`;
@@ -87,8 +32,7 @@ semantic versioning.
   control switches the pages and the exported PDF, and is remembered.
 - **In-place update API for the retrieval panels.** `update_<panel>(artists,
   data)` for each of the twelve panels, `update_convergence_curve`, and
-  `RetrievalPageView`; `plot_convergence` and `plot_marginal` return their
-  artists.
+  `RetrievalPageView`.
 - **The Retrieve stage shows three pages of panels.** Traces, Pulse and
   Diagnostics tabs (2×2 each — the twelve panels of `plot_retrieval`) replace the
   single twelve-panel figure, so each axes has room on a 1366×768 display (about
@@ -146,7 +90,6 @@ semantic versioning.
   represents, so with it a focal-mixture retrieval needs no `spectrum_frame_p`
   reweighting and can be seeded (`truth_init`) and scored against the truth it
   actually reconstructs. `read_simulated_truth_keys` lists it when present.
-
 - **fc-z: the depth-resolved chromatic focal mixture** (`focal_mixture(...,
   evolve_profiles=True, material=..., thickness=..., npoints=...)`). Every
   entrance-face model freezes the chromatic beamlet profiles at the slab
@@ -169,9 +112,6 @@ semantic versioning.
   is a null, matching the measured absence of the arrival advance there. PG
   only; `fit_thickness` unsupported in v1; the mixture's slab spec must match
   the trace map's (verified loudly). `depth_transverse` composes orthogonally.
-
-### Added
-
 - **Depth-resolved transverse dephasing in the collected focal model**
   (`depth_transverse=True` on `croak.forward_jax.make_param_trace_fn`, forwarded
   by `lbfgs-ad` and `retrieve_from_tracedata`; other solvers refuse it loudly).
@@ -248,24 +188,128 @@ semantic versioning.
   unregularised behaviour. `REG_DEFAULTS`/`reg_family`/`reg_defaults` moved
   from `croak.session.params` to `croak.solver` (still re-exported from the
   old location).
+- Development: `uv run poe check` is the single definition-of-done gate, and CI
+  runs exactly it. The test suite now runs in parallel and in random order, treats
+  warnings as errors, executes the docstring examples, and requires 100%
+  statement and branch coverage of the whole package, GUI included.
+- Sessions without a measured independent spectrum no longer warn that
+  `reg_spectrum` is ignored on every run; the default weight is simply inert.
+- The NLopt L-BFGS solvers no longer warn that NLopt "stopped early" when the
+  trace error had already reached roundoff (R ≤ 1e-10); that stop is convergence.
+- Reorganised the manual into five sections: Introduction, User guide, Examples,
+  Developer's guide and API. Each User guide chapter opens with an orientation
+  page, the Examples gallery executes the example scripts, and contributor
+  material has moved to the Developer's guide. Existing page URLs are kept.
+- Updated the validation chapter, README and figures to the results of the two
+  companion papers in preparation, cited in the bibliography and
+  `CITATION.cff`. Corrected the stated definition of the trace error R (the
+  peak-normalised error) and of `RetrievalResult.trace` (already scaled by
+  `mu`), and reviewed the API docstrings against current behaviour.
+- `examples/example_thickness_uncertainty.py` now supplies the fundamental
+  spectrum as a target and uses `lbfgs-ad`. Without a target its noisy trace was
+  fitted with noise in the grid-edge bins and returned durations from about
+  1.9 to 3.2 fs for a 3 fs pulse. `examples/example_geometric_smearing.py` now
+  runs every fit to convergence from two starts and reports the trace error and
+  rms width as well as the FWHM.
 
 ### Removed
 
 - **`croak.plotting.plot_trace`**, which nothing used; the raw-trace previews and
   the retrieval trace panels draw with `signed_pcolormesh`.
 
+### Fixed
+
+- The package quick-start example now converges as stated (it used SHG from an
+  unseeded random guess, which can stall at R ≈ 2–4%).
+- The Preprocess stage no longer raises when its worker is destroyed with the stage
+  as the wizard rebuilds its stages.
+- **Back at Stage 1 could silently lose the session.** Pressing Back once too
+  often (or Main menu) reached the welcome menu, whose every entry starts a new
+  session, so going forward again found the loaded trace and retrieval gone. The
+  wizard now asks before leaving a session that holds data, with Cancel as the
+  default (`WizardState.has_data`, `Wizard.leave_to_welcome`).
+- **Two platform-sensitive numerical CI failures.** The known-truth complex-field
+  error now evaluates Geib's overlap through the equivalent least-squares
+  projection residual, avoiding the `sqrt(1 - x²)` cancellation that made an
+  identical field score either zero or `1.5e-8` depending on floating-point
+  rounding. The covariance/bootstrap cross-check now compares sample standard
+  deviations rather than bias-corrected interval widths, whose tail percentiles
+  were unstable with only 40 bootstrap samples.
+- **`delay_origin="marginal_peak"` stopped early.** The data-weighted model
+  marginal held its row factors out of the gradient, so the objective and its
+  gradient disagreed and L-BFGS terminated on a line-search failure (NLopt
+  `runtime_error`) a few dozen iterations in, returning an unconverged
+  iterate. The factors are now differentiated through.
+- **`collection="file"` on a multi-window scan used the first hole's record for
+  every window.** The session and the GUI now forward the loaded `window_key`
+  (`run_retrieval(..., scan_window=...)`, `focal_mixture_from_params(...,
+  scan_window)`), so retrieving `Iω_win_5` rebuilds the 2.0 mm aperture it was
+  recorded through rather than the 0.5 mm one.
+- **Calibration curves were applied at the wrong wavelengths** unless both the
+  curve and the trace were in nm: a µm FROG or spectrum calibration file gave a
+  scale of 2.0 at 800 nm where it should have been 1.5.
+- **The Load stage's dataset pickers ignored a match at index 0**, so a file
+  holding `trace` and `wavelength` offered the wavelength as the intensity.
+- **Restoring a custom-file mirror** in the dispersion stage left the default
+  coating's phase and loss applied as well.
+- **The dispersion auto-fit's Nelder–Mead search ignored its bounds** (it could
+  return −1.5 mm for a ±1 mm box).
+- **`marginal_checks.auto_third_order_exponent` returned its lower bound** for
+  wide bounds, whose weights underflowed; they are now computed in log space.
+- **`read_simulated_scan` raises for an unknown `truth_source`** instead of
+  silently falling back to the beamlet truth.
+- **`lbfgs-hand` survives an NLopt line-search failure**, returning the best
+  iterate as `lbfgs` and `lbfgs-ad` already did, instead of aborting.
+- `TruthPulse.from_spectrum` raises a clear `ValueError` for an all-zero
+  spectrum.
+- The arPLS baseline's stopping rule no longer depends on the last bits of its
+  banded solve: residuals within 1e-12 of the baseline count as on it.
+
 ## [0.1.0] - 2026-08-31
 
-### Changed
+First public release.
 
-- **`warm-lbfgs` is now the default solver everywhere.** `croak.retrieve`
-  (previously `"copra"`), `retrieve_from_tracedata` (previously `"lbfgs"`) and
-  the coverage-calibration harness (previously `"copra"`) now default to
-  `"warm-lbfgs"`, matching the session pipeline, the GUI and the companion
-  paper's production protocol. Pass `algorithm=` explicitly to keep the old
-  behaviour.
+croak was developed privately before being open-sourced, and that history was
+squashed for release, so this changelog starts here. The design rationale worth
+keeping lives in the documentation: see [Explanation](docs/explanation/) for
+the physics and algorithms, and the [how-to guides](docs/howto/) for the
+practical trade-offs.
+
+The Changed and Fixed entries below record changes made in the final weeks
+before the release, relative to the private development version.
 
 ### Added
+
+The initial release provides:
+
+- **Retrieval.** Nine solvers over one forward model, selected by an `algorithm=`
+  string: `copra`, `copra-jax`, `lbfgs`, `lbfgs-hand`, `lbfgs-ad`, `lbfgs-optx`,
+  `lm`, `lm-optx` and `cma-es`. Four algorithm families — COPRA, L-BFGS,
+  Levenberg–Marquardt and a derivative-free CMA-ES global search — with the rest
+  on-device JAX reimplementations.
+- **Forward model.** SHG, SD and PG (transient-grating) interactions, thin or
+  propagated through a dispersive medium by Gauss–Legendre depth quadrature.
+- **Gradients both ways.** A JAX model differentiable end to end, plus a
+  hand-derived Wirtinger adjoint for the core model, cross-checked against each
+  other to ~1e-6.
+- **Geometric time smearing.** The pulse-front-tilt instrument response of a
+  non-collinear BOXCARS geometry, as a two-parameter kernel that can be computed
+  from the mask or fitted from the data.
+- **Materials and dispersion.** Built-in Sellmeier materials, tabulated measured
+  index, pressure-scaled gases, seven chirped-mirror designs and five beam-path
+  coatings, plus an optional bridge to refractiveindex.info.
+- **Workflow.** Loading (HDF5/NPZ/CSV, unit and axis detection, simulated scans),
+  preprocessing (fringe and DC filtering, Takeda de-fringing, arPLS baseline
+  removal, regridding), marginal consistency checks, post-processing, dispersion
+  tuning, plotting and saving.
+- **Uncertainty.** Parametric and resampling bootstraps, a substrate-thickness
+  systematic, fast Laplace covariance, coverage calibration, and propagation of
+  an interval to another point in the beamline.
+- **Interfaces.** A library-first API, a PyQt6 wizard GUI, a headless session
+  replay engine, and a `croak` CLI that replays a saved session or generates a
+  standalone script from it.
+
+Added in the run-up to the release:
 
 - **Companion-paper validation data and examples.** Two reduced datasets from
   the paper's first-principles 3D instrument simulations ship in
@@ -467,6 +511,13 @@ semantic versioning.
 
 ### Changed
 
+- **`warm-lbfgs` is now the default solver everywhere.** `croak.retrieve`
+  (previously `"copra"`), `retrieve_from_tracedata` (previously `"lbfgs"`) and
+  the coverage-calibration harness (previously `"copra"`) now default to
+  `"warm-lbfgs"`, matching the session pipeline, the GUI and the companion
+  paper's production protocol. Pass `algorithm=` explicitly to keep the old
+  behaviour.
+
 - **Simulated-scan delay convention is now auto-detected.**
   `SimulatedLoadParams.reverse_trace` defaults to `None` (auto): scansave
   files that carry the new `/grid/delay_convention = "gate"` marker (written
@@ -549,47 +600,6 @@ semantic versioning.
   PG/SD only); `docs/explanation/forward_model.md` listed only the Sellmeier
   materials (missing `SiO2-Franta`); and `croak.solver`'s docstring described
   `Retriever` as the base of two solvers rather than of all of them.
-
-## [0.1.0] — unreleased
-
-First public release.
-
-croak was developed privately before being open-sourced, and that history was
-squashed for release, so this changelog starts here. The design rationale worth
-keeping lives in the documentation: see [Explanation](docs/explanation/) for
-the physics and algorithms, and the [how-to guides](docs/howto/) for the
-practical trade-offs.
-
-### Added
-
-Everything. The initial release provides:
-
-- **Retrieval.** Nine solvers over one forward model, selected by an `algorithm=`
-  string: `copra`, `copra-jax`, `lbfgs`, `lbfgs-hand`, `lbfgs-ad`, `lbfgs-optx`,
-  `lm`, `lm-optx` and `cma-es`. Four algorithm families — COPRA, L-BFGS,
-  Levenberg–Marquardt and a derivative-free CMA-ES global search — with the rest
-  on-device JAX reimplementations.
-- **Forward model.** SHG, SD and PG (transient-grating) interactions, thin or
-  propagated through a dispersive medium by Gauss–Legendre depth quadrature.
-- **Gradients both ways.** A JAX model differentiable end to end, plus a
-  hand-derived Wirtinger adjoint for the core model, cross-checked against each
-  other to ~1e-6.
-- **Geometric time smearing.** The pulse-front-tilt instrument response of a
-  non-collinear BOXCARS geometry, as a two-parameter kernel that can be computed
-  from the mask or fitted from the data.
-- **Materials and dispersion.** Built-in Sellmeier materials, tabulated measured
-  index, pressure-scaled gases, seven chirped-mirror designs and five beam-path
-  coatings, plus an optional bridge to refractiveindex.info.
-- **Workflow.** Loading (HDF5/NPZ/CSV, unit and axis detection, simulated scans),
-  preprocessing (fringe and DC filtering, Takeda de-fringing, arPLS baseline
-  removal, regridding), marginal consistency checks, post-processing, dispersion
-  tuning, plotting and saving.
-- **Uncertainty.** Parametric and resampling bootstraps, a substrate-thickness
-  systematic, fast Laplace covariance, coverage calibration, and propagation of
-  an interval to another point in the beamline.
-- **Interfaces.** A library-first API, a PyQt6 wizard GUI, a headless session
-  replay engine, and a `croak` CLI that replays a saved session or generates a
-  standalone script from it.
 
 [Unreleased]: https://github.com/LupoLab/croak/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/LupoLab/croak/compare/v0.1.0...v0.2.0
