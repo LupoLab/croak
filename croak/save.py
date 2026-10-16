@@ -381,11 +381,12 @@ OPTIONS_VERSION = 2
 
 
 def _croak_version() -> str:
-    try:
-        from importlib.metadata import version
+    """Installed croak version, or ``"unknown"`` when run from an uninstalled tree."""
+    from importlib.metadata import PackageNotFoundError, version
 
+    try:
         return version("croak")
-    except Exception:  # pragma: no cover - metadata unavailable
+    except PackageNotFoundError:
         return "unknown"
 
 

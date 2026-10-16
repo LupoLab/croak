@@ -359,6 +359,9 @@ def spectrogram(
         windowed = field * gauss(t, fwhm=fw, x0=tc)
         spec = np.abs(grid.fft(windowed)) ** 2 * weight
         S[:, j] = spec[order][keep]
+    # A peak-normalised field does not guarantee a positive S: a gate much
+    # narrower than dt, centred between samples, underflows to zero everywhere.
+    # Leave such a spectrogram at zero rather than dividing 0/0.
     peak = S.max()
     if peak > 0:
         S /= peak
@@ -446,19 +449,18 @@ class TruthPulse:
             Known pulse retaining ``ew`` for truth-seeded retrievals.
         """
         ew = np.asarray(ew, dtype=complex)
+        if not np.any(ew):
+            raise ValueError("the truth spectrum is identically zero")
         field = shiftnorm(grid, grid.ifft(ew))
         t_over, e_over = oversample(grid.t, field, oversampling)
         It = np.abs(e_over) ** 2
-        peak = It.max()
-        if peak > 0:
-            It = It / peak
+        It = It / It.max()
         t = t_over - t_over[int(np.argmax(It))]
         fwhm = _fwhm(t, It)
 
         omega_abs = grid.omega + omega0
         Iw = np.abs(ew) ** 2 * omega_abs**2
-        if Iw.max() > 0:
-            Iw = Iw / Iw.max()
+        Iw = Iw / Iw.max()
         lam = wlfreq(omega_abs)
         order = np.argsort(lam)
         mask_t = It > 0.01
@@ -937,7 +939,11 @@ def process_result(
     omega_abs = omega + omega0
     Ilam = Iw * omega_abs**2
     Ilam /= Ilam.max()
-    wavelength = wlfreq(omega_abs)
+    # A grid whose lower edge reaches zero absolute frequency maps that bin to an
+    # infinite wavelength; it carries no light (it is masked below), so the
+    # division is expected there.
+    with np.errstate(divide="ignore"):
+        wavelength = wlfreq(omega_abs)
     mask_w = (Iw / Iw.max()) > 0.01
     phi_w = normalize_spectral_phase(omega, ew, mask_w, Iw)
     # quartic phase fit -> GDD/TOD/FOD; also a smooth fit curve of the displayed

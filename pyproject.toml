@@ -95,6 +95,11 @@ dev = [
     # optional. Keep in lockstep with [project.optional-dependencies] gui.
     "pyqt6>=6.11.0",
     "superqt>=0.8.2",
+    # The evo extra, so the 'cma-es' retriever is tested; lockstep with [evo].
+    "evosax>=0.2.0",
+    "pytest-xdist>=3.8.0",
+    "pytest-randomly>=5.0.0",
+    "poethepoet>=0.49.0",
 ]
 docs = [
     "sphinx>=8.1",
@@ -110,8 +115,13 @@ docs = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tests"]
-addopts = "--cov=croak --cov-report=term-missing"
+# croak/ too, so --doctest-modules runs the docstring Examples.
+testpaths = ["tests", "croak"]
+# Coverage is measured by `poe cov`, not here: a focused `pytest tests/x.py` would
+# otherwise print a misleading partial report.
+addopts = "-ra --strict-markers --strict-config --doctest-modules"
+filterwarnings = ["error"]
+xfail_strict = true
 
 [tool.ruff]
 target-version = "py314"
@@ -145,16 +155,42 @@ include = ["croak"]
 pythonVersion = "3.14"
 typeCheckingMode = "basic"
 
+# The whole package, GUI included, at 100% statement and branch coverage: the
+# `poe cov` step of the gate. See AGENTS.md before touching any of this.
 [tool.coverage.run]
 source = ["croak"]
 branch = true
-omit = ["croak/gui/*"]
 
 [tool.coverage.report]
-fail_under = 85
-exclude_lines = [
-    "pragma: no cover",
+fail_under = 100
+show_missing = true
+skip_covered = true
+exclude_also = [
     "if TYPE_CHECKING:",
+    "@overload",
     "raise NotImplementedError",
-    "\\.\\.\\.",
+    "^\\s*\\.\\.\\.$",   # Protocol and abstract method bodies
 ]
+
+[tool.poe.tasks]
+lint-fix = "ruff check --fix ."
+fmt = "ruff format ."
+lint = "ruff check ."
+types = "pyright"
+docs = "sphinx-build -b html -W --keep-going docs docs/_build/html"
+
+# The suite on every core; a module's tests stay on one worker so module-scoped
+# fixtures are built once. Qt runs offscreen so workers never open windows.
+[tool.poe.tasks.test]
+cmd = "pytest -n auto --dist loadfile"
+env = { QT_QPA_PLATFORM = "offscreen" }
+help = "The suite under xdist; plain `pytest` runs it serially."
+
+[tool.poe.tasks.cov]
+cmd = "pytest -n auto --dist loadfile --cov=croak --cov-report=term --cov-report=xml:build/coverage/coverage.xml"
+env = { QT_QPA_PLATFORM = "offscreen" }
+help = "The suite under xdist with the 100% statement and branch coverage gate."
+
+[tool.poe.tasks.check]
+sequence = ["lint-fix", "fmt", "lint", "types", "cov"]
+help = "The definition-of-done gate, in order; CI runs exactly this."

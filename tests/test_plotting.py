@@ -1040,3 +1040,419 @@ def test_update_spectral_matches_a_fresh_draw_on_the_wavelength_axis(update_resu
     fresh = plotting.draw_spectral(ax_f, d2)
     for k, v in _panel_state(fresh, ax_f).items():
         _assert_equal(_panel_state(artists, ax_u)[k], v, f"spectral.{k}")
+
+
+# ---------------------------------------------------------------------------
+# Uncertainty figures
+# ---------------------------------------------------------------------------
+def _uresult(*, profiles=False, thickness=False, prior=True, seed=0):
+    """A lightweight UncertaintyResult (no retrieval) for the figure tests."""
+    from croak.uncertainty import UncertaintyResult
+
+    rng = np.random.default_rng(seed)
+    n = 60
+    pe = 5e-15
+    samples = pe + 0.2e-15 * rng.standard_normal(n)
+    kw = {}
+    if profiles:
+        t = np.linspace(-20e-15, 20e-15, 41)
+        base = np.exp(-((t / pe) ** 2))
+        kw["profiles"] = np.clip(
+            base + 0.02 * rng.standard_normal((n, t.size)), 0, None
+        )
+        kw["t_profile"] = t
+    if thickness:
+        kw["thicknesses"] = 100e-6 + 5e-6 * rng.standard_normal(n)
+        if prior:
+            kw["thickness_central"] = 100e-6
+            kw["thickness_sigma"] = 5e-6
+    return UncertaintyResult(
+        statistic="fwhm",
+        point_estimate=pe,
+        samples=samples,
+        interval_68=(pe - 0.2e-15, pe + 0.2e-15),
+        interval_95=(pe - 0.4e-15, pe + 0.4e-15),
+        interval_method="percentile",
+        method="thickness" if thickness else "parametric",
+        n_resamples=n,
+        n_converged=n,
+        frog_errors=0.01 + 0.001 * rng.random(n),
+        base_error=0.01,
+        **kw,
+    )
+
+
+def test_plot_uncertainty_histogram_only_and_with_a_band():
+    fig = plotting.plot_uncertainty(_uresult(), truth=5.1e-15)
+    (ax,) = fig.axes
+    assert ax.get_xlabel() == "FWHM (fs)"
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert labels == ["95 %", "68 %", "estimate", "truth"]
+    assert ax.get_title().startswith("5.00 ±")
+
+    fig = plotting.plot_uncertainty(_uresult(profiles=True))
+    hist, band = fig.axes
+    assert band.get_xlabel() == "Time (fs)"
+    # zoomed to the envelope's support (~ +-8 fs above 1 %) plus padding,
+    # well inside the +-20 fs profile axis
+    lo, hi = band.get_xlim()
+    assert -20 < lo < 0 < hi < 20
+
+
+def test_plot_intensity_band_requires_profiles():
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="collect_profiles=True"):
+        plotting.plot_intensity_band(ax, _uresult())
+    plt.close(fig)
+
+
+def test_plot_intensity_band_of_an_empty_envelope_keeps_the_full_axis():
+    import dataclasses
+
+    import matplotlib.pyplot as plt
+
+    u = dataclasses.replace(_uresult(profiles=True), profiles=np.zeros((4, 41)))
+    fig, ax = plt.subplots()
+    plotting.plot_intensity_band(ax, u)
+    # nothing above 1 % of a zero median: no zoom is applied
+    assert ax.get_xlim()[0] <= -20 and ax.get_xlim()[1] >= 20
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("profiles", [False, True])
+def test_plot_uncertainty_dispatches_thickness_results(profiles):
+    fig = plotting.plot_uncertainty(
+        _uresult(thickness=True, profiles=profiles), truth=5e-15
+    )
+    assert len(fig.axes) == (3 if profiles else 2)
+    fwhm_ax, err_ax = fig.axes[:2]
+    assert fwhm_ax.get_xlabel() == "Substrate thickness (µm)"
+    assert err_ax.get_ylabel() == "FROG error R"
+    # the prior band L0 +- sigma is shaded (in um)
+    assert "L₀ ± σ_L" in [t.get_text() for t in fwhm_ax.get_legend().get_texts()]
+
+
+def test_thickness_plots_without_a_prior_or_thicknesses():
+    import matplotlib.pyplot as plt
+
+    fig, (a, b) = plt.subplots(1, 2)
+    no_prior = _uresult(thickness=True, prior=False)
+    plotting.plot_fwhm_vs_thickness(a, no_prior)
+    assert "L₀ ± σ_L" not in [t.get_text() for t in a.get_legend().get_texts()]
+    with pytest.raises(ValueError, match="no thicknesses"):
+        plotting.plot_fwhm_vs_thickness(a, _uresult())
+    with pytest.raises(ValueError, match="no thicknesses"):
+        plotting.plot_error_vs_thickness(b, _uresult())
+    plt.close(fig)
+
+
+def _variant_kwargs(res, variant):
+    """plot-data options exercising the optional curves of every panel."""
+    if variant == "truth":
+        truth = processing.TruthPulse.from_spectrum(res.grid, res.spectrum, res.omega0)
+        return {
+            "truth": truth,
+            "Iomega_meas": np.abs(res.spectrum) ** 2,
+            "energy": 1e-6,
+            "spectral_axis": "wavelength",
+        }
+    if variant == "truth_without_phases":
+        t = np.linspace(-30e-15, 30e-15, 61)
+        truth = processing.TruthPulse.from_intensity(t, np.exp(-((t / 7e-15) ** 2)))
+        return {"truth": truth}
+    # "bare": a processed result without the measured trace (no residual, no
+    # measured marginals) and no trace band limits
+    return {"processed": processing.process_result(res)}
+
+
+@pytest.mark.parametrize("variant", ["truth", "truth_without_phases", "bare"])
+@pytest.mark.parametrize("key", list(plotting.RETRIEVAL_PANELS))
+def test_update_panel_matches_a_fresh_draw_with_optional_curves(
+    update_results, key, variant
+):
+    """The optional curves (truth, measured spectrum, absolute power, missing
+    residual) update exactly as a fresh draw shows them."""
+    from dataclasses import replace
+
+    from matplotlib.figure import Figure
+
+    (r1, trace), (r2, _), _ = update_results
+    # a per-frequency R_omega factor, so the spectral-filter panel has a shape
+    r1 = replace(r1, mu=np.linspace(1.0, 2.0, r1.omega.size))
+    r2 = replace(r2, mu=np.linspace(2.0, 1.0, r2.omega.size))
+    kw1, kw2 = _variant_kwargs(r1, variant), _variant_kwargs(r2, variant)
+    d1 = plotting.retrieval_plot_data(r1, measured=trace, **kw1)
+    d2 = plotting.retrieval_plot_data(r2, measured=trace, **kw2)
+    spec = plotting.RETRIEVAL_PANELS[key]
+    fig_u = Figure()
+    ax_u = fig_u.add_subplot()
+    artists = spec.draw(ax_u, d1)
+    spec.update(artists, d2)
+    fig_f = Figure()
+    ax_f = fig_f.add_subplot()
+    fresh = spec.draw(ax_f, d2)
+    for k, v in _panel_state(fresh, ax_f).items():
+        _assert_close(_panel_state(artists, ax_u)[k], v, f"{key}.{k}")
+
+
+def _assert_close(x, y, where):
+    """Like _assert_equal, to 1e-6 relative (1e-9 for scalars).
+
+    The truth overlays reach the same values by a different order of operations
+    (the update path rereads the static truth phase from its line), which
+    differs in the last bits.
+    """
+    if isinstance(x, np.ndarray):
+        np.testing.assert_allclose(
+            x, np.asarray(y), rtol=1e-6, atol=1e-30, err_msg=where
+        )
+    elif isinstance(x, (list, tuple)):
+        assert len(x) == len(y), where
+        for i, (p, q) in enumerate(zip(x, y, strict=True)):
+            _assert_close(p, q, f"{where}[{i}]")
+    elif isinstance(x, float):
+        assert x == pytest.approx(y, rel=1e-9), where
+    else:
+        assert x == y, (where, x, y)
+
+
+# ---------------------------------------------------------------------------
+# Small helpers and defensive paths
+# ---------------------------------------------------------------------------
+def test_cmap_negwhite_without_a_negative_part_is_cmap_white():
+    a = plotting.cmap_negwhite("viridis", negfrac=0.0)
+    b = plotting.cmap_white("viridis")
+    np.testing.assert_allclose(a(np.linspace(0, 1, 9)), b(np.linspace(0, 1, 9)))
+
+
+def test_si_power_below_the_smallest_prefix_uses_it():
+    scale, unit = plotting.si_power(1e-30)
+    assert (scale, unit) == plotting._POWER_PREFIXES[-1]
+
+
+def test_phase_ylim_of_nothing_finite_is_none():
+    assert plotting._phase_ylim(None, np.array([np.nan]), np.array([])) is None
+
+
+def test_plot_residual_and_spectrogram_defaults(result_and_trace):
+    import matplotlib.pyplot as plt
+
+    res, trace = result_and_trace
+    fig, (a, b) = plt.subplots(1, 2)
+    resid = trace - res.trace
+    plotting.plot_residual(a, res.omega, res.delays, resid, res.omega0)
+    # no halfwidth: the full delay span is shown
+    assert a.get_xlim()[1] >= res.delays.max() / 1e-15
+    tc, lam, S = processing.spectrogram(res, n_t=8)
+    plotting.plot_spectrogram(b, tc, lam, S)  # default colormap, no limits
+    assert b.get_ylim()[1] >= lam.max() / 1e-9 * 0.999
+    plt.close(fig)
+
+
+def test_plot_spectral_frequency_axis_with_a_measured_spectrum(result_and_trace):
+    import matplotlib.pyplot as plt
+
+    res, trace = result_and_trace
+    data = plotting.retrieval_plot_data(
+        res, measured=trace, Iomega_meas=np.abs(res.spectrum) ** 2
+    )
+    fig, ax = plt.subplots()
+    artists = plotting.draw_spectral(ax, data)  # the frequency axis is the default
+    assert artists.line_meas is not None
+    # the measured curve is the same omega-density as the retrieved one here
+    np.testing.assert_allclose(
+        artists.line_meas.get_ydata(), artists.line_retr.get_ydata(), atol=1e-9
+    )
+    plt.close(fig)
+
+
+def test_flat_phases_leave_the_phase_axis_unscaled(result_and_trace):
+    """With no finite phase sample there is no phase range to set."""
+    from dataclasses import replace
+
+    import matplotlib.pyplot as plt
+
+    res, trace = result_and_trace
+    pr = processing.process_result(res, measured=trace)
+    pr = replace(
+        pr, phi_t=np.full_like(pr.phi_t, np.nan), phi_w=np.full_like(pr.phi_w, np.nan)
+    )
+    fig, (a, b) = plt.subplots(1, 2)
+    data = plotting.retrieval_plot_data(res, measured=trace, processed=pr)
+    t_art = plotting.draw_temporal(a, data)
+    s_art = plotting.draw_spectral(b, data)
+    # matplotlib's own autoscaled limits, which no phase range overrides
+    t_lim, s_lim = t_art.ax_phase.get_ylim(), s_art.ax_phase.get_ylim()
+    plotting.update_temporal(t_art, data)
+    plotting.update_spectral(s_art, data)
+    assert t_art.ax_phase.get_ylim() == t_lim
+    assert s_art.ax_phase.get_ylim() == s_lim
+    plt.close(fig)
+
+
+def test_axes_of_an_unplaced_artist_raises():
+    from matplotlib.lines import Line2D
+
+    with pytest.raises(RuntimeError, match="not on any axes"):
+        plotting._axes_of(Line2D([0], [0]))
+
+
+def test_trace_update_with_negative_samples_and_no_label(result_and_trace):
+    """A trace holding negatives keeps its second (negative) image in step, and
+    an unlabelled trace panel updates without a label."""
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    signed = trace - 0.05 * trace.max()  # background-subtracted: negatives
+    data = plotting.retrieval_plot_data(res, measured=signed)
+    ax = Figure().add_subplot()
+    artists = plotting.draw_measured_lin(ax, data)
+    assert artists.mesh_neg is not None and artists.label is None
+    plotting.update_measured_lin(artists, data)
+    plotting.update_retrieved_lin(artists, data)  # no label to refresh
+    assert artists.mesh_neg.get_clim() == artists.mesh_pos.get_clim()
+
+
+def test_update_residual_without_a_residual_is_a_no_op(result_and_trace):
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    bare = plotting.retrieval_plot_data(res, processed=processing.process_result(res))
+    ax = Figure().add_subplot()
+    artists = plotting.draw_residual(ax, bare)
+    assert artists.mesh is None
+    plotting.update_residual(artists, bare)  # nothing drawn, nothing to update
+
+
+def test_update_spectrogram_refuses_a_new_shape(update_results):
+    from matplotlib.figure import Figure
+
+    (r1, trace), _, _ = update_results
+    ax = Figure().add_subplot()
+    artists = plotting.draw_spectrogram(ax, _plot_data(r1, trace))
+    # a narrower wavelength band keeps fewer rows of the spectrogram
+    narrower = plotting.retrieval_plot_data(
+        r1, measured=trace, lam_min=760e-9, lam_max=900e-9
+    )
+    with pytest.raises(ValueError, match="spectrogram shape changed"):
+        plotting.update_spectrogram(artists, narrower)
+
+
+def test_mappables_of_a_curve_panel_are_empty():
+    from matplotlib.lines import Line2D
+
+    assert plotting._mappables(plotting.LineArtists(line=Line2D([0], [0]))) == (
+        None,
+        None,
+    )
+
+
+def test_page_without_a_residual_or_with_negatives_lays_out_its_colorbars(
+    result_and_trace,
+):
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    bare = plotting.retrieval_plot_data(res, processed=processing.process_result(res))
+    fig = Figure()
+    plotting.plot_retrieval_page(bare, plotting.RETRIEVAL_OVERVIEW, fig=fig)
+    # 12 panels, 2 phase twins and 2 trace colorbars; the empty residual panel
+    # gets none
+    assert len(fig.axes) == 16
+    signed = plotting.retrieval_plot_data(res, measured=trace - 0.05 * trace.max())
+    fig = Figure()
+    plotting.plot_retrieval_page(signed, plotting.RETRIEVAL_OVERVIEW, fig=fig)
+    # each trace pair gains a negative colorbar beside its positive one, and the
+    # residual has its own
+    assert len(fig.axes) == 12 + 2 + 2 * 2 + 1
+
+
+def test_page_view_redrawn_into_another_figure_leaves_the_old_one(update_results):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.layout_engine import ConstrainedLayoutEngine
+
+    (r1, trace), _, _ = update_results
+    view = plotting.RetrievalPageView(plotting.RETRIEVAL_PAGES["pulse"])
+    first = Figure(layout="constrained")
+    FigureCanvasAgg(first)
+    view.draw(first, _plot_data(r1, trace))
+    view.draw(Figure(layout="constrained"), _plot_data(r1, trace))
+    first.canvas.draw()  # the stale figure's freeze must not touch it
+    assert isinstance(first.get_layout_engine(), ConstrainedLayoutEngine)
+
+
+def test_filter_view_vmax_ignores_a_window_outside_the_axis():
+    from dataclasses import dataclass
+
+    @dataclass
+    class _Stub:
+        Ifrog_meas: np.ndarray
+        Ifrog_filt: np.ndarray
+        trace: np.ndarray
+        lam_frog: np.ndarray
+        lamm_lims: tuple[float, float] | None
+
+    lam = np.linspace(200e-9, 400e-9, 8)
+    data = np.ones((8, 4))
+    data[0, 0] = 3.0
+    # a window that excludes every wavelength falls back to the whole array
+    stub = _Stub(data, data, np.ones((8, 4)), lam, (900e-9, 1000e-9))
+    assert plotting.filter_view_vmax(stub) == pytest.approx(3.0)
+
+
+def test_decimate_for_display_strides_large_images():
+    C = np.arange(2500.0 * 3).reshape(2500, 3)
+    out, x, y = plotting._decimate_for_display(C, np.arange(3.0), np.arange(2500.0))
+    assert out.shape == (1250, 3) and y.size == 1250 and x.size == 3
+
+
+def test_resample_uniform_x_passes_short_axes_through():
+    x = np.array([1.0, 3.0])
+    C = np.ones((2, 2))
+    xu, Cu = plotting._resample_uniform_x(x, C)
+    assert xu is not None and Cu is C
+
+
+def test_frog_filter_view_requires_attach():
+    view = plotting.FrogFilterView()
+    with pytest.raises(RuntimeError, match="attach"):
+        view.update(None)
+    with pytest.raises(RuntimeError, match="not attached"):
+        view._set_panel("a", np.arange(2.0), np.arange(2.0), np.ones((2, 2)), db=False)
+
+
+def test_plot_simulated_trace_with_negative_samples(result_and_trace):
+    res, trace = result_and_trace
+    fig = plotting.plot_simulated_trace(
+        res.omega, res.delays, trace - 0.05 * trace.max(), res.omega0
+    )
+    # 4 panels + a positive and a negative colorbar for each of the two images
+    assert len(fig.axes) == 8
+
+
+def test_plot_frog_filter_without_negative_samples(experiment):
+    """Non-negative traces need only the positive colorbar on each row."""
+    from dataclasses import replace
+
+    exp = experiment
+    td = preprocess.load_and_clean(
+        exp.trace,
+        exp.lam_nm * 1e-9,
+        exp.delay_fs * 1e-15,
+        exp.interaction,
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        input_unit="delay",
+    )
+    clipped = replace(
+        td,
+        Ifrog_meas=np.clip(td.Ifrog_meas, 0, None),
+        Ifrog_filt=np.clip(td.Ifrog_filt, 0, None),
+        trace=np.clip(td.trace, 0, None),
+    )
+    fig = plotting.plot_frog_filter(clipped)
+    # six panels and one colorbar per row
+    assert len(fig.axes) == 6 + 2

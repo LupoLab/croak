@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TypedDict
 
+from PyQt6 import sip
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
@@ -642,7 +643,11 @@ class StagePreprocess(Stage):
         """Drop our reference to a finished worker (kept alive while running)."""
         if worker in self._workers:
             self._workers.remove(worker)
-        worker.deleteLater()
+        # The worker is parented to this stage, so when the wizard rebuilds its
+        # stages (``deleteLater`` on each) between the thread finishing and this
+        # queued slot running, Qt has already destroyed it with its parent.
+        if not sip.isdeleted(worker):
+            worker.deleteLater()
 
     def _show_tracedata(self, td):
         """Store and draw a freshly computed trace (main thread)."""

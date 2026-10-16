@@ -29,9 +29,10 @@ Quick start
 >>> g = croak.Grid(128, dt=0.3e-15)
 >>> ew = croak.gaussian_pulse(g, 2.5e-15)
 >>> delays = np.linspace(-15e-15, 15e-15, 87)
->>> trace = croak.maketrace(g.omega, delays, ew, "shg")
->>> res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="warm-lbfgs")
->>> res.error < 1e-2
+>>> trace = croak.maketrace(g.omega, delays, ew, "pg")
+>>> res = croak.retrieve(trace, g.omega, delays, "pg", algorithm="warm-lbfgs",
+...                      rng=np.random.default_rng(0), progress=False)
+>>> bool(res.error < 1e-2)
 True
 """
 

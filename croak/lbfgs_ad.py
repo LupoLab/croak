@@ -24,8 +24,6 @@ gradients themselves are compared directly in ``tests/test_ad_vs_analytic.py``.
 
 from __future__ import annotations
 
-import warnings
-
 import jax
 import jax.numpy as jnp
 import nlopt
@@ -51,6 +49,7 @@ from .solver import (
     resolve_reg,
     spectral_target_amplitude,
     split_smear_value,
+    warn_nlopt_salvage,
 )
 
 __all__ = ["LBFGSAD"]
@@ -499,12 +498,7 @@ class LBFGSAD(Retriever):
                 # NLopt's internal line search can fail outright (observed for
                 # ~1 in 6 random starts on large dispersive grids); salvage the
                 # best iterate rather than aborting the whole retrieval.
-                warnings.warn(
-                    f"NLopt stopped early ({type(err).__name__}); returning "
-                    f"the best iterate found (R = {best_err:.3e})",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
+                warn_nlopt_salvage(err, best_err)
                 return best_u
 
         # Pulse-only unpack (extras held at their prior): used both when nothing

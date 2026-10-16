@@ -202,17 +202,17 @@ class RetrievalPages(QWidget):
     def _present_canvas(self, canvas: MplCanvas, key: str) -> None:
         """Bring ``canvas`` (showing page ``key``) up to date with the current mode."""
         if self._errors is not None:
-            self._present_convergence(canvas)
+            self._present_convergence(canvas, self._errors)
         elif self._data is not None:
             self._present_data(canvas, key, self._data)
         else:
             canvas.clear()
 
-    def _present_convergence(self, canvas: MplCanvas) -> None:
-        """Show the live error curve on ``canvas``, growing it in place if it exists."""
-        errors = self._errors
-        if errors is None:
-            return
+    def _present_convergence(self, canvas: MplCanvas, errors: Sequence[float]) -> None:
+        """Show the live error curve on ``canvas``, growing it in place if it exists.
+
+        ``errors`` is the stage's own (growing) list, so a re-plot reads it live.
+        """
         artists = self._conv.get(canvas)
         if (
             artists is not None
@@ -263,10 +263,10 @@ class RetrievalPages(QWidget):
 
         def plot(fig: Figure) -> None:
             # Re-run by the canvas on a density change: draw the latest result.
-            latest = self._data
-            if latest is not None:
-                view.draw(fig, latest)
-                self._scales[canvas] = canvas.scale
+            # clear() makes every canvas forget this function, so the pages still
+            # hold data whenever it runs; ``data`` only satisfies the type.
+            view.draw(fig, self._data if self._data is not None else data)
+            self._scales[canvas] = canvas.scale
 
         canvas.render(plot)
 

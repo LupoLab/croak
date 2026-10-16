@@ -247,18 +247,25 @@ def marginal_peak_delay(delays: ArrayLike, marginal: ArrayLike) -> float:
     i = int(np.argmax(marginal))
     if i == 0 or i == delays.size - 1:
         return float(delays[i])
-    x = delays[i - 1 : i + 2] - delays[i]
-    y = marginal[i - 1 : i + 2]
-    # Work in units of the local spacing: the raw abscissae are ~1e-14, which
-    # would make the Vandermonde solve badly conditioned.
-    scale = float(np.max(np.abs(x)))
-    if scale == 0.0:
+    x0 = float(delays[i - 1] - delays[i])
+    x2 = float(delays[i + 1] - delays[i])
+    if not x0 < 0.0 < x2:  # repeated or unsorted delays: no parabola to fit
         return float(delays[i])
-    curv, slope, _ = np.polyfit(x / scale, y, 2)
-    if curv >= 0.0:  # not a maximum — keep the sample
-        return float(delays[i])
-    vertex = -slope / (2.0 * curv) * scale
-    return float(delays[i] + min(max(vertex, float(x[0])), float(x[2])))
+    y0, y1, y2 = marginal[i - 1 : i + 2]
+    # Parabola through the three samples from divided differences (exact for
+    # non-uniform spacing, and well conditioned at fs scales, unlike a
+    # Vandermonde solve). argmax returns the *first* maximum, so y1 > y0 and
+    # y1 >= y2: the left slope is strictly positive and the right one is not,
+    # which makes the curvature strictly negative even in floating point, so
+    # the vertex is always a maximum.
+    left = (y1 - y0) / -x0
+    right = (y2 - y1) / x2
+    curv = (right - left) / (x2 - x0)
+    slope = left - curv * x0  # p'(0) of the Newton form
+    vertex = -slope / (2.0 * curv)
+    # Mathematically the vertex lies in [x0/2, x2/2]; the clamp only guards
+    # against roundoff on a nearly flat top.
+    return float(delays[i] + min(max(vertex, x0), x2))
 
 
 def _delay_filter(
@@ -717,6 +724,12 @@ def _second_diff_normal(n: int) -> NDArray[np.float64]:
     return ab
 
 
+#: Residual (in units of the row's peak) below which a point counts as lying
+#: *on* the arPLS baseline rather than under it: ~1e4 x double-precision
+#: roundoff of the banded solve, far below any measurable noise floor.
+_ARPLS_ROUNDOFF = 1e-12
+
+
 def _arpls_row(
     y: NDArray[np.float64],
     penalty: NDArray[np.float64],
@@ -761,13 +774,16 @@ def _arpls_row(
         d = yn - z
         # arPLS: reweight from the *negative* residuals only (the noise floor /
         # background), so points well above the baseline (signal) lose weight.
-        neg = d[keep & (d < 0.0)]
-        if neg.size == 0:
-            break  # baseline already at/above every point — converged
-        m = float(neg.mean())
-        s = float(neg.std())
+        # Residuals within roundoff of the (unit-normalised) baseline are not
+        # "below" it: counting them would make the stop below depend on the last
+        # bits of the banded solve.
+        neg = d[keep & (d < -_ARPLS_ROUNDOFF)]
+        s = float(neg.std()) if neg.size > 1 else 0.0
         if s <= 0.0:
-            break  # degenerate row (z fits exactly); keep current z
+            # Nothing (or one point) sits below the baseline, so there is no
+            # noise level to reweight from: z already fits every kept point.
+            break
+        m = float(neg.mean())
         arg = np.clip(2.0 * (d - (2.0 * s - m)) / s, -700.0, 700.0)
         w = 1.0 / (1.0 + np.exp(arg))
         w[exclude] = 0.0

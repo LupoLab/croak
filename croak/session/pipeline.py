@@ -123,6 +123,18 @@ def _load_frog_bg(path, lam_name, int_name, lam_factor, lam_frog_si) -> np.ndarr
     return sliced
 
 
+def _calibration_scale(lam_m: np.ndarray, path: str, unit: str) -> np.ndarray:
+    """Per-wavelength factors from a ``(λ in unit, scale)`` calibration CSV.
+
+    ``lam_m`` is already SI. :func:`croak.preprocess.calibration_curve_scale`
+    reads its curve's wavelengths as nm, so the file's column is converted from
+    ``unit`` to nm here (a µm file is scaled by 1000).
+    """
+    cal = io.load_csv(path)
+    lam_cal_nm = cal[:, 0] * io.unit_to_si(unit) / 1e-9
+    return preprocess.calibration_curve_scale(lam_m, lam_cal_nm, cal[:, 1])
+
+
 def assemble_load_data(p: LoadParams) -> dict:
     """Build a ``load_data`` dict (SI arrays) from the load parameters.
 
@@ -172,11 +184,8 @@ def assemble_load_data(p: LoadParams) -> dict:
     # scale curve: calibration × 3rd-order, applied eagerly
     scalecurve = np.ones(lam.shape)
     if p.frog_calib_use and p.frog_calib_path:
-        cal = io.load_csv(p.frog_calib_path)
-        scalecurve = scalecurve * preprocess.calibration_curve_scale(
-            lam * io.unit_to_si(p.frog_calib_lam_unit) / io.unit_to_si(p.lam_unit),
-            cal[:, 0],
-            cal[:, 1],
+        scalecurve = scalecurve * _calibration_scale(
+            lam, p.frog_calib_path, p.frog_calib_lam_unit
         )
     if p.third_order:
         scalecurve = scalecurve * preprocess.third_order_scale(lam, p.third_order_exp)
@@ -195,13 +204,8 @@ def assemble_load_data(p: LoadParams) -> dict:
             if bg.size == Ilam_spec.size:
                 Ilam_spec = Ilam_spec - bg
         if p.spec_calib_use and p.spec_calib_path:
-            cal = io.load_csv(p.spec_calib_path)
-            Ilam_spec = Ilam_spec * preprocess.calibration_curve_scale(
-                lam_spec
-                * io.unit_to_si(p.spec_calib_lam_unit)
-                / io.unit_to_si(p.spec_lam_unit),
-                cal[:, 0],
-                cal[:, 1],
+            Ilam_spec = Ilam_spec * _calibration_scale(
+                lam_spec, p.spec_calib_path, p.spec_calib_lam_unit
             )
         m = np.max(Ilam_spec)
         if m > 0:
@@ -1059,7 +1063,11 @@ def run_retrieval(
         depth_weight=generation_envelope(p),
         reg_amp=p.reg_amp,
         reg_phase=p.reg_phase,
-        reg_spectrum=p.reg_spectrum,
+        # A session always carries a weight (the dataclass default), so it cannot
+        # tell an explicit request from the default. Without a measured spectrum
+        # the penalty has no target either way: pass None, which the retriever
+        # resolves silently, rather than warning on every default session.
+        reg_spectrum=p.reg_spectrum if td.Iomega is not None else None,
         reg_time=p.reg_time,
         time_window=(p.reg_time_lo_fs * 1e-15, p.reg_time_hi_fs * 1e-15),
         # warm-start centres for the extras (nominal unless reusing a result)

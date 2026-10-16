@@ -177,3 +177,11 @@ def test_read_nk_csv_parses_franta_file():
     # n at 800 nm ~ fused silica (the wl,k section must not leak in)
     i = int(np.argmin(np.abs(lam_m - 800e-9)))
     assert n[i] == pytest.approx(1.4535, abs=2e-3)
+
+
+def test_read_nk_csv_without_an_n_section_raises(tmp_path):
+    # Only a k section (and blank lines): there is nothing to read the index from.
+    path = tmp_path / "k_only.csv"
+    path.write_text("wl,k\n0.5,0.1\n\n0.6,0.2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no 'wl,n' section"):
+        materials.read_nk_csv(path)

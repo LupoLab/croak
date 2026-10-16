@@ -320,3 +320,18 @@ def test_covariance_uncertainty_with_fitted_thickness(thickness_fit):
     )
     assert u.method == "covariance"
     assert np.isfinite(u.point_estimate)
+
+
+def test_covariance_uncertainty_reports_completion_once(chirped):
+    """The draws are not retrievals, so the callback fires once, when all are done."""
+    _, _, _, _, trace, res_pw, _ = chirped
+    calls = []
+    covariance_uncertainty(
+        res_pw,
+        trace,
+        noise=0.02,
+        n_samples=10,
+        rng=np.random.default_rng(2),
+        callback=lambda done, total, err: calls.append((done, total, err)),
+    )
+    assert calls == [(10, 10, res_pw.error)]

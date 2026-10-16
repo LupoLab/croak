@@ -828,3 +828,74 @@ def test_aperture_from_scan_reads_a_pnps_quadrature_window(tmp_path, simulated_t
         ).weighting
         == "amplitude"
     )
+
+
+def test_quadrature_hole_diameter_edge_cases():
+    """A hard edge or an unset width needs no correction; too wide an edge fails."""
+    from croak.collection import quadrature_hole_diameter
+
+    assert quadrature_hole_diameter(HOLE_DIAM, "hard", 1e-4) == HOLE_DIAM
+    assert quadrature_hole_diameter(HOLE_DIAM, "rcos", None) == HOLE_DIAM
+    # D^2 - 16 m2 w^2 <= 0 once w >= D / (4 sqrt(m2)) ~ 1.15 D (m2 ~ 0.047)
+    with pytest.raises(ValueError, match="too wide"):
+        quadrature_hole_diameter(HOLE_DIAM, "rcos", 2.0 * HOLE_DIAM)
+
+
+def test_hard_aperture_has_no_nodes_outside_the_rim():
+    ap = mask_hole_aperture(**{**HOLE, "apod": "hard", "apod_param": None})
+    r = np.hypot(ap.x - HOLE["hole_x"], ap.y - HOLE["hole_y"])
+    # one panel, [0, D/2]: every node is inside the hole and fully transmitting
+    assert r.max() < 0.5 * HOLE_DIAM
+    np.testing.assert_allclose(ap.transmission, 1.0)
+    # The radial Gauss rule integrates the disc's area exactly up to the
+    # azimuthal/radial quadrature's polynomial order: 1e-12 relative.
+    assert ap.weight.sum() == pytest.approx(np.pi * (HOLE_DIAM / 2) ** 2, rel=1e-12)
+
+
+def test_collection_aperture_rejects_an_unknown_weighting():
+    with pytest.raises(ValueError, match="weighting must be one of"):
+        CollectionAperture(
+            x=np.zeros(2),
+            y=np.zeros(2),
+            weight=np.ones(2),
+            transmission=np.ones(2),
+            z_mask=Z_MASK,
+            weighting="squared",
+        )
+
+
+def test_rcos_aperture_needs_an_edge_width():
+    with pytest.raises(ValueError, match="'rcos' apodisation needs `apod_param`"):
+        mask_hole_aperture(**{**HOLE, "apod": "rcos", "apod_param": None})
+
+
+def test_aperture_from_scan_rejects_an_unresolved_rcos_width(tmp_path, simulated_truth):
+    """Only tanh has a derivable default width; an rcos "default" cannot be rebuilt."""
+    from conftest import write_simulated_h5
+
+    from croak.collection import aperture_from_scan
+
+    record = _reference_window_record()
+    record["apod"] = "rcos"  # apod_param stays "default"
+    path = write_simulated_h5(tmp_path / "rcos.h5", simulated_truth, mask_window=record)
+    with pytest.raises(ValueError, match="'rcos' edge width was recorded as 'default'"):
+        aperture_from_scan(path)
+
+
+def test_aperture_offset_of_an_opaque_aperture_raises():
+    import dataclasses
+
+    opaque = CollectionAperture(
+        x=np.zeros(2),
+        y=np.zeros(2),
+        weight=np.ones(2),
+        transmission=np.zeros(2),
+        z_mask=Z_MASK,
+    )
+    with pytest.raises(ValueError, match="transmits nothing"):
+        aperture_offset(dataclasses.replace(_mixture(), collection=opaque))
+
+
+def test_transform_phases_needs_a_collection_aperture():
+    with pytest.raises(ValueError, match="no collection aperture"):
+        transform_phases(_mixture(), np.zeros(3), OMEGA0)

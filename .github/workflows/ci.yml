@@ -24,20 +24,15 @@ jobs:
       - name: Set up Python
         run: uv python install
 
+      # The lockfile must already match pyproject.toml; CI never re-resolves.
+      - name: Check the lockfile
+        run: uv lock --check
+
+      # The dev group includes the 'evo' extra (evosax) so the cma-es retriever
+      # is tested; 'ridb' is not installed (its refractiveindex.info database is
+      # a hundreds-of-megabyte download) and its tests use a fake database.
       - name: Install dependencies
-        run: uv sync --group dev
-
-      - name: Ruff lint
-        run: uv run ruff check .
-
-      - name: Ruff format check
-        run: uv run ruff format --check .
-
-      # The optional extras ('ridb', 'evo') are deliberately not installed: the
-      # refractiveindex.info database is a hundreds-of-megabyte download on first
-      # use. Their import sites are guarded, so this only skips their tests.
-      - name: Type check
-        run: uv run pyright
+        run: uv sync --frozen --group dev
 
       # PyQt6 needs system libraries and a virtual display.
       - name: Install Qt system libraries
@@ -49,13 +44,19 @@ jobs:
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
             libxcb-xinerama0 libxcb-cursor0 xvfb
 
-      - name: Run tests with coverage
-        run: xvfb-run -a uv run pytest --cov-report=xml
+      # Exactly the local definition-of-done gate (AGENTS.md): lint, format,
+      # types, then the suite under xdist with the coverage threshold.
+      # `ruff check --fix` and `ruff format` rewrite files here too, so the
+      # gate fails if they changed anything.
+      - name: Gate (poe check)
+        run: |
+          xvfb-run -a uv run poe check
+          git diff --exit-code
 
       # Tokenless upload works for public repos; set CODECOV_TOKEN in the repo
       # secrets to avoid rate limits (see the release checklist).
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: coverage.xml
+          files: build/coverage/coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}

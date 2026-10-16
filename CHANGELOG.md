@@ -8,6 +8,14 @@ semantic versioning.
 
 ### Changed
 
+- Development: `uv run poe check` is the single definition-of-done gate, and CI
+  runs exactly it. The test suite now runs in parallel and in random order, treats
+  warnings as errors, executes the docstring examples, and requires 100%
+  statement and branch coverage of the whole package, GUI included.
+- Sessions without a measured independent spectrum no longer warn that
+  `reg_spectrum` is ignored on every run; the default weight is simply inert.
+- The NLopt L-BFGS solvers no longer warn that NLopt "stopped early" when the
+  trace error had already reached roundoff (R ≤ 1e-10); that stop is convergence.
 - Reorganised the manual into five sections: Introduction, User guide, Examples,
   Developer's guide and API. Each User guide chapter opens with an orientation
   page, the Examples gallery executes the example scripts, and contributor
@@ -26,6 +34,10 @@ semantic versioning.
 
 ### Fixed
 
+- The package quick-start example now converges as stated (it used SHG from an
+  unseeded random guess, which can stall at R ≈ 2–4%).
+- The Preprocess stage no longer raises when its worker is destroyed with the stage
+  as the wizard rebuilds its stages.
 - **Back at Stage 1 could silently lose the session.** Pressing Back once too
   often (or Main menu) reached the welcome menu, whose every entry starts a new
   session, so going forward again found the loaded trace and retrieval gone. The

@@ -267,7 +267,7 @@ class StageUncertainty(Stage):
             return
         try:
             combined = combine_uncertainties(results)
-        except Exception as exc:  # pragma: no cover - surfaced in the GUI
+        except Exception as exc:
             self.set_status(f"Combine failed: {exc}")
             return
         self.state.set_uncertainty_result(combined)  # stored under "combined"

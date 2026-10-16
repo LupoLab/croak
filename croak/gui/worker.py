@@ -62,7 +62,7 @@ class PreprocessWorker(QThread):
             td = pipeline.build_tracedata(
                 self._params, self._data, fast_baseline=self._fast
             )
-        except Exception as exc:  # pragma: no cover - surfaced in the GUI
+        except Exception as exc:
             self.failed.emit(str(exc), self._id)
             return
         self.finished_ok.emit(td, self._id, self._fast)
@@ -175,7 +175,7 @@ class RetrievalWorker(QThread):
         """
         try:
             return snapshot()
-        except Exception:  # pragma: no cover - defensive; preview is best-effort
+        except Exception:
             return None
 
     def _callback(self, iteration: int, R: float, best_R: float, snapshot=None) -> None:
@@ -219,7 +219,7 @@ class RetrievalWorker(QThread):
                 self.stopped.emit(self._stop_result, elapsed)
             else:
                 self.failed.emit("stopped")
-        except Exception as exc:  # pragma: no cover - surfaced in the GUI
+        except Exception as exc:
             self.failed.emit(str(exc))
 
 
@@ -273,5 +273,5 @@ class UncertaintyWorker(QThread):
             self.finished_ok.emit(uresult)
         except StopRetrieval:
             self.failed.emit("stopped")
-        except Exception as exc:  # pragma: no cover - surfaced in the GUI
+        except Exception as exc:
             self.failed.emit(str(exc))

@@ -907,3 +907,333 @@ class TestUniformCoreIndices:
         x = np.sort(rng.uniform(-1, 1, 37))
         idx = preprocess.uniform_core_indices(x)
         assert np.all(np.diff(idx) == 1)
+
+
+# ---------------------------------------------------------------------------
+# Validation, less common options and the remaining helpers
+# ---------------------------------------------------------------------------
+def _fringe_row():
+    """A fringe-resolved row whose 400 nm carrier aliases at a 2 fs delay step."""
+    dt = 2e-15  # Nyquist 2.5e14 Hz < f_c(400nm) = 7.49e14 Hz
+    tau = (np.arange(128) - 64) * dt
+    lam = np.array([400e-9])
+    row = np.exp(-0.5 * (tau / 12e-15) ** 2) * (
+        1.0 + np.cos(2 * np.pi * C / lam[0] * tau)
+    )
+    return row[None, :], lam, tau
+
+
+def test_defringe_carrier_rejects_an_unknown_alias_policy():
+    row, lam, tau = _fringe_row()
+    with pytest.raises(ValueError, match="on_alias must be"):
+        preprocess.defringe_carrier(row, lam, tau, on_alias="ignore")
+
+
+def test_defringe_carrier_warns_on_alias_and_proceeds():
+    row, lam, tau = _fringe_row()
+    with pytest.warns(UserWarning, match="exceeds the delay Nyquist"):
+        out = preprocess.defringe_carrier(row, lam, tau, on_alias="warn")
+    assert out.shape == row.shape and np.isfinite(out).all()
+
+
+@pytest.mark.parametrize(
+    "tau",
+    [
+        [-1.0, 0.0, 0.0, 0.0, 1.0],  # three samples at one delay
+        [-1.0, 0.0, 0.0, 0.5, 1.0],  # a repeat on one side only
+        [-1.0, 0.0, -0.5, 0.0, 1.0],  # unsorted around the peak
+    ],
+)
+def test_marginal_peak_delay_keeps_the_sample_when_it_cannot_fit(tau):
+    # no neighbour strictly on each side: keep the peak sample's own delay
+    tau = np.array(tau) * 1e-15
+    assert preprocess.marginal_peak_delay(tau, [0.0, 0.5, 1.0, 0.5, 0.0]) == tau[2]
+
+
+def test_marginal_peak_delay_on_a_one_ulp_flat_top_stays_between_the_samples():
+    # A flat top one ulp from level is the worst case for roundoff; the vertex
+    # of y = [1 - ulp, 1, 1] sits at the midpoint of the two equal samples.
+    tau = np.array([-1.0, -0.02124992, 0.0, 0.06843932, 1.0]) * 1e-15
+    flat = [0.0, np.nextafter(1.0, 0.0), 1.0, 1.0, 0.0]
+    got = preprocess.marginal_peak_delay(tau, flat)
+    assert 0.0 <= got <= tau[3]
+
+
+@pytest.mark.parametrize(
+    ("kw", "match"),
+    [
+        ({"defringe": True, "defringe_fraction": 1.0}, "defringe_fraction"),
+        ({"baseline": True, "baseline_smoothness": 0.0}, "baseline_smoothness"),
+    ],
+)
+def test_filter_frog_trace_rejects_bad_parameters(experiment, kw, match):
+    exp = experiment
+    with pytest.raises(ValueError, match=match):
+        preprocess.filter_frog_trace(
+            exp.trace, exp.lam_nm * 1e-9, exp.delay_fs * 1e-15, **kw
+        )
+
+
+def test_filter_frog_trace_applies_scalecurve_and_subsample(experiment):
+    exp = experiment
+    lam = exp.lam_nm * 1e-9
+    tau = exp.delay_fs * 1e-15
+    curve = np.linspace(0.5, 1.5, lam.size)
+    tau_ref, ref = preprocess.filter_frog_trace(exp.trace, lam, tau)
+    tau2, out = preprocess.filter_frog_trace(
+        exp.trace, lam, tau, scalecurve=curve, subsample=2
+    )
+    np.testing.assert_allclose(tau2, tau_ref[::2])
+    # each wavelength row is scaled by its curve value (then renormalised)
+    expected = ref[:, ::2] * curve[:, None]
+    np.testing.assert_allclose(out, expected / expected.max(), atol=1e-12)
+
+
+def test_arpls_baseline_of_a_dead_row_is_the_row():
+    _, shelf, peak = _shelf_peak(n=200)
+    trace = np.stack([shelf + peak, np.zeros(200)])
+    z = preprocess.arpls_baseline(trace, smoothness=1e2)
+    np.testing.assert_array_equal(z[1], 0.0)
+
+
+def test_arpls_baseline_stops_once_nothing_lies_below_it():
+    # Only three collinear points are kept: the smooth baseline passes through
+    # all of them (a line costs no curvature), so no residual is negative.
+    tau = np.linspace(-1.0, 1.0, 21)
+    y = 1.0 + 0.5 * tau
+    z = preprocess.arpls_baseline(y, tau=tau, tau_exclude=0.95)
+    # the line is recovered at the kept points to solver precision
+    np.testing.assert_allclose(z[[0, -1]], y[[0, -1]], rtol=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("args", "kw", "match"),
+    [
+        ((np.ones((2, 2, 8)),), {}, "Ifrog must be 1-D"),
+        ((np.ones(8),), {"tau": np.arange(7.0), "tau_exclude": 1.0}, "tau length"),
+        ((np.ones(8),), {"tau": np.arange(8.0), "tau_exclude": 100.0}, "whole delay"),
+        ((np.ones(2),), {}, "at least 3 delay samples for a 2nd-difference"),
+        ((np.ones(10),), {"downsample": 4}, "at least 3 delay samples after"),
+    ],
+)
+def test_arpls_baseline_rejects_degenerate_input(args, kw, match):
+    with pytest.raises(ValueError, match=match):
+        preprocess.arpls_baseline(*args, **kw)
+
+
+def test_arpls_baseline_coarse_grid_honours_the_hold_out():
+    tau, shelf, peak = _shelf_peak(n=600)
+    sig = shelf + peak
+    held = preprocess.arpls_baseline(sig, tau=tau, tau_exclude=30e-15, downsample=4)
+    free = preprocess.arpls_baseline(sig, downsample=4)
+    # without the hold-out the baseline climbs into the peak; with it, it does not
+    centre = np.abs(tau) < 5e-15
+    assert held[centre].max() < free[centre].max()
+    assert held[centre].max() < 0.5
+
+
+def test_suggested_tau_exclude_rejects_a_3d_trace():
+    with pytest.raises(ValueError, match="Ifrog must be 1-D"):
+        preprocess.suggested_tau_exclude(np.ones((2, 2, 4)), np.arange(4.0))
+
+
+def test_resample_spectrum_on_a_finer_grid_interpolates_directly():
+    lam = np.linspace(700e-9, 900e-9, 50)  # coarse data: grid step < data step
+    Ilam = np.exp(-0.5 * ((lam - 800e-9) / 30e-9) ** 2)
+    omega0 = wlfreq(800e-9)
+    omega = np.linspace(-0.2e15, 0.2e15, 512) + omega0
+    Iw = preprocess.resample_spectrum(lam, Ilam, omega)
+    assert abs(omega[np.argmax(Iw)] - omega0) < 0.02e15
+
+
+def test_resample_spectrum_without_prefilter_keeps_aliasing_content():
+    lam = np.linspace(700e-9, 900e-9, 4000)
+    rng = np.random.default_rng(3)
+    Ilam = np.exp(-0.5 * ((lam - 800e-9) / 20e-9) ** 2) + 0.05 * rng.random(lam.size)
+    omega = np.linspace(-0.3e15, 0.3e15, 64) + wlfreq(800e-9)
+    filtered = preprocess.resample_spectrum(lam, Ilam, omega)
+    raw = preprocess.resample_spectrum(lam, Ilam, omega, prefilter=False)
+    filtered, raw = filtered / filtered.max(), raw / raw.max()
+    # the anti-alias low-pass removes the fine-scale noise the raw path samples
+    assert np.abs(raw - filtered).max() > 1e-3
+    assert np.abs(np.diff(raw, 2)).sum() > np.abs(np.diff(filtered, 2)).sum()
+
+
+def _shg_experiment():
+    """A synthetic trace read as SHG, with a fundamental spectrum and grid band.
+
+    The fixture places the trace near 800 nm, so as an SHG measurement its
+    fundamental sits near 1600 nm: the retrieval band (``lam_min``/``lam_max``
+    are *fundamental* wavelengths, also for SHG) and the spectrum go there.
+    """
+    exp = make_synthetic_experiment()
+    lam_spec = np.linspace(1200e-9, 2200e-9, 800)
+    Ilam_spec = np.exp(-(((lam_spec - 1600e-9) / 80e-9) ** 2))
+    return exp, lam_spec, Ilam_spec, 2.0 * exp.lam_min, 2.0 * exp.lam_max
+
+
+def test_regrid_with_spectrum_marginal_correction_and_time_resampling():
+    exp, lam_spec, Ilam_spec, lam_min, lam_max = _shg_experiment()
+    lam = exp.lam_nm * 1e-9
+    tau = exp.delay_fs * 1e-15
+    tau2, grid, _, w0t, trace, Iw, _ = preprocess.regrid(
+        tau,
+        lam,
+        exp.trace,
+        lam_spec,
+        Ilam_spec,
+        "shg",
+        lam_min=lam_min,
+        lam_max=lam_max,
+        trange=200e-15,
+        marginal_correct=True,
+        resample_t=True,
+        taper_warn_level=0.0,
+    )
+    assert Iw is not None and Iw.max() == pytest.approx(1.0)
+    # resample_t puts the trace on the grid's own time axis (re-centred)
+    assert trace.shape == (grid.n, grid.n) and tau2.size == grid.n
+    np.testing.assert_allclose(np.diff(tau2), grid.dt)
+    # the marginal is now the spectrum's autoconvolution (the SHG prediction)
+    from croak.marginal_checks import spectral_autoconvolution
+
+    pred = spectral_autoconvolution(Iw, circular=True)
+    marg = trace.sum(axis=1)
+    # interpolation onto the time grid perturbs the rows slightly: 2 % of peak
+    np.testing.assert_allclose(marg / marg.max(), pred / pred.max(), atol=0.02)
+
+
+@pytest.mark.parametrize(
+    ("interaction", "spectrum", "match"),
+    [
+        ("shg", False, "requires an independent spectrum"),
+        ("pg", True, "only implemented"),
+    ],
+)
+def test_regrid_marginal_correction_preconditions(interaction, spectrum, match):
+    exp, lam_spec, Ilam_spec, lam_min, lam_max = _shg_experiment()
+    with pytest.raises(ValueError, match=match):
+        preprocess.regrid(
+            exp.delay_fs * 1e-15,
+            exp.lam_nm * 1e-9,
+            exp.trace,
+            lam_spec if spectrum else None,
+            Ilam_spec if spectrum else None,
+            interaction,
+            lam_min=lam_min,
+            lam_max=lam_max,
+            marginal_correct=True,
+            taper_warn_level=0.0,
+        )
+
+
+def test_regrid_of_a_finely_sampled_spectrometer_trace(experiment):
+    """Wavelength samples finer than the grid take the anti-aliased path."""
+    exp = experiment
+    lam = exp.lam_nm * 1e-9
+    fine = np.linspace(lam.min(), lam.max(), 4 * lam.size)
+    trace = np.stack([np.interp(fine, lam, col) for col in exp.trace.T], axis=1)
+    _, grid, *_, out, _, _ = preprocess.regrid(
+        exp.delay_fs * 1e-15,
+        fine,
+        trace,
+        None,
+        None,
+        exp.interaction,
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        taper_warn_level=0.0,
+    )
+    _, _, *_, ref, _, _ = preprocess.regrid(
+        exp.delay_fs * 1e-15,
+        lam,
+        exp.trace,
+        None,
+        None,
+        exp.interaction,
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        taper_warn_level=0.0,
+    )
+    # the same measurement, sampled 4x finer, regrids to the same trace to within
+    # the linear interpolation used to densify it (~1 % of the peak)
+    np.testing.assert_allclose(out, ref, atol=0.02)
+    # without the anti-alias low-pass the fine samples are taken as they are; on
+    # this smooth trace that changes little
+    *_, raw, _, _ = preprocess.regrid(
+        exp.delay_fs * 1e-15,
+        fine,
+        trace,
+        None,
+        None,
+        exp.interaction,
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        prefilter=False,
+        taper_warn_level=0.0,
+    )
+    np.testing.assert_allclose(raw, out, atol=0.02)
+
+
+def test_background_subtract_and_clamp():
+    out = preprocess.background_subtract([1.0, 0.5, 0.2], [0.3, 0.6, 0.1])
+    np.testing.assert_allclose(out, [0.7, -0.1, 0.1])
+    clamped = preprocess.background_subtract([1.0, 0.5], [0.3, 0.6], clamp=True)
+    np.testing.assert_allclose(clamped, [0.7, 0.0])
+
+
+def test_calibration_curve_scale_interpolates_and_holds_the_ends():
+    scale = preprocess.calibration_curve_scale(
+        np.array([650e-9, 750e-9, 850e-9, 950e-9]),
+        [700.0, 750.0, 800.0, 850.0, 900.0],
+        [1.0, 1.5, 2.0, 2.5, 3.0],
+    )
+    # a linear curve is reproduced inside; constant (end value) outside
+    np.testing.assert_allclose(scale, [1.0, 1.5, 2.5, 3.0])
+
+
+def test_third_order_scale_is_a_power_of_wavelength_in_um():
+    np.testing.assert_allclose(
+        preprocess.third_order_scale(np.array([0.5e-6, 1e-6]), exponent=2.0),
+        [0.25, 1.0],
+    )
+
+
+def test_omega_to_lambda_density_divides_by_lambda_squared():
+    lam = np.array([1.0, 2.0])
+    np.testing.assert_allclose(
+        preprocess.omega_to_lambda_density([4.0, 4.0], lam), [4.0, 1.0]
+    )
+    trace = np.ones((2, 3))
+    np.testing.assert_allclose(
+        preprocess.omega_to_lambda_density(trace, lam), [[1.0] * 3, [0.25] * 3]
+    )
+
+
+def test_load_and_clean_rejects_an_unknown_input_unit(experiment):
+    exp = experiment
+    with pytest.raises(ValueError, match="input_unit must be"):
+        preprocess.load_and_clean(
+            exp.trace,
+            exp.lam_nm * 1e-9,
+            exp.delay_fs,
+            exp.interaction,
+            lam_min=exp.lam_min,
+            lam_max=exp.lam_max,
+            input_unit="steps",
+        )
+
+
+def test_load_and_clean_carries_the_independent_spectrum():
+    exp, lam_spec, Ilam_spec, lam_min, lam_max = _shg_experiment()
+    # the band's edge taper bites into this synthetic trace (not the point here)
+    kw = dict(
+        lam_min=lam_min, lam_max=lam_max, input_unit="delay", taper_warn_level=0.0
+    )
+    args = (exp.trace, exp.lam_nm * 1e-9, exp.delay_fs * 1e-15, "shg")
+    assert preprocess.load_and_clean(*args, **kw).Iomega is None
+    td = preprocess.load_and_clean(*args, lam_spec=lam_spec, Ilam_spec=Ilam_spec, **kw)
+    assert td.Iomega is not None and td.Iomega.max() == pytest.approx(1.0)
+    # the 1600 nm fundamental peaks at the pulse carrier (grid centre), within
+    # 5 % of the grid's half-span
+    assert abs(td.grid.omega[int(np.argmax(td.Iomega))]) < 0.05 * td.grid.omega.max()

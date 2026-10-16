@@ -170,7 +170,7 @@ class ProgressReporter:
                     leave=True,
                     dynamic_ncols=True,
                 )
-        except Exception:  # pragma: no cover - tqdm is a declared dependency
+        except Exception:  # a broken tqdm install: use the built-in bar
             return None
 
     # -- solver hook --------------------------------------------------------
@@ -187,7 +187,7 @@ class ProgressReporter:
         if not self.live:
             return
         if self._tqdm is not None:
-            self._update_tqdm()
+            self._update_tqdm(self._tqdm)
             return
         now = time.perf_counter()
         at_end = self.total is not None and self.iteration >= self.total
@@ -197,13 +197,12 @@ class ProgressReporter:
         self._last_draw = now
         self._draw()
 
-    def _update_tqdm(self) -> None:
-        if self._tqdm is None:  # only meaningful with the tqdm backend active
-            return
-        delta = self.iteration - self._tqdm.n
+    def _update_tqdm(self, bar) -> None:
+        """Advance the tqdm ``bar`` to the current iteration and show the errors."""
+        delta = self.iteration - bar.n
         if delta > 0:
-            self._tqdm.update(delta)
-        self._tqdm.set_postfix_str(f"R={self.last_R:.3%} best={self.best_R:.3%}")
+            bar.update(delta)
+        bar.set_postfix_str(f"R={self.last_R:.3%} best={self.best_R:.3%}")
         self._drawn = True
 
     def _draw(self) -> None:
@@ -219,7 +218,7 @@ class ProgressReporter:
         try:
             self.stream.write(msg)
             self.stream.flush()
-        except Exception:  # pragma: no cover - closed/odd stream
+        except Exception:  # closed/odd stream: stop drawing, keep the report
             self.live = False
             return
         self._drawn = True

@@ -335,7 +335,9 @@ def truth_errors(
         # amplitude factor is wfac**p; bins at or below zero absolute
         # frequency carry no physical field, so they are zeroed rather than
         # divided (matching apply_spectrum_frame's clamp on the way in)
-        spectrum = spectrum * np.where(wfac > 0.0, wfac ** (-float(frame_p)), 0.0)
+        amp = np.zeros_like(wfac)
+        np.power(wfac, -float(frame_p), out=amp, where=wfac > 0.0)
+        spectrum = spectrum * amp
         field = result.grid.ifft(spectrum)
     else:
         field = result.field

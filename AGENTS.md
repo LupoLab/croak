@@ -1,5 +1,26 @@
 # AGENTS.md
 
+Working instructions for coding agents (and people) in this repository. The long form
+is the Developer's guide under `docs/developer_guide/` (environment, architecture,
+extending, GUI sessions, validation, documentation).
+
+Rules marked ⚙ are enforced by the configuration in `pyproject.toml` (ruff, pyright,
+pytest, coverage). If a ⚙ rule and the configuration disagree, the configuration wins and
+this file is out of date — say so. When a judgement call concerns physics or numerics
+rather than style, ask rather than guess.
+
+## Project facts
+
+| | |
+|---|---|
+| Package | `croak` (flat layout: `croak/`, not `src/`) |
+| Purpose | FROG pulse retrieval: amplitude and phase, dispersive media, geometric smearing, uncertainty |
+| Python | 3.14, equal to `requires-python` in `pyproject.toml` |
+| Type checker | `pyright`, `basic` mode, over `croak/` |
+| Numerics | NumPy/SciPy, with JAX (optimistix, lineax) for the differentiable solvers |
+| GUI | the `gui` extra (PyQt6, superqt); the dev group always installs it, and its tests run offscreen with pytest-qt |
+| Optional extras | `evo` (evosax, the `cma-es` retriever; in the dev group) and `ridb` (refractiveindex.info; *not* in the dev group, tested against a fake database) |
+
 ## Guiding principles
 
 - There should be one obvious way to do each thing. Prefer the existing pattern over inventing a new one; if you find two ways to do the same thing, consolidate them.
@@ -10,90 +31,128 @@
 
 ## Environment and tooling
 
-- Python is managed with **uv**. Dependencies are declared in `pyproject.toml`; the resolved lockfile is `uv.lock`. Never `pip install` into the environment by hand.
-- Add dependencies with `uv add <pkg>` (and `uv add --dev <pkg>` for dev/test tools). Sync the environment with `uv sync`.
+- Python is managed with **uv**. Dependencies are declared in `pyproject.toml`; the resolved lockfile is `uv.lock`. Never `pip install` into the environment by hand, and never edit `uv.lock` by hand.
+- **Ask before adding a dependency.** Then add it with `uv add <pkg>` (`uv add --dev <pkg>` for tooling).
 - Run everything through the project environment by prefixing commands with `uv run`.
-- Target Python [3.14]; keep it consistent with `requires-python` in `pyproject.toml`.
+- `uv sync` is *exact*: it installs only the default `dev` group and removes the `docs` group. Use `uv sync --group docs` before building the docs.
 
 ## Commands
 
-- Sync environment: `uv sync`
-- Format: `uv run ruff format .`
-- Lint (with autofix): `uv run ruff check --fix .`
-- Type-check: `uv run pyright`
-- Test: `uv run pytest`
-- Build docs: `uv run sphinx-build -b html docs docs/_build/html`
+| Task | Command |
+|---|---|
+| Sync environment | `uv sync` (add `--group docs` for the docs) |
+| **Full gate** (see below) | `uv run poe check` |
+| Tests, all cores | `uv run poe test` |
+| Tests with the 100% coverage gate | `uv run poe cov` |
+| Focused tests, serial | `uv run pytest tests/test_x.py` |
+| Lint with autofix / format | `uv run ruff check --fix .` / `uv run ruff format .` |
+| Type-check | `uv run pyright` |
+| Build docs | `uv run poe docs` |
 
 ## Definition of done
 
-Before treating any change as complete, run these in order and ensure each passes with no new warnings:
+`uv run poe check` runs, in order:
 
-1. `uv run ruff format .`
-2. `uv run ruff check --fix .`
-3. `uv run pyright`
-4. `uv run pytest`
+1. `ruff check --fix .` — lint first: autofix rewrites code;
+2. `ruff format .` — so the fixes are formatted;
+3. `ruff check .` — catches what autofix could not;
+4. `pyright` — no errors;
+5. `poe cov` — the suite (doctests included) on every core with pytest-xdist, requiring
+   **100% statement and branch coverage** of `croak/`, GUI included ⚙.
 
-Do not declare work finished while any step fails. If a check genuinely cannot pass for a justified reason, say so explicitly rather than suppressing it.
+CI runs exactly this task; if you change the sequence, change `.github/workflows/ci.yml`
+in the same commit. Do not declare work finished while a step fails. If a step genuinely
+cannot pass, say so and why — never suppress a check to make the gate green.
 
-Furthermore, ensure all added functionality is documented both in docstrings *and* in the manual under docs.
+**The coverage gate is not negotiable.** Do not lower the threshold, add `omit` entries or
+exclusion patterns, or add `# pragma: no cover` to make it pass. Cover new code with tests
+that assert intended behaviour, not tests that merely execute lines. Code that cannot be
+reached is deleted or simplified, not excluded. A pragma is only for code that genuinely
+cannot run under test (`if __name__ == "__main__":`, a guarded optional import's
+`ImportError`) and carries its reason on the same line.
+
+**Documentation-only changes** (the manual, docstring prose, AGENTS.md) do not need the
+full suite: run `git diff --check` and `uv run poe docs`.
+
+New functionality is not done until it is **tested**, **documented in the manual** as well
+as in docstrings, and recorded in `CHANGELOG.md`.
+
+## Working agreement
+
+- **Stay in scope.** No refactoring, renaming or reformatting unrelated to the task.
+- **Never hand-edit generated files**: `uv.lock`, `docs/_build/`, `docs/.jupyter_cache/`. Regenerate them.
+- **Report failure honestly.** A check that fails, a test you could not make pass, an assumption you had to invent: say it plainly. Silent partial completion is worse than an admitted gap.
 
 ## Code style
 
-- Formatting is owned by `ruff format`; do not hand-format or fight the formatter. Line length is the ruff default (88) unless `pyproject.toml` overrides it.
-- Linting is owned by `ruff check`. Fix the cause rather than silencing the warning. A suppression must be rule-specific with a reason (`# noqa: E501 — URL must stay on one line`), never a blanket `# noqa`.
-- Imports are absolute and sorted by ruff. No wildcard (`from x import *`) imports.
+- Formatting is owned by `ruff format` ⚙; do not hand-format or fight the formatter. Line length is the ruff default (88).
+- Linting is owned by `ruff check` ⚙. Fix the cause rather than silencing the warning. A suppression must be rule-specific with a reason (`# noqa: E501 — URL must stay on one line`), never a blanket `# noqa`.
+- Imports are absolute and sorted by ruff ⚙. No wildcard imports.
 - Naming: `snake_case` for functions and variables, `PascalCase` for classes, `UPPER_SNAKE` for constants. Names state what a thing is or does; avoid abbreviations beyond well-established domain ones.
 - Use f-strings for interpolation and `pathlib.Path` for filesystem paths. Reach for the standard-library idiom before adding a dependency.
 
 ## Types
 
-- Annotate every public function signature and class attribute. Add types where they clarify intent or catch mistakes; do not annotate obvious locals just to fill space.
-- Code must pass `pyright` in the project's configured mode with no new errors.
+- Annotate every public function signature and class attribute. Do not annotate obvious locals just to fill space.
+- Code must pass `pyright` ⚙ with no errors.
 - Prefer precise types: `Sequence`/`Mapping` over `list`/`dict` for read-only parameters, `X | None` over `Optional[X]`, and built-in generics (`list[int]`). Avoid `Any`; if it is unavoidable, confine it to one place and comment why.
 - Use a `@dataclass` (frozen where it can be) for structured data instead of passing loose tuples or dicts around.
 
+## Errors and warnings
+
+- Raise a specific exception (`ValueError`, `TypeError`, or a croak-specific subclass) with a message that says what was wrong and what was expected; never raise bare `Exception`.
+- Validate inputs at public boundaries. Never let NaN or Inf propagate silently.
+- Warn (`warnings.warn`, with a category and `stacklevel`) only when the result is still usable; otherwise raise.
+
 ## Docstrings
 
-- Every public module, class, and function has a **NumPy-style** docstring (rendered by Sphinx via the napoleon extension). Private helpers get a one-line docstring when the name is not fully self-explanatory.
+- Every public module, class, and function has a **NumPy-style** docstring ⚙ (rendered by Sphinx via the napoleon extension). Private helpers get a one-line docstring when the name is not fully self-explanatory.
 - The first line is an imperative one-sentence summary. Then include, as applicable: `Parameters`, `Returns`, `Raises`, and `Examples`.
 - For numerical quantities, state units and valid ranges in the parameter descriptions.
-- Make `Examples` runnable (doctest style) where practical. Describe behaviour and contracts, not implementation details that will drift.
+- `Examples` run as doctests in the suite ⚙, so they must be runnable and deterministic. Describe behaviour and contracts, not implementation details that will drift.
 
 ## Comments
 
-- Code comments should be comprehensive. They should explain both the maths and physics as well as coding details.
-- Comments cover: rationale, assumptions, references (a paper, an issue link), and non-obvious trade-offs.
-- Keep each comment next to what it describes and update it when the code changes. Delete commented-out code — version history is the archive.
-- Mark deliberate follow-ups as `# TODO(context): ...` so they are greppable.
+Comments explain **why**, not **what**: the code already says what it does. Be generous
+with the *why*:
+
+- the physics and mathematics — derivations, approximations, the assumption that makes a step valid; refer to the manual page that carries a long derivation;
+- the numerics — why this grid, cutoff, tolerance or regularisation; stability; where precision is lost;
+- sign, unit and normalisation choices; references (a paper with DOI, an equation number, an issue);
+- non-obvious trade-offs, and anything a reader would be tempted to "simplify" incorrectly.
+
+Keep each comment next to what it describes and update it when the code changes. Delete commented-out code — version history is the archive. Mark deliberate follow-ups as `# TODO(context): ...` so they are greppable.
 
 ## Functions and modules
 
 - One function, one responsibility. If a function needs a paragraph to explain, or has many nested branches, split it.
 - Keep parameter lists short. Group related parameters into a small dataclass or config object rather than passing many positional arguments.
 - Prefer returning new values over mutating arguments in place. Keep the core logic pure and testable; isolate I/O at the boundaries.
-- Organise modules by domain concept, not by a catch-all `utils`. Each module should have a clear, nameable purpose. Declare the public surface explicitly with `__all__` where it helps.
+- Organise modules by domain concept, not by a catch-all `utils`. Declare the public surface with `__all__` where it helps.
+- Keep plotting in `croak.plotting` as headless panels (`draw_*` / `update_*`) that the GUI composes; GUI modules hold Qt glue, not numerics.
 
 ## Tests
 
 - Tests use **pytest** and live in `tests/`, mirroring the package layout. Name them `test_<unit>_<behaviour>`.
-- Every public function has tests for the normal case, the edge cases, and the error paths. Add a regression test with every bug fix.
-- Tests are deterministic, isolated, and fast: use fixtures for setup, `pytest.mark.parametrize` instead of copy-pasted cases, and no network access or hidden global state.
-- For numerical code, assert with explicit tolerances (`numpy.testing.assert_allclose`, `pytest.approx`) and test invariants and conservation laws, not only point values.
+- Every public function has tests for the normal case, the edge cases, and the error paths (`pytest.raises(..., match=...)`). Add a regression test with every bug fix.
+- Tests are deterministic and isolated: they run in random order ⚙ and in parallel ⚙, so use fixtures for setup, write only under `tmp_path`, and keep no hidden global state. No network access. Use `pytest.mark.parametrize` instead of copy-pasted cases.
+- Randomness is explicit: `np.random.default_rng(seed)`.
+- Warnings are errors ⚙. Assert an expected warning with `pytest.warns`; do not filter it away.
+- For numerical code, assert with explicit tolerances (`numpy.testing.assert_allclose`, `pytest.approx`) and say in a comment what sets each tolerance. Test invariants and conservation laws, not only point values.
+- Keep tests fast: small grids and few iterations unless the test is about convergence. GUI tests drive the real widgets through `qtbot`.
 - Write the test alongside the code; a feature is not done until it is tested.
 
 ## Documentation
 
-- Docs are built with **Sphinx**, and the API reference is generated from docstrings — so the docstring is the source of truth. Keep the `README.md` and any usage guide current with behaviour changes.
-- Record notable changes in `CHANGELOG.md` (Keep a Changelog style).
-- All functionality of this package must be described in the user manual under the docs/ folder. This should include background explanations and context, how the functionality works, and examples
-- When adding functionality, always add documentation.
-- When working on something that does not appear to be documented, check this and add appropriate documentation.
-- The tutorials under `docs/tutorials/` are executed notebooks whose results are cached in `docs/.jupyter_cache`, which is **committed** so Read the Docs never re-executes unchanged tutorials (its builders are too slow for the solver tutorials; see `docs/conf.py`). Whenever you edit a tutorial — or change croak behaviour that alters a tutorial's output — rebuild the docs locally (`uv run sphinx-build -b html docs docs/_build/html`) and commit the refreshed `docs/.jupyter_cache` together with the change. The build must succeed with no warnings; a forgotten cache refresh does not break Read the Docs (it re-executes the stale tutorial itself), it just makes its builds slow.
+- Docs are built with **Sphinx**, and the API reference is generated from docstrings — so the docstring is the source of truth. Keep `README.md` current with behaviour changes.
+- Record notable changes in `CHANGELOG.md` (Keep a Changelog style), under `Unreleased`.
+- All functionality must be described in the user manual under `docs/`: background and context, how it works, and examples. When you add functionality, add documentation; when you touch something undocumented, document it.
+- The tutorials under `docs/tutorials/` are executed notebooks whose results are cached in `docs/.jupyter_cache`, which is **committed** so Read the Docs never re-executes unchanged tutorials (its builders are too slow for the solver tutorials; see `docs/conf.py`). Whenever you edit a tutorial — or change croak behaviour that alters a tutorial's output — rebuild the docs locally (`uv run poe docs`) and commit the refreshed `docs/.jupyter_cache` together with the change. The build must succeed with no warnings.
 
 ## Git
 
-- Make clean, logical git commits with descriptive but not overly verbose commit messages.
-- Prefer more frequenct clean commits over large big ones.
-- *Never* push.
-- You can fetch, pull, branch when instructed to do so. If you want to do this, ask.
-- Do not make releases or change release versions
+- Work on a topic branch (`fix/…`, `feature/…`, `docs/…`, `test/…`). Before creating or switching branches or worktrees, propose the name and **ask**, unless the user already authorised it.
+- Make clean, logical commits with descriptive but not verbose messages. Prefer several small commits over one large one.
+- Stage deliberately: `git add <paths>`, not `git add -A`.
+- Never tag, make releases or change the package version.
+- **Coding agents:** never push; never run a destructive or history-rewriting command (`git reset --hard`, `git checkout .`, `git restore` over uncommitted changes, `git clean`, `git commit --amend`, `git rebase`, a force push). `fetch`, `pull` and `merge` only when asked.

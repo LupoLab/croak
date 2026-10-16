@@ -192,3 +192,91 @@ def test_refractive_db_smoke():
         assert np.isfinite(n(np.array([mid]))).all()
         # outside the valid range the index is NaN, so beta() masks it
         assert not np.isfinite(n(np.array([rng[1] * 10]))).any()
+
+
+def test_read_columns_without_numeric_rows_raises(tmp_path):
+    path = tmp_path / "headers.txt"
+    path.write_text("# a comment\n\nWavelength GDD\nnm fs2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no numeric data"):
+        mirrors._read_columns(path, (0, 1), None)
+
+
+def test_read_columns_skips_headers_and_ragged_rows(tmp_path):
+    path = tmp_path / "ragged.csv"
+    path.write_text("lam,gdd,R\n700,-50,0.9\n710,-60\n720,-70,0.95\n", encoding="utf-8")
+    np.testing.assert_array_equal(
+        mirrors._read_columns(path, (0, 2), ","), [[700.0, 0.9], [720.0, 0.95]]
+    )
+
+
+def _flat_gdd_data():
+    lam = np.linspace(600e-9, 1000e-9, 200)
+    return lam, np.full_like(lam, -50e-30)
+
+
+def test_process_mirror_data_reflectivity_interpolates_and_is_zero_outside():
+    lam, gdd = _flat_gdd_data()
+    lam_R = np.array([900e-9, 700e-9, 800e-9])  # unsorted on purpose
+    R = np.array([0.9, 0.7, 0.8])
+    _, r_fn = mirrors.process_mirror_data(
+        lam_R,
+        R,
+        lam,
+        gdd,
+        mode="gdd",
+        lam0_m=800e-9,
+        taper_m=(6e-7, 6.1e-7, 9.9e-7, 1e-6),
+    )
+    np.testing.assert_allclose(r_fn(np.array([750e-9, 850e-9])), [0.75, 0.85])
+    np.testing.assert_array_equal(r_fn(np.array([500e-9, 1200e-9])), [0.0, 0.0])
+
+
+def test_process_mirror_data_without_reflectivity_is_lossless():
+    lam, gdd = _flat_gdd_data()
+    _, r_fn = mirrors.process_mirror_data(
+        None,
+        None,
+        lam,
+        gdd,
+        mode="gdd",
+        lam0_m=800e-9,
+        taper_m=(6e-7, 6.1e-7, 9.9e-7, 1e-6),
+    )
+    np.testing.assert_array_equal(r_fn(np.array([500e-9, 800e-9])), [1.0, 1.0])
+
+
+def test_process_mirror_data_rejects_an_unknown_mode():
+    lam, gdd = _flat_gdd_data()
+    with pytest.raises(ValueError, match="mode must be 'gdd' or 'gd'"):
+        mirrors.process_mirror_data(
+            None,
+            None,
+            lam,
+            gdd,
+            mode="phase",
+            lam0_m=8e-7,
+            taper_m=(6e-7, 6.1e-7, 9.9e-7, 1e-6),
+        )
+
+
+def test_mirror_from_arrays_validates_input():
+    lam = np.array([700e-9, 800e-9, 900e-9, np.nan, 1000e-9])
+    values = np.array([0.0, 1.0, np.nan, 2.0, 3.0])
+    # the non-finite rows are dropped, leaving three samples
+    with pytest.raises(ValueError, match="at least 4 valid"):
+        mirrors.mirror_from_arrays(lam, values, mode="gdd")
+    lam, gdd = _flat_gdd_data()
+    with pytest.raises(ValueError, match="mode must be 'phase' or 'gdd'"):
+        mirrors.mirror_from_arrays(lam, gdd, mode="gd")
+
+
+def test_mirror_from_arrays_honours_explicit_reference_and_taper():
+    lam, gdd = _flat_gdd_data()
+    taper = (650e-9, 700e-9, 900e-9, 950e-9)
+    phase_fn, valid = mirrors.mirror_from_arrays(
+        lam, gdd, mode="gdd", lam0_m=750e-9, taper_m=taper
+    )
+    assert valid == (700e-9, 900e-9)
+    # the taper zeroes the phase outside its outer corners
+    outside = wlfreq(np.array([620e-9, 980e-9]))
+    np.testing.assert_array_equal(phase_fn(outside), [0.0, 0.0])

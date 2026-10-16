@@ -96,5 +96,5 @@ def _set_windows_app_id() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
             _APP_USER_MODEL_ID
         )
-    except AttributeError, OSError:  # pragma: no cover - Windows-only path
+    except AttributeError, OSError:
         pass

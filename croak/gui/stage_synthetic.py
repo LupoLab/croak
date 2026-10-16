@@ -221,17 +221,12 @@ class StageSynthetic(Stage):
             self.wl_step,
             self._count_to_step(self._wl[1] - self._wl[0], int(self.nwl.value())),
         )
+        # The spectrum starts mirrored (the check box defaults on), so its own
+        # controls start disabled and its sampling follows the trace window.
         mirror = self.spec_mirror.isChecked()
         for w in (self.spec_range, self.nspec, self.spec_step):
             w.setEnabled(not mirror)
         self._sync_spec_mirror()
-        if not mirror:
-            self._set_spin(
-                self.spec_step,
-                self._count_to_step(
-                    self._spec_wl[1] - self._spec_wl[0], int(self.nspec.value())
-                ),
-            )
 
     def _on_interaction(self, _value):
         # the SHG fundamental sits at 2× the signal wavelength, so a mirrored
@@ -434,7 +429,7 @@ class StageSynthetic(Stage):
         try:
             grid, ew, omega0 = self._pulse()
             lam_sig, delays, trace = self._signal_trace(grid, ew, omega0)
-        except Exception as exc:  # pragma: no cover - surfaced in the GUI
+        except Exception as exc:
             self.set_status(f"Generation failed: {exc}")
             return
         self._last = (grid, ew, omega0)

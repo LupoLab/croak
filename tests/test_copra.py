@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from croak.copra import COPRA
-from croak.forward import maketrace
+from croak.copra import COPRA, run_copra
+from croak.forward import ForwardModel, maketrace
 from croak.grid import Grid
 from croak.maths import wlfreq
 from croak.pulses import gaussian_pulse
@@ -154,3 +154,63 @@ def test_copra_dispersive():
         maxiters=150, material="SiO2", thickness=10e-6, npoints=20, omega0=omega0
     ).run(trace, g.omega, delays, "pg", guess=near)
     assert res.error < 5e-2
+
+
+@pytest.fixture
+def small():
+    g = Grid(32, dt=1e-15)
+    ew = gaussian_pulse(g, 6e-15, phases=(10e-30,))
+    delays = np.linspace(-15e-15, 15e-15, 11)
+    return g, ew, delays, maketrace(g.omega, delays, ew, "pg")
+
+
+def test_copra_zero_weight_rows_do_not_pull_the_fit(small):
+    """Zero-weight rows target the model itself, so corrupting them changes nothing."""
+    g, ew, delays, trace = small
+    weights = np.ones(g.n)
+    weights[:4] = 0.0
+    corrupted = trace.copy()
+    corrupted[:4] = 0.5  # garbage where the weight is zero
+    kw = dict(guess=0.9 * ew, weights=weights, rng=np.random.default_rng(0))
+    clean = COPRA(maxiters=10).run(trace, g.omega, delays, "pg", **kw)
+    kw["rng"] = np.random.default_rng(0)
+    dirty = COPRA(maxiters=10).run(corrupted, g.omega, delays, "pg", **kw)
+    # the trace is max-normalised, so a 0.5 plateau in zero-weight rows rescales
+    # nothing (the peak is 1) and the iterates coincide to rounding
+    np.testing.assert_allclose(dirty.spectrum, clean.spectrum, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("kw", "message"),
+    [
+        ({"abstol": 1.0}, "COPRA: reached abstol (1.00e+00) at iter 1"),
+        ({"reltol": 1e9}, "COPRA: best error plateaued (reltol 1.00e+09)"),
+    ],
+)
+def test_copra_verbose_reports_each_stop(small, capsys, kw, message):
+    g, ew, delays, trace = small
+    COPRA(maxiters=50, verbose=True, **kw).run(
+        trace, g.omega, delays, "pg", guess=0.9 * ew, rng=np.random.default_rng(0)
+    )
+    out = capsys.readouterr().out
+    assert "COPRA: initial R = " in out and "  iter    1: R = " in out
+    assert message in out
+
+
+def test_run_copra_callback_without_snapshots(small):
+    """The bare iteration hands a three-argument callback no snapshot."""
+    g, ew, delays, trace = small
+    calls = []
+    model = ForwardModel(g.omega, delays, "pg")
+    _, errors, _, _, _ = run_copra(
+        model,
+        g,
+        trace / trace.max(),
+        0.9 * ew,
+        np.ones(g.n),
+        maxiters=3,
+        rng=np.random.default_rng(0),
+        callback=lambda *args: calls.append(args),
+    )
+    assert [c[0] for c in calls] == [1, 2, 3]
+    assert [c[1] for c in calls] == errors

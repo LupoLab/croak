@@ -517,7 +517,7 @@ class StageSimulated(Stage):
             return
         try:
             data = assemble_simulated_load_data(self._params())
-        except Exception as exc:  # pragma: no cover - surfaced in the GUI
+        except Exception as exc:
             self._set_can_load(False)
             self.set_status(f"Load failed: {exc}")
             return
@@ -546,9 +546,11 @@ class StageSimulated(Stage):
         # Re-normalise to unit peak: ×λ² rescales the (unit-peak λ-density) trace
         # to a tiny absolute level, which the dB view (log10 ∈ [−tracedb, 0])
         # would otherwise clip entirely.
-        peak = float(np.nanmax(np.abs(trace))) if trace.size else 0.0
+        peak = float(np.nanmax(np.abs(trace)))
         if peak > 0:
             trace = trace / peak
+        # rows with signal set the frequency limits; the peak row always
+        # qualifies, so this is never empty (a blank trace shows its full range)
         sig = freq[trace.max(axis=1) > 1e-2] if peak > 0 else freq
 
         def plot(fig):
@@ -574,8 +576,7 @@ class StageSimulated(Stage):
             for key in ("a", "b"):
                 axd[key].set_xlabel("Delay (fs)")
                 axd[key].set_ylabel("Frequency (PHz)")
-                if sig.size:
-                    axd[key].set_ylim(sig.min(), sig.max())
+                axd[key].set_ylim(sig.min(), sig.max())
             # delay marginal
             tmarg = trace.sum(axis=0)
             tmarg = tmarg / tmarg.max() if tmarg.max() > 0 else tmarg
@@ -596,8 +597,7 @@ class StageSimulated(Stage):
                 axd["d"].legend(fontsize="small")
             axd["d"].set_xlabel("Frequency (PHz)")
             axd["d"].set_ylabel("Spectral marginal (ω-density)")
-            if sig.size:
-                axd["d"].set_xlim(sig.min(), sig.max())
+            axd["d"].set_xlim(sig.min(), sig.max())
 
         self.canvas.render(plot)
 

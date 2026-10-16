@@ -2,12 +2,13 @@
 
 import numpy as np
 import pytest
+from nlopt_harness import script_nlopt
 
 from croak.forward import maketrace
 from croak.grid import Grid
 from croak.lbfgs import LBFGS
 from croak.maths import wlfreq
-from croak.pulses import gaussian_pulse
+from croak.pulses import ArrayPulse, gaussian_pulse
 
 
 @pytest.fixture
@@ -111,3 +112,114 @@ def test_lbfgs_dispersive():
         maxiters=400, material="SiO2", thickness=10e-6, npoints=20, omega0=omega0
     ).run(trace, g.omega, delays, "pg", guess=near)
     assert res.error < 5e-2
+
+
+# ---------------------------------------------------------------------------
+# Options and NLopt contracts on a small problem
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def small():
+    g = Grid(32, dt=1e-15)
+    ew = gaussian_pulse(g, 6e-15, phases=(10e-30,))
+    delays = np.linspace(-15e-15, 15e-15, 11)
+    trace = maketrace(g.omega, delays, ew, "pg")
+    return g, ew, delays, trace
+
+
+def test_lbfgs_per_frequency_mu_and_phase_regularisation(small):
+    """R_omega fits a per-row scale; a phase penalty still converges near truth."""
+    g, ew, delays, trace = small
+    scaled = trace * np.linspace(1.0, 2.0, g.n)[:, None]  # a per-row response
+    res = LBFGS(maxiters=60, R_omega=True, reg_phase=1e-6).run(
+        scaled, g.omega, delays, "pg", guess=ew
+    )
+    assert np.shape(res.mu) == (g.n,)
+    # per-row scaling is absorbed exactly by mu(ω), leaving the truth optimal
+    assert res.error < 1e-6
+
+
+def test_lbfgs_exact_start_has_a_zero_error_and_gradient(small):
+    g, ew, delays, trace = small
+    res = LBFGS(maxiters=5).run(trace, g.omega, delays, "pg", guess=ew)
+    assert res.errors[0] == pytest.approx(0.0, abs=1e-15)
+
+
+def test_lbfgs_is_invariant_to_tiny_uniform_weights(small):
+    """Regression: weights ~1e-12 make denom ~1e-22; R and its gradient are
+    scale-invariant, so the run must match the unweighted one."""
+    g, ew, delays, trace = small
+    near = gaussian_pulse(g, 7e-15)
+    plain = LBFGS(maxiters=20).run(trace, g.omega, delays, "pg", guess=near)
+    tiny = LBFGS(maxiters=20).run(
+        trace, g.omega, delays, "pg", guess=near, weights=np.full(g.n, 1e-12)
+    )
+    # identical iterates up to the roundoff of rescaling the weights
+    np.testing.assert_allclose(tiny.errors, plain.errors, rtol=1e-6)
+
+
+def test_lbfgs_verbose_and_target_error(small, capsys):
+    """targeterr stops as soon as R drops below it; verbose logs each evaluation."""
+    g, ew, delays, trace = small
+    near = gaussian_pulse(g, 7e-15)
+    res = LBFGS(maxiters=200, targeterr=1e-2, verbose=True).run(
+        trace, g.omega, delays, "pg", guess=near
+    )
+    assert res.error <= 1e-2 and len(res.errors) < 200
+    assert "  eval    1: R = " in capsys.readouterr().out
+
+
+def test_lbfgs_value_only_evaluation(small, monkeypatch):
+    """NLopt may ask for the objective without a gradient (an empty buffer)."""
+    g, ew, delays, trace = small
+    script_nlopt(monkeypatch, value_only_probe=True)
+    res = LBFGS(maxiters=10).run(trace, g.omega, delays, "pg", guess=ew)
+    assert res.error < 1e-6
+
+
+def test_lbfgs_salvages_a_line_search_failure(small, monkeypatch):
+    g, _, delays, trace = small
+    script_nlopt(monkeypatch, fail_after=3)
+    far = gaussian_pulse(g, 12e-15)
+    with pytest.warns(RuntimeWarning, match=r"NLopt stopped early \(RoundoffLimited\)"):
+        res = LBFGS(maxiters=10).run(trace, g.omega, delays, "pg", guess=far)
+    assert len(res.errors) == 3 and res.error == pytest.approx(min(res.errors))
+
+
+def test_lbfgs_non_finite_gradient_is_trapped(small, monkeypatch):
+    """A NaN gradient is replaced by a penalty so the line search backtracks."""
+    g, ew, delays, trace = small
+    monkeypatch.setattr(
+        ArrayPulse,
+        "ew_vjp",
+        lambda self, ew_bar: np.full_like(self.get_params(), np.nan),
+    )
+    script_nlopt(monkeypatch, fail_after=2)
+    with pytest.warns(RuntimeWarning) as record:
+        LBFGS(maxiters=5).run(trace, g.omega, delays, "pg", guess=0.9 * ew)
+    messages = [str(w.message) for w in record]
+    assert any("non-finite" in m for m in messages)
+
+
+def test_lbfgs_non_finite_error_is_trapped(small):
+    g, ew, delays, trace = small
+    bad = trace.copy()
+    bad[0, 0] = np.nan
+    with pytest.warns(RuntimeWarning, match="non-finite"):
+        LBFGS(maxiters=3).run(bad, g.omega, delays, "pg", guess=ew)
+
+
+def test_lbfgs_without_amplitude_penalty_reports_progress(small):
+    """reg_amp=0 drops the amplitude term; the callback sees every evaluation."""
+    g, ew, delays, trace = small
+    seen = []
+
+    def callback(iteration, err, best, snapshot=None):
+        seen.append((iteration, err, best, snapshot().error))
+
+    res = LBFGS(maxiters=15, reg_amp=0.0).run(
+        trace, g.omega, delays, "pg", guess=0.95 * ew, callback=callback
+    )
+    assert [s[0] for s in seen] == list(range(1, len(res.errors) + 1))
+    # the snapshot is the in-progress result at that evaluation
+    assert seen[0][3] == pytest.approx(seen[0][1], rel=1e-9)
+    assert seen[-1][2] == pytest.approx(min(res.errors))

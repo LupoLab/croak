@@ -118,6 +118,23 @@ def compute_preproc_defaults(data) -> PreprocParams:
     return pp
 
 
+def _spectrum_dataset_indices(names: list[str]) -> tuple[int, int]:
+    """Indices of the wavelength and intensity datasets of a 1-D spectrum file.
+
+    Matched by name; without a match the wavelength falls back to the first
+    dataset and the intensity to the second (the first when there is only one).
+    The matches are compared with ``None`` explicitly: a match at index 0 is a
+    real match, not a missing one.
+    """
+    li = io.match_dataset(names, io.PATTERNS["lambda"])
+    ii = io.match_dataset(names, io.PATTERNS["ifrog"])
+    if li is None:
+        li = 0
+    if ii is None:
+        ii = min(1, len(names) - 1)
+    return li, ii
+
+
 def _clamp_preproc_to_bounds(pp: PreprocParams) -> None:
     """Clamp the window *values* into the (possibly refreshed) slider bounds."""
     pp.lam_min_nm = min(max(pp.lam_min_nm, pp.lam_bound_min_nm), pp.lam_bound_max_nm)
@@ -667,8 +684,7 @@ class StageLoad(Stage):
             self._spec_fd = fd
             labels = fd.option_labels
             names = fd.names
-            li = io.match_dataset(names, io.PATTERNS["lambda"]) or 0
-            ii = io.match_dataset(names, io.PATTERNS["ifrog"]) or min(1, len(names) - 1)
+            li, ii = _spectrum_dataset_indices(names)
             self._fill(self.spec_lam_combo, labels, li)
             self._fill(self.spec_int_combo, labels, ii)
             p.spec_lam_name, p.spec_int_name = names[li], names[ii]
@@ -701,8 +717,7 @@ class StageLoad(Stage):
             return
         self._bg_fd = fd
         names = fd.names
-        li = io.match_dataset(names, io.PATTERNS["lambda"]) or 0
-        ii = io.match_dataset(names, io.PATTERNS["ifrog"]) or min(1, len(names) - 1)
+        li, ii = _spectrum_dataset_indices(names)
         self._fill(self.bg_lam_combo, fd.option_labels, li)
         self._fill(self.bg_int_combo, fd.option_labels, ii)
         p.frog_bg_lam_name, p.frog_bg_int_name = names[li], names[ii]

@@ -7,9 +7,13 @@ import pytest
 from test_session import _options_for
 
 import croak
-from croak.scripting import generate_script
+from croak.scripting import _render_dataclass, generate_script
 from croak.session import SessionOptions, retarget, run_session
-from croak.session.params import SimulatedLoadParams
+from croak.session.params import (
+    BeamPathMirror,
+    DispersionParams,
+    SimulatedLoadParams,
+)
 
 
 def _fast_options(experiment_h5, experiment):
@@ -132,3 +136,26 @@ def test_generate_script_rejects_synthetic_sessions():
     """A synthetic session has no saved generator settings to script."""
     with pytest.raises(ValueError, match="cannot script a synthetic session"):
         generate_script(SessionOptions(entry="synthetic"))
+
+
+def test_render_dataclass_round_trips_nested_and_numpy_values():
+    """Mirror lists, numpy scalars and dicts render as literals that rebuild them."""
+    dispersion = DispersionParams(
+        gdd_fs2=np.float64(25.0),
+        material_thickness_mm={"SiO2": 0.5},
+        mirrors=[
+            BeamPathMirror(name="PC70", bounces=2),
+            BeamPathMirror(name="HD59", bounces=1, direction="add"),
+        ],
+    )
+    source = _render_dataclass("dispersion", dispersion)
+    assert "gdd_fs2=25.0," in source  # the numpy scalar became a plain float
+    namespace = {"DispersionParams": DispersionParams, "BeamPathMirror": BeamPathMirror}
+    exec(source, namespace)  # noqa: S102 - executing our own rendered literal
+    assert namespace["dispersion"] == dispersion
+
+
+def test_render_dataclass_default_stage_is_an_empty_constructor():
+    assert _render_dataclass("dispersion", DispersionParams()) == (
+        "dispersion = DispersionParams()"
+    )

@@ -285,6 +285,10 @@ class MirrorRow(QWidget):
         self.pol_combo.setEnabled(name in mirrors.BUILTIN_COATINGS)
         self.custom.setVisible(name == _CUSTOM)
         if name == _CUSTOM:
+            # Drop whatever this row registered before (a new row registers the
+            # default coating): a custom mirror is registered only once its file
+            # loads, exactly as selecting "Custom file…" interactively does.
+            dispersion.unregister_mirror(self.key)
             self._restore_custom(spec)
         else:
             self._reload()  # registers the built-in mirror + emits changed

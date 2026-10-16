@@ -297,6 +297,42 @@ def guard_nonfinite(
     return NONFINITE_PENALTY
 
 
+#: Trace error at or below which an NLopt line-search failure is read as
+#: convergence to roundoff rather than an early stop. A noiseless trace can be
+#: fitted to R ~ 1e-17, where every step changes the objective by less than its
+#: rounding error and NLopt reports ``RoundoffLimited``/``runtime_error``; that
+#: iterate is as good as the data allow. 1e-10 sits far below any measurable
+#: trace error (noise floors are ~1e-4) and far above double-precision roundoff.
+NLOPT_ROUNDOFF_R = 1e-10
+
+
+def warn_nlopt_salvage(err: Exception, best_err: float) -> None:
+    """Warn that NLopt stopped early, unless it stopped at roundoff.
+
+    The NLopt L-BFGS solvers catch an internal line-search failure and return
+    the best iterate found instead of aborting the retrieval. That is worth a
+    warning when the fit was still improving, but not when the best trace error
+    is already at roundoff (:data:`NLOPT_ROUNDOFF_R`): the failure is then the
+    optimiser's way of reporting convergence.
+
+    Parameters
+    ----------
+    err : Exception
+        The NLopt exception that ended the optimisation.
+    best_err : float
+        The best (lowest) trace error R reached before it.
+    """
+    if best_err <= NLOPT_ROUNDOFF_R:
+        return
+    warnings.warn(
+        f"NLopt stopped early ({type(err).__name__}); returning the "
+        f"best iterate found (R = {best_err:.3e})",
+        RuntimeWarning,
+        # caller's caller: the retriever's public ``retrieve`` call
+        stacklevel=3,
+    )
+
+
 def split_smear_value(smear) -> tuple[float, float | None]:
     """Normalise a fitted smearing value to ``(scale_p, scale_delta or None)``.
 

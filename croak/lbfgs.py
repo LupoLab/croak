@@ -13,8 +13,6 @@ amplitude and phase.
 
 from __future__ import annotations
 
-import warnings
-
 import nlopt
 import numpy as np
 from numpy.typing import NDArray
@@ -29,6 +27,7 @@ from .solver import (
     guard_nonfinite,
     resolve_reg,
     spectral_target_amplitude,
+    warn_nlopt_salvage,
 )
 
 __all__ = ["LBFGS"]
@@ -221,11 +220,17 @@ class LBFGS(Retriever):
                 )
 
             if grad is not None and grad.size > 0:
-                # cotangent on T_sim: dR/dT_sim = -mu w resid / (R denom)
-                if ferr > 0:
-                    cot_t = -mu_buf[:, None] * weights[:, None] * resid / (ferr * denom)
-                else:
-                    cot_t = np.zeros_like(t_sim)
+                # cotangent on T_sim: dR/dT_sim = -mu w resid / (R denom). Where
+                # the residual is zero so is the gradient; dividing only there
+                # keeps an exact fit (R = 0) from giving 0/0. Do not floor R
+                # instead: with tiny weights denom is ~1e-22, and any floor
+                # times denom underflows to zero.
+                cot_t = np.divide(
+                    -mu_buf[:, None] * weights[:, None] * resid,
+                    ferr * denom,
+                    out=np.zeros_like(t_sim),
+                    where=resid != 0,
+                )
                 ew_bar = np.zeros(n, dtype=complex)
                 for j, tau in enumerate(delays):
                     model.signal_single(ew, tau, record=True)
@@ -260,12 +265,7 @@ class LBFGS(Retriever):
         except (nlopt.RoundoffLimited, nlopt.runtime_error) as err:
             # Salvage the best iterate on an internal NLopt failure instead of
             # aborting the retrieval (see croak.lbfgs_ad for the twin case).
-            warnings.warn(
-                f"NLopt stopped early ({type(err).__name__}); returning the "
-                f"best iterate found (R = {best_err:.3e})",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+            warn_nlopt_salvage(err, best_err)
             u = best_u
 
         # Assemble the final result exactly as the live snapshots (shared

@@ -310,7 +310,8 @@ def make_spline_phase_basis(
         def phase_penalty(c: jnp.ndarray) -> jnp.ndarray:
             d = D2_j @ c
             return jnp.mean(d * d)
-    else:  # pragma: no cover - n_nodes>=4 enforced above
+    else:
+        # A linear (degree 1) spline with two nodes has no second difference.
 
         def phase_penalty(c: jnp.ndarray) -> jnp.ndarray:
             return jnp.asarray(0.0)

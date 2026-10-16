@@ -50,3 +50,33 @@ def test_derivative_orders():
     assert maths.derivative(np.sin, 0.3, 2) == pytest.approx(-np.sin(0.3), abs=1e-5)
     with pytest.raises(ValueError):
         maths.derivative(np.sin, 0.0, 3)
+
+
+def test_sech_requires_exactly_one_width():
+    with pytest.raises(ValueError, match="exactly one of `tau` or `fwhm`"):
+        maths.sech([0.0], fwhm=1.0, tau=1.0)
+    with pytest.raises(ValueError, match="exactly one of `tau` or `fwhm`"):
+        maths.sech([0.0])
+
+
+def test_sech_fwhm_and_tau_agree():
+    x = np.linspace(-5.0, 5.0, 11)
+    tau = 1.3
+    fwhm = 2.0 * np.log(1.0 + np.sqrt(2.0)) * tau
+    np.testing.assert_allclose(maths.sech(x, fwhm=fwhm), maths.sech(x, tau=tau))
+
+
+def test_fwhm_is_nan_when_the_level_is_never_reached():
+    # level > 1 puts the threshold above the peak: nothing is "above" it
+    assert np.isnan(maths.fwhm([0.0, 1.0, 2.0], [0.0, 1.0, 0.0], level=1.5))
+
+
+def test_fwhm_is_nan_when_the_right_side_never_drops():
+    x = np.arange(5.0)
+    assert np.isnan(maths.fwhm(x, [0.0, 0.2, 1.0, 0.9, 0.8]))
+
+
+def test_derivative_with_an_explicit_step():
+    # a quadratic is differentiated exactly by central differences at any step
+    assert maths.derivative(lambda x: x**2, 3.0, dx=0.5) == pytest.approx(6.0)
+    assert maths.derivative(lambda x: x**2, 3.0, order=2, dx=0.5) == pytest.approx(2.0)
