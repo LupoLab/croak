@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-16
+
 ### Changed
 
 - Development: `uv run poe check` is the single definition-of-done gate, and CI
@@ -589,5 +591,6 @@ Everything. The initial release provides:
   replay engine, and a `croak` CLI that replays a saved session or generates a
   standalone script from it.
 
-[Unreleased]: https://github.com/LupoLab/croak/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/LupoLab/croak/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/LupoLab/croak/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/LupoLab/croak/releases/tag/v0.1.0

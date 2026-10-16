@@ -1,6 +1,6 @@
 [project]
 name = "croak"
-version = "0.1.0"
+version = "0.2.0"
 description = "Complete retrieval of ultrashort laser pulses from FROG traces — amplitude and phase, with dispersive media, geometric smearing and uncertainty"
 readme = "README.md"
 requires-python = ">=3.14"
