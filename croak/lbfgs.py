@@ -220,12 +220,17 @@ class LBFGS(Retriever):
                 )
 
             if grad is not None and grad.size > 0:
-                # cotangent on T_sim: dR/dT_sim = -mu w resid / (R denom). At an
-                # exact fit (R = 0) the residual is identically zero, so flooring
-                # R at the smallest normal float gives the correct zero gradient
-                # instead of 0/0.
-                r_safe = max(ferr, np.finfo(float).tiny)
-                cot_t = -mu_buf[:, None] * weights[:, None] * resid / (r_safe * denom)
+                # cotangent on T_sim: dR/dT_sim = -mu w resid / (R denom). Where
+                # the residual is zero so is the gradient; dividing only there
+                # keeps an exact fit (R = 0) from giving 0/0. Do not floor R
+                # instead: with tiny weights denom is ~1e-22, and any floor
+                # times denom underflows to zero.
+                cot_t = np.divide(
+                    -mu_buf[:, None] * weights[:, None] * resid,
+                    ferr * denom,
+                    out=np.zeros_like(t_sim),
+                    where=resid != 0,
+                )
                 ew_bar = np.zeros(n, dtype=complex)
                 for j, tau in enumerate(delays):
                     model.signal_single(ew, tau, record=True)

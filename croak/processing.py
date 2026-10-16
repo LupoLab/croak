@@ -359,8 +359,12 @@ def spectrogram(
         windowed = field * gauss(t, fwhm=fw, x0=tc)
         spec = np.abs(grid.fft(windowed)) ** 2 * weight
         S[:, j] = spec[order][keep]
-    # the field is peak-normalised (shiftnorm), so S has a positive maximum
-    S /= S.max()
+    # A peak-normalised field does not guarantee a positive S: a gate much
+    # narrower than dt, centred between samples, underflows to zero everywhere.
+    # Leave such a spectrogram at zero rather than dividing 0/0.
+    peak = S.max()
+    if peak > 0:
+        S /= peak
     return t_centers, lam_sorted[keep], S
 
 

@@ -144,6 +144,19 @@ def test_lbfgs_exact_start_has_a_zero_error_and_gradient(small):
     assert res.errors[0] == pytest.approx(0.0, abs=1e-15)
 
 
+def test_lbfgs_is_invariant_to_tiny_uniform_weights(small):
+    """Regression: weights ~1e-12 make denom ~1e-22; R and its gradient are
+    scale-invariant, so the run must match the unweighted one."""
+    g, ew, delays, trace = small
+    near = gaussian_pulse(g, 7e-15)
+    plain = LBFGS(maxiters=20).run(trace, g.omega, delays, "pg", guess=near)
+    tiny = LBFGS(maxiters=20).run(
+        trace, g.omega, delays, "pg", guess=near, weights=np.full(g.n, 1e-12)
+    )
+    # identical iterates up to the roundoff of rescaling the weights
+    np.testing.assert_allclose(tiny.errors, plain.errors, rtol=1e-6)
+
+
 def test_lbfgs_verbose_and_target_error(small, capsys):
     """targeterr stops as soon as R drops below it; verbose logs each evaluation."""
     g, ew, delays, trace = small

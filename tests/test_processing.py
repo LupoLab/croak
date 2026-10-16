@@ -517,3 +517,23 @@ def test_spectrogram_gate_width_sets_the_spectral_resolution(chirped_result):
     _, _, wide = processing.spectrogram(res, n_t=16, fw=20e-15)
     assert narrow.shape == wide.shape
     assert narrow.sum() > wide.sum()
+
+
+def test_spectrogram_of_an_underflowed_gate_stays_zero():
+    """Regression: a gate far narrower than dt, centred between samples, is zero
+    at every sample, so S is all zero; it must stay zero, not become NaN."""
+    from croak.result import RetrievalResult
+
+    g = Grid(66, dt=1e-15)
+    res = RetrievalResult(
+        spectrum=gaussian_pulse(g, 8e-15),
+        grid=g,
+        delays=np.zeros(3),
+        interaction="pg",
+        algorithm="copra",
+        error=0.0,
+        errors=[0.0],
+        omega0=wlfreq(800e-9),
+    )
+    _, _, S = processing.spectrogram(res, n_t=1, fw=1e-17)
+    np.testing.assert_array_equal(S, 0.0)
