@@ -936,15 +936,27 @@ def test_defringe_carrier_warns_on_alias_and_proceeds():
     assert out.shape == row.shape and np.isfinite(out).all()
 
 
-def test_marginal_peak_delay_keeps_the_sample_when_it_cannot_fit():
-    # three samples at the same delay: no spacing to fit a parabola over
-    tau = np.array([-1.0, 0.0, 0.0, 0.0, 1.0]) * 1e-15
-    assert preprocess.marginal_peak_delay(tau, [0.0, 0.5, 1.0, 0.5, 0.0]) == 0.0
-    # A flat top one ulp from level: the fitted curvature is roundoff (it comes
-    # out >= 0 here), so the vertex is meaningless and the peak sample is kept.
+@pytest.mark.parametrize(
+    "tau",
+    [
+        [-1.0, 0.0, 0.0, 0.0, 1.0],  # three samples at one delay
+        [-1.0, 0.0, 0.0, 0.5, 1.0],  # a repeat on one side only
+        [-1.0, 0.0, -0.5, 0.0, 1.0],  # unsorted around the peak
+    ],
+)
+def test_marginal_peak_delay_keeps_the_sample_when_it_cannot_fit(tau):
+    # no neighbour strictly on each side: keep the peak sample's own delay
+    tau = np.array(tau) * 1e-15
+    assert preprocess.marginal_peak_delay(tau, [0.0, 0.5, 1.0, 0.5, 0.0]) == tau[2]
+
+
+def test_marginal_peak_delay_on_a_one_ulp_flat_top_stays_between_the_samples():
+    # A flat top one ulp from level is the worst case for roundoff; the vertex
+    # of y = [1 - ulp, 1, 1] sits at the midpoint of the two equal samples.
     tau = np.array([-1.0, -0.02124992, 0.0, 0.06843932, 1.0]) * 1e-15
     flat = [0.0, np.nextafter(1.0, 0.0), 1.0, 1.0, 0.0]
-    assert preprocess.marginal_peak_delay(tau, flat) == 0.0
+    got = preprocess.marginal_peak_delay(tau, flat)
+    assert 0.0 <= got <= tau[3]
 
 
 @pytest.mark.parametrize(
