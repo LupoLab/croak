@@ -12,7 +12,7 @@ gas at a chosen pressure and temperature. That callable has the same shape as
 :func:`croak.materials.refractive_index`'s result, so a gas plugs into the whole
 dispersion pipeline by registering it with
 :func:`croak.materials.register_material` and treating the optical path length as
-the "thickness" — exactly the route the refractiveindex.info bridge uses.
+the "thickness".
 
 Physics
 -------

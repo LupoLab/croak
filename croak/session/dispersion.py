@@ -1,12 +1,11 @@
 """Apply a saved :class:`~croak.session.params.DispersionParams` to a retrieved pulse.
 
 The dispersion stage compensates residual dispersion on the *already-retrieved*
-pulse: Taylor terms, propagation through built-in materials / a refractiveindex
-material / a gas, and the beam-path mirror stack. The GUI does this interactively
-against live registry entries; here we resolve the persisted parameters into the
-same :func:`croak.dispersion.apply_dispersion` call, registering the gas / RI
-material / mirrors under transient keys and cleaning them up afterwards so no
-module-global state leaks.
+pulse: Taylor terms, propagation through built-in materials / a gas, and the
+beam-path mirror stack. The GUI does this interactively against live registry
+entries; here we resolve the persisted parameters into the same
+:func:`croak.dispersion.apply_dispersion` call, registering the gas / mirrors under
+transient keys and cleaning them up afterwards so no module-global state leaks.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from dataclasses import replace
 import numpy as np
 from numpy.typing import NDArray
 
-from .. import dispersion, gases, io, materials, mirrors, refractive_db
+from .. import dispersion, gases, io, materials, mirrors
 from ..grid import Grid
 from ..result import RetrievalResult
 from .params import BeamPathMirror, DispersionParams
@@ -36,7 +35,6 @@ def has_dispersion(p: DispersionParams) -> bool:
         p.gdd_fs2
         or p.tod_fs3
         or p.fod_fs4
-        or (p.ri_page and p.ri_thickness_mm)
         or (p.gas_name and p.gas_path_cm)
         or any(p.material_thickness_mm.values())
         or any(m.bounces for m in p.mirrors)
@@ -70,7 +68,7 @@ def _resolve_mirror(spec: BeamPathMirror):
 
 @contextmanager
 def _registered(p: DispersionParams):
-    """Register the gas / RI material / mirrors, yield ``(materials, bounces)``.
+    """Register the gas / mirrors, yield ``(materials, bounces)``.
 
     Yields the ``material_thicknesses`` (m, by registry name) and ``mirror_bounces``
     (signed, by transient key) that :func:`croak.dispersion.apply_dispersion`
@@ -82,18 +80,6 @@ def _registered(p: DispersionParams):
         thicknesses: dict[str, float] = {
             name: mm * 1e-3 for name, mm in p.material_thickness_mm.items() if mm
         }
-        # refractiveindex.info material (optional ``ridb`` extra)
-        if p.ri_page and p.ri_thickness_mm:
-            if not refractive_db.available():
-                raise RuntimeError(
-                    "this session uses a refractiveindex.info material but the "
-                    "'ridb' extra is not installed; run `uv sync --extra ridb`"
-                )
-            n_func, _rng = refractive_db.make_material(p.ri_shelf, p.ri_book, p.ri_page)
-            key = f"RI:{p.ri_book}/{p.ri_page}"
-            materials.register_material(key, n_func)
-            mat_keys.append(key)
-            thicknesses[key] = p.ri_thickness_mm * 1e-3
         # active gas: pressure baked into n(λ), path length used as thickness
         if p.gas_name and p.gas_path_cm:
             n_func = gases.gas_refractive_index(p.gas_name, p.gas_pressure_bar)
@@ -138,12 +124,6 @@ def compose_dispersion(p: DispersionParams, result: RetrievalResult) -> Retrieva
     RetrievalResult
         A copy of ``result`` with the dispersed spectrum. When ``p`` applies no
         dispersion the input is returned unchanged.
-
-    Raises
-    ------
-    RuntimeError
-        If a refractiveindex.info material is requested but the ``ridb`` extra is
-        not installed.
 
     Notes
     -----
@@ -196,12 +176,6 @@ def transfer_function(
     -------
     numpy.ndarray
         Complex transfer function on ``grid.omega`` (length ``grid.n``).
-
-    Raises
-    ------
-    RuntimeError
-        If a refractiveindex.info material is requested but the ``ridb`` extra is
-        not installed.
     """
     ones = np.ones(grid.omega.shape, dtype=np.complex128)
     if not has_dispersion(p):

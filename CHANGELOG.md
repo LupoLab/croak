@@ -6,6 +6,17 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Removed
+
+- **The refractiveindex.info bridge** (`croak.refractive_db`, the `ridb` extra and
+  the dispersion stage's "refractiveindex.info material" group). It downloaded a
+  database of hundreds of MB on first use and was not in use. A material croak does
+  not ship is registered with `croak.materials.register_material`. The session
+  fields `ri_shelf`, `ri_book`, `ri_page` and `ri_thickness_mm` are gone: a saved
+  session that applied such a material (a page at non-zero thickness) now fails to
+  load with a `ValueError` naming the page, rather than silently losing that
+  dispersion; one with a page at zero thickness loads as before.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added

@@ -1,4 +1,4 @@
-"""Tests for :mod:`croak.mirrors` and :mod:`croak.refractive_db`."""
+"""Tests for :mod:`croak.mirrors`."""
 
 import numpy as np
 import pytest
@@ -172,26 +172,6 @@ def test_mirror_from_phase_array_compensates(setup):
 def test_unknown_mirror_raises():
     with pytest.raises(ValueError, match="unknown mirror"):
         mirrors.load_builtin("NotAMirror")
-
-
-# -- refractive_db (optional dependency) ------------------------------------
-def test_refractive_db_smoke():
-    pytest.importorskip("refractiveindex")
-    from croak import refractive_db
-
-    assert refractive_db.available()
-    sid, _ = refractive_db.shelves()[0]
-    bid, _ = refractive_db.books(sid)[0]
-    pid, _ = refractive_db.pages(sid, bid)[0]
-    n, rng = refractive_db.make_material(sid, bid, pid)
-    assert rng is None or rng[0] < rng[1]
-    if rng is not None:
-        mid = 0.5 * (rng[0] + rng[1])
-        # n() is array-in/array-out, so index the result rather than calling
-        # float() on it — NumPy 2 rejects converting a size-1 array to a scalar.
-        assert np.isfinite(n(np.array([mid]))).all()
-        # outside the valid range the index is NaN, so beta() masks it
-        assert not np.isfinite(n(np.array([rng[1] * 10]))).any()
 
 
 def test_read_columns_without_numeric_rows_raises(tmp_path):

@@ -69,6 +69,3 @@ repository's `CITATION.cff` gives both citations.
   coefficients, gas-density scaling and bundled chirped-mirror tables are taken
   from Luna's `PhysData` module, and {func}`~croak.io.read_simulated_scan` reads
   the HDF5 files written by Luna's `scansave`.
-- [refractiveindex.info](https://refractiveindex.info) — the tabulated
-  refractive-index database reachable from {mod}`croak.refractive_db` (optional
-  `ridb` extra).

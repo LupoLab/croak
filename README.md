@@ -130,8 +130,7 @@ Prefer plain pip? `python3.14 -m venv .venv && . .venv/bin/activate && pip insta
 The [installation guide](https://croak.readthedocs.io/en/latest/getting_started/installation.html)
 covers all of this in more detail.
 
-Optional extras: `croak[gui]` (the wizard), `croak[ridb]` (browse
-refractiveindex.info materials — a few hundred MB downloaded on first use) and
+Optional extras: `croak[gui]` (the wizard) and
 `croak[evo]` (the cma-es global solver; pulls in `evosax` and its
 `flax`/`optax` dependency tree). In a clone the same extras are
 `uv sync --extra gui` etc.

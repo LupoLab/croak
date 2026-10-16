@@ -170,6 +170,28 @@ def test_dispersion_from_mapping_rebuilds_nested_values_and_drops_unknowns():
     assert not hasattr(p, "from_the_future")
 
 
+def test_dispersion_from_mapping_refuses_an_applied_refractiveindex_material():
+    # croak 0.2 could apply a refractiveindex.info page; dropping it as an unknown
+    # key would silently change the compensated pulse, so it is refused.
+    with pytest.raises(ValueError, match="refractiveindex.info material SiO2/Malitson"):
+        _dispersion_from_mapping(
+            {"ri_book": "SiO2", "ri_page": "Malitson", "ri_thickness_mm": 0.2}
+        )
+
+
+def test_dispersion_from_mapping_drops_an_unapplied_refractiveindex_page():
+    # A page selected at zero thickness changed nothing, so the session loads.
+    p = _dispersion_from_mapping(
+        {
+            "gdd_fs2": 5.0,
+            "ri_book": "SiO2",
+            "ri_page": "Malitson",
+            "ri_thickness_mm": 0.0,
+        }
+    )
+    assert p == DispersionParams(gdd_fs2=5.0)
+
+
 def test_session_options_round_trip_through_toml(tmp_path):
     options = SessionOptions(
         entry="simulated",

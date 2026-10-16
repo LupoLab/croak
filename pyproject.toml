@@ -47,10 +47,6 @@ dependencies = [
 # `uv sync --no-dev`). The GUI needs `pip install "croak[gui]"`; launching
 # `croak-gui` without it raises a message saying exactly that.
 gui = ["pyqt6>=6.11.0", "superqt>=0.8.2"]
-# Browse arbitrary materials from refractiveindex.info in the dispersion tool.
-# Downloads the full database (~hundreds of MB) to ~/.refractiveindex.info-database
-# on first use.
-ridb = ["refractiveindex>=1.0.2"]
 # Global-search retriever (the 'cma-es' algorithm): CMA-ES / Sep-CMA-ES / DE.
 # JAX-native evolution strategies; reuses the existing jax install.
 evo = ["evosax>=0.2.0"]

@@ -110,7 +110,7 @@ _TABULATED_FILES: dict[str, str] = {
 #: Sellmeier formulae plus built-in tabulated datasets).
 MATERIALS: tuple[str, ...] = tuple(_SELLMEIER_UM) + tuple(_TABULATED_FILES)
 
-# Runtime-registered materials (e.g. refractiveindex.info pages or custom data),
+# Runtime-registered materials (e.g. a gas at a pressure, or custom data),
 # each a callable ``n(wavelength_m) -> ndarray``. Consulted by
 # :func:`refractive_index` and so transparently usable by :func:`beta`,
 # :func:`dispersion.material_gdd` and the dispersion auto-tuners.

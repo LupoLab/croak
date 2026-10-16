@@ -53,10 +53,25 @@ def _mirror_from_mapping(data: Any) -> BeamPathMirror:
 
 
 def _dispersion_from_mapping(data: Any) -> DispersionParams:
-    """Build :class:`~croak.session.params.DispersionParams` and its nested mirrors."""
+    """Build :class:`~croak.session.params.DispersionParams` and its nested mirrors.
+
+    Raises
+    ------
+    ValueError
+        If the session applies a refractiveindex.info material, which croak no
+        longer supports: dropping it as an unknown key would silently change the
+        compensated pulse.
+    """
     obj = DispersionParams()
     if not isinstance(data, dict):
         return obj
+    if data.get("ri_page") and data.get("ri_thickness_mm"):
+        raise ValueError(
+            "this session applies the refractiveindex.info material "
+            f"{data.get('ri_book')}/{data['ri_page']}, which croak no longer "
+            "supports; register its n(λ) with croak.materials.register_material "
+            "and re-create the dispersion stage"
+        )
     valid = {f.name for f in fields(DispersionParams)}
     for key, value in data.items():
         if key == "mirrors":

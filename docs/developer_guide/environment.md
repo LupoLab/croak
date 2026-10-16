@@ -54,8 +54,7 @@ The suite is strict, and each rule is set in `pyproject.toml`:
 GUI tests live in `tests/gui/` and run offscreen through pytest-qt; the shared
 `tests/conftest.py` points `QSettings` at a per-test directory for them. The
 `evo` extra (evosax) is part of the development group so the `cma-es` retriever
-is tested; the `ridb` extra is not installed (its database is a large download),
-and `croak.refractive_db` is tested against a fake database.
+is tested.
 
 Tests live in `tests/` and follow the package's domain structure. Numerical tests
 should state their tolerances and check physical or mathematical invariants as

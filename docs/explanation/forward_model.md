@@ -94,8 +94,8 @@ $\beta_1(\omega_0)\,\omega$ keeps the pulse centred in the time window. The
 built-in materials are listed in {data}`croak.materials.MATERIALS` (the Sellmeier
 formulae SiO₂, BK7, CaF₂, BaF₂, MgF₂ plus the tabulated broadband dataset
 SiO2-Franta, represented by a smoothing spline); entries outside a material's
-valid range are set to zero. You are not limited to these — register a custom `n(λ)` or pull one
-from the refractiveindex.info database and pass its name here just the same; see
+valid range are set to zero. You are not limited to these — register a custom `n(λ)`
+and pass its name here just the same; see
 [Materials and chirped mirrors](../howto/materials_and_mirrors.md).
 
 ### Using it

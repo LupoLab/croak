@@ -10,8 +10,7 @@ explores the pulse after retrieval.
 The optical data come from five sources:
 
 - **built-in Sellmeier materials** (fused silica, CaF₂, …);
-- **custom materials** you register yourself, including pages from the
-  [refractiveindex.info](https://refractiveindex.info) database;
+- **custom materials** you register yourself;
 - **gases** (helium, air) at a chosen pressure and path length;
 - **chirped mirrors**, from bundled data or your own measurement;
 - **beam-path coating mirrors** (Si, MgF₂/Al) to back-propagate out of the pulse.
@@ -65,35 +64,6 @@ A registered material is then usable **everywhere a built-in name is** — inclu
 `material="Sapphire"` in {func}`croak.retrieve`. Registered names take precedence
 over the built-in set and are resolved case-insensitively; remove one with
 {func}`croak.materials.unregister_material`.
-
-## The refractiveindex.info database
-
-The optional `croak[ridb]` extra bridges to the
-[refractiveindex.info](https://refractiveindex.info) database, giving you thousands
-of measured and modelled materials without writing Sellmeier formulae yourself.
-Add it to a project with `uv add "croak[ridb]"` (or, in a source checkout,
-`uv sync --extra ridb`); the first
-lookup downloads the full database (~hundreds of MB) to
-`~/.refractiveindex.info-database`.
-
-```python
-from croak import refractive_db
-
-refractive_db.available()                    # False if the extra isn't installed
-
-# browse the catalogue: shelf -> book -> page
-refractive_db.shelves()                      # [(shelf_id, label), ...]
-refractive_db.books("glass")                 # [(book_id, label), ...]
-refractive_db.pages("glass", "SCHOTT-BK7")   # [(page_id, label), ...]
-
-# build an n(λ) callable and register it under a friendly name
-n_fn, wl_range = refractive_db.make_material("glass", "SCHOTT-BK7", "SCHOTT")
-croak.materials.register_material("BK7-schott", n_fn)
-```
-
-The GUI's dispersion stage uses exactly these calls to populate its material
-picker. `make_material` returns `(n_of_lambda_m, wl_range_m)`; the callable returns
-`nan` outside the page's validity range.
 
 ## Gases
 
@@ -228,6 +198,6 @@ differ, so pick the polarisation that matches your beam.
   removing residual dispersion (Taylor, material and mirror).
 - [The dispersive forward model](../explanation/forward_model.md) — retrieving
   *through* a material slab.
-- {mod}`croak.materials`, {mod}`croak.gases`, {mod}`croak.mirrors`,
-  {mod}`croak.refractive_db` and {mod}`croak.dispersion` in the
+- {mod}`croak.materials`, {mod}`croak.gases`, {mod}`croak.mirrors` and
+  {mod}`croak.dispersion` in the
   [API reference](../reference/api/workflow.md).

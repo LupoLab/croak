@@ -127,8 +127,7 @@ Further reading: [The forward model](../explanation/forward_model.md),
   the pulse.
 - **Your own** — {func}`croak.materials.register_material` and
   {func}`croak.mirrors.mirror_from_arrays` make a custom index or measured mirror
-  work everywhere a built-in does; the optional `ridb` extra browses
-  refractiveindex.info.
+  work everywhere a built-in does.
 - **Dispersion tuning** — {func}`croak.dispersion.apply_dispersion` applies Taylor
   GDD/TOD/FOD, material thicknesses and a mirror stack in one call, with
   auto-tuners that maximise temporal peak power.

@@ -152,16 +152,12 @@ In an analysis project, choose the extras you need:
 
 ```bash
 uv add "croak[gui]"          # graphical interface
-uv add "croak[ridb]"         # refractiveindex.info database access
 uv add "croak[evo]"          # CMA-ES retrieval
 ```
 
-Extras can be combined, for example `uv add "croak[gui,ridb]"`. In a source
-checkout, use `uv sync --extra gui --extra ridb` instead.
+Extras can be combined, for example `uv add "croak[gui,evo]"`. In a source
+checkout, use `uv sync --extra gui --extra evo` instead.
 
-The `ridb` extra downloads the refractiveindex.info database on first use;
-this needs an internet connection and local storage. Built-in materials need
-no download. See [materials and mirrors](../howto/materials_and_mirrors.md).
 The `evo` extra installs evosax for
 [CMA-ES retrieval](../explanation/algorithms.md#global-retrieval-cma-es); evosax
 brings in `flax`, `optax` and `orbax`, so it is not a small addition.

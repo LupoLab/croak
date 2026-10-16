@@ -301,9 +301,6 @@ gui = [
     { name = "pyqt6" },
     { name = "superqt" },
 ]
-ridb = [
-    { name = "refractiveindex" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -341,13 +338,12 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "optimistix", specifier = ">=0.1.0" },
     { name = "pyqt6", marker = "extra == 'gui'", specifier = ">=6.11.0" },
-    { name = "refractiveindex", marker = "extra == 'ridb'", specifier = ">=1.0.2" },
     { name = "scipy", specifier = ">=1.17.1" },
     { name = "superqt", marker = "extra == 'gui'", specifier = ">=0.8.2" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "tqdm", specifier = ">=4.66.0" },
 ]
-provides-extras = ["gui", "ridb", "evo"]
+provides-extras = ["gui", "evo"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1749,19 +1745,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/22/f5/df4e9027acead3ecc63e50fe1e36aca1523e1719559c499951bb4b53188f/referencing-0.37.0.tar.gz", hash = "sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8", size = 78036, upload-time = "2025-10-13T15:30:48.871Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/58/ca301544e1fa93ed4f80d724bf5b194f6e4b945841c5bfd555878eea9fcb/referencing-0.37.0-py3-none-any.whl", hash = "sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231", size = 26766, upload-time = "2025-10-13T15:30:47.625Z" },
-]
-
-[[package]]
-name = "refractiveindex"
-version = "1.0.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pyyaml" },
-    { name = "scipy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/23/564be08a756e7a484599ebf48b4a3ecc042eba030b3f57cf9d972d62d08e/refractiveindex-1.0.2.tar.gz", hash = "sha256:32bcd90cdfa038d0337603a0f03585a15f924475124954bdd8b82a6940241217", size = 7275, upload-time = "2026-02-24T01:05:31.507Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/d1/eb5324810d7373c639e2711d2eb8e9b76ae026d5450a4b8b24ef966ecfe6/refractiveindex-1.0.2-py3-none-any.whl", hash = "sha256:c6e2d6e4b9feca061fb9e184b785d7ef1bf54f8fcf9389f7848dd0bbf137f67b", size = 8349, upload-time = "2026-02-24T01:05:32.655Z" },
 ]
 
 [[package]]

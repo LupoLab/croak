@@ -562,8 +562,7 @@ class BeamPathMirror:
 class DispersionParams:
     """Stage 4: post-retrieval dispersion compensation applied to the pulse.
 
-    Taylor coefficients (fs², fs³, fs⁴), an optional refractiveindex.info
-    material (shelf/book/page + thickness), an optional active gas (pressure +
+    Taylor coefficients (fs², fs³, fs⁴), an optional active gas (pressure +
     path), built-in material thicknesses (mm by name), and the beam-path mirror
     stack. This stage tunes/compresses the retrieved pulse; it does not re-run
     retrieval.
@@ -578,11 +577,6 @@ class DispersionParams:
     gdd_fs2: float = 0.0
     tod_fs3: float = 0.0
     fod_fs4: float = 0.0
-    # refractiveindex.info material (single active page + thickness)
-    ri_shelf: str = ""
-    ri_book: str = ""
-    ri_page: str = ""
-    ri_thickness_mm: float = 0.0
     # active gas: pressure is baked into n(λ); the path length acts as thickness
     gas_name: str = ""
     gas_pressure_bar: float = 1.0
