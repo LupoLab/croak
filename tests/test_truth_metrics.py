@@ -229,3 +229,15 @@ def test_truth_outside_the_retrieval_band_reports_the_temporal_error_alone(
     assert errs.eps_Iw is None and errs.eps_Ew is None
     # the temporal envelope does not depend on the carrier
     assert errs.eps_It < 1e-12
+
+
+def test_eps_spectral_intensity_of_an_empty_retrieval_is_one(spectrum):
+    """No retrieved light in the truth's band: the uncorrelated limit, not 0/0."""
+    assert eps_spectral_intensity(np.zeros_like(spectrum), spectrum) == 1.0
+
+
+def test_identical_intensities_score_exactly_zero(spectrum):
+    """Regression: the old sqrt(1 - c**2) form floored a perfect match at
+    ~1.5e-8 on some platforms; the direct residual resolves it to roundoff."""
+    scaled = 3.0 * np.asarray(spectrum)  # the scale gauge must cost nothing
+    assert eps_spectral_intensity(scaled, spectrum) < 1e-14

@@ -64,6 +64,24 @@ _TIME_OVERSAMPLE = 8
 _TINY = float(np.finfo(float).tiny)
 
 
+def _scale_free_error(
+    retrieved: NDArray[np.float64], known: NDArray[np.float64]
+) -> float:
+    """Return ``min_c ||c retrieved - known|| / ||known||`` (the sine of their angle).
+
+    The residual is formed directly rather than as ``sqrt(1 - cos**2)``: that
+    cancels catastrophically near a match, flooring a perfect one at a
+    platform-dependent ``~sqrt(eps) = 1.5e-8``. Either vector being zero scores 1,
+    the uncorrelated limit.
+    """
+    norm_known = float(np.linalg.norm(known))
+    energy = float(np.dot(retrieved, retrieved))
+    if norm_known <= 0.0 or energy <= 0.0:
+        return 1.0
+    scale = float(np.dot(retrieved, known)) / energy
+    return min(float(np.linalg.norm(known - scale * retrieved)) / norm_known, 1.0)
+
+
 @dataclass(frozen=True)
 class TruthErrors:
     """The three known-truth errors of one retrieval.
@@ -155,9 +173,7 @@ def eps_temporal_intensity(
     # for the alignment steps (it stabilises the correlation) but no longer
     # sets the compared scale, so a low-level pedestal costs its own norm
     # once rather than twice (its norm plus the peak deficit it causes).
-    denom = max(float(np.linalg.norm(ir)) * float(np.linalg.norm(i0)), _TINY)
-    c = float(np.dot(ir, i0)) / denom
-    return float(np.sqrt(max(0.0, 1.0 - c * c)))
+    return _scale_free_error(ir, i0)
 
 
 def eps_spectral_intensity(
@@ -170,9 +186,8 @@ def eps_spectral_intensity(
     quantity is the two-norm relative error minimised over the free scale
     (:math:`\sin\theta`), which removes the retrieval's arbitrary overall
     scale; spectral intensity is already blind to the constant-phase and
-    delay gauges. Like :func:`eps_complex_field`, the
-    :math:`\sqrt{1 - x^2}` form cannot resolve a perfect match below
-    ``~1.5e-8`` — read anything at that level as zero.
+    delay gauges. Like :func:`eps_complex_field`, the residual is formed
+    directly, so identical shapes score zero to machine precision.
 
     Parameters
     ----------
@@ -207,9 +222,7 @@ def eps_spectral_intensity(
     # = sin(theta). Scale-free in both arguments; replaces the earlier
     # unit-norm (chordal) form 2 sin(theta/2), to which it agrees to first
     # order and from which it differs by <1% below 0.3.
-    denom = max(float(np.linalg.norm(a)) * float(np.linalg.norm(b)), _TINY)
-    c = float(np.dot(a, b)) / denom
-    return float(np.sqrt(max(0.0, 1.0 - c * c)))
+    return _scale_free_error(a, b)
 
 
 def eps_complex_field(spectrum: ArrayLike, truth: ArrayLike) -> float:
