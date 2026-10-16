@@ -54,7 +54,7 @@ from croak.maths import wlfreq
 # relative to the pulse bandwidth, not the glass thickness itself.
 CENTRAL_THICKNESS = 100.0e-6  # L0 (m)
 THICKNESS_SIGMA = 5.0e-6  # σ_L (m) — ≈5 %, matching the DUV case's relative error
-MATERIAL = "SiO2-Franta"
+MATERIAL = "SiO2"
 NPOINTS = 20  # depth-quadrature nodes through the slab
 # lbfgs-ad fits the field by L-BFGS with an autodiff gradient, starting from the
 # guess. The default warm-lbfgs runs the same fit after a COPRA warm-up that has no

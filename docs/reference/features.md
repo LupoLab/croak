@@ -116,11 +116,15 @@ Further reading: [The forward model](../explanation/forward_model.md),
 
 ## Materials, gases and mirrors
 
-- **Sellmeier materials** — SiO₂, BK7, CaF₂, BaF₂, MgF₂, plus `SiO2-Franta` from
-  tabulated measured data via a smoothing spline in log-λ.
-- **Gases** — helium and air, with ideal-gas pressure/temperature scaling of the
-  linear susceptibility; registered as ordinary materials, so optical path length
-  plays the role of thickness.
+- **Built-in materials** — SiO₂, BK7, CaF₂, BaF₂, MgF₂, sapphire and silicon,
+  each [optmat](https://optmat.readthedocs.io)'s recommended model, with its
+  provenance from {func}`croak.materials.material_model`.
+- **Gases** — air and optmat's fifteen gases (helium, argon, nitrogen, …) at the
+  ideal-gas density for a pressure and temperature; registered as ordinary
+  materials, so optical path length plays the role of thickness.
+- **Measured data** — {func}`croak.materials.make_tabulated_material` turns
+  noisy samples into a smoothing spline in log-λ, so its derivatives stay
+  physical.
 - **Chirped mirrors and coatings** — bundled mirror designs and beam-path
   coatings, applying both the per-bounce spectral phase and the measured
   reflectivity. A negative bounce count back-propagates, removing a mirror from

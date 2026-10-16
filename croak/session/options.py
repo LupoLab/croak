@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
+from .. import gases, materials
 from ..save import load_options, save_options
 from .params import (
     BeamPathMirror,
@@ -77,9 +78,32 @@ def _dispersion_from_mapping(data: Any) -> DispersionParams:
         if key == "mirrors":
             obj.mirrors = [_mirror_from_mapping(m) for m in value]
         elif key == "material_thickness_mm":
-            obj.material_thickness_mm = {str(k): float(v) for k, v in value.items()}
+            obj.material_thickness_mm = _canonical_thicknesses(value)
         elif key in valid:
             setattr(obj, key, value)
+    if obj.gas_name:
+        obj.gas_name = gases.canonical_name(obj.gas_name)
+    return obj
+
+
+def _canonical_thicknesses(value: dict[str, Any]) -> dict[str, float]:
+    """Rebuild ``material_thickness_mm`` under the current material names.
+
+    A session written by an earlier croak may name a material by a name it has
+    since retired (``SiO2-Franta`` is now ``SiO2``); thicknesses of what is now one
+    material add, as two slabs of it would.
+    """
+    out: dict[str, float] = {}
+    for name, mm in value.items():
+        key = materials.canonical_name(str(name))
+        out[key] = out.get(key, 0.0) + float(mm)
+    return out
+
+
+def _retrieve_from_mapping(data: Any) -> RetrieveParams:
+    """Build :class:`~croak.session.params.RetrieveParams` under current names."""
+    obj = _from_mapping(RetrieveParams, data)
+    obj.material = materials.canonical_name(obj.material)
     return obj
 
 
@@ -155,7 +179,7 @@ class SessionOptions:
             load=_from_mapping(LoadParams, data.get("load", {})),
             simulated=_from_mapping(SimulatedLoadParams, data.get("simulated", {})),
             preproc=_from_mapping(PreprocParams, data.get("preproc", {})),
-            retrieve=_from_mapping(RetrieveParams, data.get("retrieve", {})),
+            retrieve=_retrieve_from_mapping(data.get("retrieve", {})),
             dispersion=_dispersion_from_mapping(data.get("dispersion", {})),
             uncertainty=_from_mapping(UncertaintyParams, data.get("uncertainty", {})),
         )

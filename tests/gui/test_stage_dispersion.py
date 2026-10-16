@@ -200,7 +200,7 @@ def test_mirror_base_applies_only_the_mirrors(stage):
 def test_reset_clears_every_control(stage):
     stage.gdd.set_value(100.0)
     stage._mat_ctrls["SiO2"].set_value(1.0)
-    stage.gas_combo.setCurrentText("Helium")
+    stage.gas_combo.setCurrentText("He")
     stage.mirror_stack.add_row()
     stage._reset()
     assert stage.gdd.value() == 0.0
@@ -216,14 +216,14 @@ def test_saved_settings_are_restored_on_entry(qtbot, chirped_result):
     d = stage.state.dispersion
     d.gdd_fs2 = -30.0
     d.material_thickness_mm = {"BK7": 0.5}
-    d.gas_name = "Helium"
+    d.gas_name = "He"
     d.gas_pressure_bar = 3.0
     d.gas_path_cm = 10.0
     d.mirrors = [BeamPathMirror(name="", polarization="s", bounces=1)]
     stage.on_enter()
     assert stage.gdd.value() == pytest.approx(-30.0)
     assert stage._mat_ctrls["BK7"].value() == pytest.approx(0.5)
-    assert stage.gas_combo.currentText() == "Helium"
+    assert stage.gas_combo.currentText() == "He"
     assert stage._gas_key == "_active_gas"
     assert len(stage.mirror_stack.to_specs()) == 1
     _cleanup(stage)

@@ -192,6 +192,28 @@ def test_dispersion_from_mapping_drops_an_unapplied_refractiveindex_page():
     assert p == DispersionParams(gdd_fs2=5.0)
 
 
+def test_a_session_with_retired_names_loads_under_the_current_ones():
+    # croak 0.2 saved SiO2-Franta and Helium; both now name optmat's models under
+    # SiO2 and He, and two slabs of what is now one material add.
+    options = SessionOptions.from_dict(
+        {
+            "retrieve": {"material": "SiO2-Franta"},
+            "dispersion": {
+                "gas_name": "Helium",
+                "material_thickness_mm": {"SiO2-Franta": 0.5, "SiO2": 0.25},
+            },
+        }
+    )
+    assert options.retrieve.material == "SiO2"
+    assert options.dispersion.gas_name == "He"
+    assert options.dispersion.material_thickness_mm == {"SiO2": 0.75}
+
+
+def test_a_session_with_an_unknown_gas_is_refused():
+    with pytest.raises(ValueError, match="unknown gas 'Plasma'"):
+        _dispersion_from_mapping({"gas_name": "Plasma"})
+
+
 def test_session_options_round_trip_through_toml(tmp_path):
     options = SessionOptions(
         entry="simulated",

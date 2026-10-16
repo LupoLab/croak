@@ -1,8 +1,4 @@
-r"""Gas refractive index (pressure-scaled Sellmeier).
-
-Sellmeier coefficients and the density scaling are taken from
-`Luna.jl <https://github.com/LupoLab/Luna.jl>`_ (MIT), an open-source Julia
-package for nonlinear optical pulse propagation.
+r"""Gas refractive index at a pressure and temperature, from optmat.
 
 A gas medium is dispersive like a solid (see :mod:`croak.materials`), but its
 refractive index depends on the gas *density*, and hence on pressure and
@@ -16,90 +12,119 @@ the "thickness".
 
 Physics
 -------
-Following ``Luna.jl`` (``PhysData.jl`` ``sellmeier_gas``), the linear
-susceptibility of a gas is *linear in the number density* :math:`\rho`:
+The dispersion of each gas is optmat's recommended model of its per-molecule
+polarisability :math:`\alpha(\lambda)` (`optmat <https://optmat.readthedocs.io>`_,
+``optmat.gas.models.registry.default_model``); air is optmat's dry air, the
+mole-fraction sum of its constituents' models. The index at a number density
+:math:`N` follows from the Lorentz–Lorenz relation,
 
 .. math::
 
-    \chi_1(\lambda, P, T) = \gamma(\lambda)\,\rho(P, T),
-    \qquad n = \sqrt{1 + \chi_1},
+    \frac{n^2 - 1}{n^2 + 2} = \frac{N\alpha}{3\varepsilon_0},
 
-where :math:`\gamma` is the single-particle polarisability from a Sellmeier
-expansion. Luna divides the literature Sellmeier coefficients by the reference
-number density :math:`\rho(1\,\mathrm{bar}, 273.15\,\mathrm{K})` and multiplies
-back by :math:`\rho(P, T)`; equivalently, the **raw** coefficients give
-:math:`\chi_1` at the reference conditions (1 bar, 0 °C). We scale the density
-with the **ideal-gas law** :math:`\rho \propto P/T` rather than a real-gas
-equation of state, so
-
-.. math::
-
-    n(\lambda, P, T) = \sqrt{1 + \chi_{1,\mathrm{ref}}(\lambda)\,
-    \frac{P}{1\,\mathrm{bar}}\,\frac{273.15\,\mathrm{K}}{T}}.
-
-The ideal-gas approximation is accurate to ~0.1 % for helium and air up to a few
-bar; it deviates from a real-gas treatment (Luna uses CoolProp) only at high
-pressure (tens of bar, e.g. hollow-core-fibre compression). The Sellmeier poles
-sit in the deep XUV, so :math:`n` is smooth across the optical/IR band. Non-finite
-values are masked by :func:`croak.materials.beta`; a finite value outside the
-formula's validated range is not detected.
+and the density from the **ideal-gas law**, :math:`N = P/(k_\mathrm{B}T)`, so that
+:math:`n - 1` is very nearly proportional to :math:`P/T`. The ideal gas is accurate
+to ~0.1 % for helium and air up to a few bar; it departs from a real-gas equation
+of state only at high pressure (tens of bar, e.g. hollow-core-fibre compression).
+optmat's real-gas equations of state (CoolProp) are installed with croak but not
+used here.
 """
 
 from __future__ import annotations
 
+import functools
+import math
 from collections.abc import Callable
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from optmat.conditions import State
+from optmat.gas.air import AirModel, air_model
+from optmat.gas.gases import Gas
+from optmat.gas.models.base import Model
+from optmat.gas.models.registry import default_model
 
 __all__ = [
     "GASES",
-    "GAS_REFERENCE_PRESSURE_BAR",
-    "GAS_REFERENCE_TEMPERATURE_K",
     "ROOM_TEMPERATURE_K",
+    "canonical_name",
+    "gas_model",
     "gas_refractive_index",
 ]
 
-#: Pressure (bar) at which the Sellmeier coefficients below are normalised.
-GAS_REFERENCE_PRESSURE_BAR: float = 1.0
-#: Temperature (K) at which they are normalised (0 °C — Luna's ``dens_1bar_0degC``).
-GAS_REFERENCE_TEMPERATURE_K: float = 273.15
-#: Default gas temperature (K) when none is given (ca. 20 °C; Luna's ``roomtemp``).
+#: Default gas temperature (K) when none is given (ca. 20 °C).
 ROOM_TEMPERATURE_K: float = 293.15
 
-# Reference linear susceptibility χ₁_ref(λ_µm) of each gas at the reference
-# conditions (1 bar, 273.15 K). These are the Sellmeier expansions for the
-# single-particle polarisability γ from Luna.jl ``PhysData.jl`` with the raw
-# literature coefficients (Luna's ``B/dens`` cancels the ``×dens`` it applies
-# afterwards, leaving χ₁ at the reference density). Wavelength is in micrometres,
-# the unit in which the literature coefficients are expressed.
-_GAS_SUSCEPTIBILITY_UM: dict[
-    str, Callable[[NDArray[np.float64]], NDArray[np.float64]]
-] = {
-    # Helium — γ_JCT, three-term fit to high-frequency data,
-    # Phys. Rev. A 92, 033821 (2015). C1 < 0, so no pole in the optical range.
-    "Helium": lambda u: (
-        2.16463842e-05 * u**2 / (u**2 - -6.80769781e-04)
-        + 2.10561127e-07 * u**2 / (u**2 - 5.13251289e-03)
-        + 4.75092720e-05 * u**2 / (u**2 - 3.18621354e-03)
-    ),
-    # Air — γ_Börzsönyi, two-term Sellmeier, Appl. Opt. 47, 27, 4856 (2008).
-    "Air": lambda u: (
-        1.492644e-04 * u**2 / (u**2 - 1.936e-05)
-        + 4.180757e-04 * u**2 / (u**2 - 7.434e-03)
-    ),
-}
+_AIR = "Air"
+_PASCAL_PER_BAR = 1e5
 
-#: Names of the gases available (case-insensitive).
-GASES: tuple[str, ...] = tuple(_GAS_SUSCEPTIBILITY_UM)
+#: Names of the gases available (case-insensitive): air, then optmat's species.
+GASES: tuple[str, ...] = (_AIR, *(gas.value for gas in Gas))
+
+# Names earlier croak versions offered, kept so saved sessions still resolve.
+_ALIASES: dict[str, str] = {"Helium": "He"}
 
 
-def _resolve(gas: str) -> Callable[[NDArray[np.float64]], NDArray[np.float64]]:
-    """Return the reference-susceptibility callable for ``gas`` (case-insensitive)."""
-    for name, chi in _GAS_SUSCEPTIBILITY_UM.items():
-        if name.lower() == gas.lower():
-            return chi
+def canonical_name(gas: str) -> str:
+    """Return the current name of a gas given by any case or an earlier name.
+
+    Parameters
+    ----------
+    gas : str
+        A gas name.
+
+    Returns
+    -------
+    str
+        The :data:`GASES` name ``gas`` refers to (``"He"`` for ``"Helium"``).
+
+    Raises
+    ------
+    ValueError
+        If ``gas`` is not a known gas.
+
+    Examples
+    --------
+    >>> canonical_name("helium")
+    'He'
+    """
+    lowered = gas.lower()
+    for old, new in _ALIASES.items():
+        if old.lower() == lowered:
+            return new
+    for name in GASES:
+        if name.lower() == lowered:
+            return name
     raise ValueError(f"unknown gas {gas!r}; available: {', '.join(GASES)}")
+
+
+@functools.cache
+def gas_model(gas: str) -> Model | AirModel:
+    """Return the optmat model of a gas's polarisability.
+
+    Parameters
+    ----------
+    gas : str
+        A name in :data:`GASES` (or an earlier name of one), any case.
+
+    Returns
+    -------
+    optmat.gas.models.base.Model or optmat.gas.air.AirModel
+        optmat's recommended model of the gas, or its dry-air model, with its
+        ``name``, ``wavelength_range`` (m) and ``identity`` for provenance.
+
+    Raises
+    ------
+    ValueError
+        If ``gas`` is not a known gas.
+
+    Examples
+    --------
+    >>> gas_model("Helium").name
+    'fit/He'
+    """
+    name = canonical_name(gas)
+    return air_model() if name == _AIR else default_model(name)
 
 
 def gas_refractive_index(
@@ -109,41 +134,35 @@ def gas_refractive_index(
 ) -> Callable[[ArrayLike], NDArray[np.float64]]:
     r"""Build an ``n(wavelength_m)`` callable for a gas at given pressure/temperature.
 
-    The refractive index follows the ideal-gas-scaled Sellmeier model
-
-    .. math::
-
-        n(\lambda) = \sqrt{1 + \chi_{1,\mathrm{ref}}(\lambda)\,
-        \frac{P}{1\,\mathrm{bar}}\,\frac{273.15\,\mathrm{K}}{T}},
-
-    with :math:`\chi_{1,\mathrm{ref}}` the susceptibility at 1 bar, 0 °C (see the
-    module docstring). The returned callable has the same contract as
+    The index follows from optmat's polarisability model of the gas through the
+    Lorentz–Lorenz relation at the ideal-gas density :math:`P/(k_\mathrm{B}T)` (see
+    the module docstring). The returned callable has the same contract as
     :func:`croak.materials.refractive_index`'s result, so it can be registered with
     :func:`croak.materials.register_material` and used wherever a material is.
 
     Parameters
     ----------
     gas : str
-        Gas name (case-insensitive); one of :data:`GASES` (``"Helium"``, ``"Air"``).
+        Gas name (case-insensitive); one of :data:`GASES`.
     pressure_bar : float
-        Gas pressure in bar. The susceptibility scales linearly with it
-        (ideal-gas density), so ``0.0`` gives vacuum (``n = 1``).
+        Gas pressure in bar, ``>= 0``. ``0.0`` gives vacuum (``n = 1``).
     temperature_k : float, optional
-        Gas temperature in kelvin (default :data:`ROOM_TEMPERATURE_K`, ca. 20 °C).
-        The susceptibility scales as ``1/T``.
+        Gas temperature in kelvin, ``> 0`` (default :data:`ROOM_TEMPERATURE_K`,
+        ca. 20 °C).
 
     Returns
     -------
     callable
-        Function mapping vacuum wavelength in metres to the real refractive index.
-        Values where the (deep-XUV) Sellmeier poles would make the radicand
-        negative come out non-finite, to be masked by
-        :func:`croak.materials.beta`.
+        Function mapping vacuum wavelength in metres to the real refractive index,
+        ``nan`` at a non-positive or non-finite wavelength (masked by
+        :func:`croak.materials.beta`) and extrapolated beyond the model's stated
+        range.
 
     Raises
     ------
     ValueError
-        If ``gas`` is not a known gas.
+        If ``gas`` is not a known gas, the pressure is negative or not finite, or
+        the temperature is not positive and finite.
 
     Examples
     --------
@@ -151,16 +170,30 @@ def gas_refractive_index(
     >>> float(n(800e-9)) - 1.0  # doctest: +ELLIPSIS
     0.000286...
     """
-    chi_ref = _resolve(gas)
-    # Ideal-gas density scaling relative to the reference conditions (1 bar, 0 °C).
-    scale = (pressure_bar / GAS_REFERENCE_PRESSURE_BAR) * (
-        GAS_REFERENCE_TEMPERATURE_K / temperature_k
+    model = gas_model(gas)
+    if not (math.isfinite(pressure_bar) and pressure_bar >= 0.0):
+        raise ValueError(f"pressure must be finite and >= 0 bar, got {pressure_bar}")
+    if not (math.isfinite(temperature_k) and temperature_k > 0.0):
+        raise ValueError(f"temperature must be finite and > 0 K, got {temperature_k}")
+    # optmat refuses a zero-pressure state (no density to evaluate); at zero
+    # density the index is exactly 1.
+    state = (
+        State(pressure_bar * _PASCAL_PER_BAR, temperature_k) if pressure_bar else None
     )
 
     def n(wavelength_m: ArrayLike) -> NDArray[np.float64]:
-        um = np.asarray(wavelength_m, dtype=float) * 1e6
-        with np.errstate(divide="ignore", invalid="ignore"):
-            return np.sqrt(1.0 + chi_ref(um) * scale)
+        lam = np.asarray(wavelength_m, dtype=float)
+        # As for the solids (croak.materials): a grid point at ω ≤ 0 is nan, and
+        # the model is extrapolated without warning beyond its stated range.
+        physical = np.isfinite(lam) & (lam > 0.0)
+        out = np.full(lam.shape, np.nan)
+        if state is None:
+            out[physical] = 1.0
+            return out
+        index = model.refractive_index(lam[physical], state, ideal=True, warn=False)
+        # The propagation model is lossless: the real part.
+        out[physical] = np.real(index)
+        return out
 
     n.__doc__ = (
         f"Refractive index of {gas} at {pressure_bar} bar, {temperature_k} K "

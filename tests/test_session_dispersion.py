@@ -50,8 +50,8 @@ def _custom_mirror_csv(tmp_path, values) -> str:
         (DispersionParams(tod_fs3=1.0), True),
         (DispersionParams(fod_fs4=1.0), True),
         # a gas without a path does nothing
-        (DispersionParams(gas_name="Helium"), False),
-        (DispersionParams(gas_name="Helium", gas_path_cm=1.0), True),
+        (DispersionParams(gas_name="He"), False),
+        (DispersionParams(gas_name="He", gas_path_cm=1.0), True),
         (DispersionParams(material_thickness_mm={"SiO2": 0.0}), False),
         (DispersionParams(material_thickness_mm={"SiO2": 0.1}), True),
         (DispersionParams(mirrors=[BeamPathMirror(name="PC70")]), False),
@@ -78,9 +78,9 @@ def test_transfer_function_matches_taylor_phase(registries_untouched):
 
 def test_transfer_function_gas_matches_direct_registration(registries_untouched):
     """The gas row is the gas index at its pressure over the path length."""
-    params = DispersionParams(gas_name="Helium", gas_pressure_bar=3.0, gas_path_cm=50)
+    params = DispersionParams(gas_name="He", gas_pressure_bar=3.0, gas_path_cm=50)
     h = transfer_function(params, GRID, OMEGA0)
-    n_func = croak.gases.gas_refractive_index("Helium", 3.0)
+    n_func = croak.gases.gas_refractive_index("He", 3.0)
     materials.register_material("_test_gas", n_func)
     try:
         direct = croak.apply_dispersion(
@@ -163,7 +163,7 @@ def test_compose_dispersion_applies_the_transfer_function(registries_untouched):
         error=0.0,
         omega0=OMEGA0,
     )
-    params = DispersionParams(gdd_fs2=30.0, gas_name="Helium", gas_path_cm=10.0)
+    params = DispersionParams(gdd_fs2=30.0, gas_name="He", gas_path_cm=10.0)
     composed = compose_dispersion(params, result)
     h = transfer_function(params, GRID, OMEGA0)
     np.testing.assert_allclose(composed.spectrum, ew * h, rtol=1e-12, atol=1e-14)

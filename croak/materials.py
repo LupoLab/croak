@@ -1,39 +1,43 @@
-r"""Optical material dispersion (Sellmeier refractive index).
+r"""Optical material dispersion: the refractive index and the propagation constant.
 
-The dispersive-propagation model needs a registry of
-refractive-index data and the derived propagation constant
-:math:`\beta(\omega)`.
+The dispersive-propagation model needs a registry of refractive-index data and the
+derived propagation constant :math:`\beta(\omega)`.
 
 Each material maps to a callable ``n(wavelength_m)`` returning the (real)
 refractive index. :func:`beta` builds the slab propagation constant on a
 frequency grid, referenced to the group velocity at ``omega0`` so that a pulse
-propagates without an overall group delay — matching
-the dispersive forward model.
+propagates without an overall group delay — matching the dispersive forward model.
 
-Materials come from three sources, resolved in this order: runtime-registered
-callables (:func:`register_material`), built-in **tabulated** datasets shipped
-with the package (e.g. ``SiO2-Franta``, loaded lazily through
-:func:`make_tabulated_material`), and built-in **Sellmeier** formulae. Sellmeier
-coefficients are standard literature values (references in comments).
+Materials are resolved in this order: runtime-registered callables
+(:func:`register_material`), then the built-in materials of :data:`MATERIALS`.
+The built-in materials come from `optmat <https://optmat.readthedocs.io>`_, a
+curated library of optical constants: each name uses optmat's recommended model of
+that material, whose sources, validity range and reason for the choice optmat
+records (:func:`material_model` returns it). Its indices are absolute (relative to
+vacuum), as the propagation model needs.
 
-Tabulated data is experimental, so its refractive index is represented by a
-generalised-cross-validation *smoothing* spline rather than a raw interpolant:
-the dispersion quantities (:func:`beta1`, :func:`croak.dispersion.material_gdd`,
+Experimental data of your own can be registered through
+:func:`make_tabulated_material`, which represents the index by a
+generalised-cross-validation *smoothing* spline rather than a raw interpolant: the
+dispersion quantities (:func:`beta1`, :func:`croak.dispersion.material_gdd`,
 :func:`croak.dispersion.material_tod`) differentiate :math:`n(\lambda)`, and
 finite differences of an interpolant through noisy samples amplify that noise
 catastrophically in the second and third derivatives. The smoothing spline
 regularises the noise once, at the representation layer, so the
-finite-difference machinery is unchanged. Use tabulated data only within its
-wavelength range.
+finite-difference machinery is unchanged.
 """
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from optmat.solid.models.base import Model
+from optmat.solid.models.registry import default_model
 from scipy.interpolate import make_smoothing_spline
 
 from .constants import C
@@ -46,69 +50,49 @@ __all__ = [
     "register_material",
     "unregister_material",
     "make_tabulated_material",
+    "material_model",
+    "canonical_name",
     "read_nk_csv",
     "MATERIALS",
+    "DESCRIPTIONS",
 ]
 
-# Refractive-index Sellmeier formulae as functions of wavelength in micrometres.
-# Each returns the refractive index n(λ_µm). Kept in µm because that is the unit
-# in which the literature coefficients are expressed.
-_SELLMEIER_UM: dict[str, Callable[[NDArray[np.float64]], NDArray[np.float64]]] = {
-    # Fused silica — J. Opt. Soc. Am. 55, 1205-1208 (1965)
-    "SiO2": lambda u: np.sqrt(
-        1.0
-        + 0.6961663 / (1.0 - (0.0684043 / u) ** 2)
-        + 0.4079426 / (1.0 - (0.1162414 / u) ** 2)
-        + 0.8974794 / (1.0 - (9.896161 / u) ** 2)
-    ),
-    # BK7 — SCHOTT catalogue (refractiveindex.info)
-    "BK7": lambda u: np.sqrt(
-        1.0
-        + 1.03961212 / (1.0 - 0.00600069867 / u**2)
-        + 0.231792344 / (1.0 - 0.0200179144 / u**2)
-        + 1.01046945 / (1.0 - 103.560653 / u**2)
-    ),
-    # Calcium fluoride — Appl. Opt. 41, 5275-5281 (2002)
-    "CaF2": lambda u: np.sqrt(
-        1.0
-        + 0.443749998 / (1.0 - 0.00178027854 / u**2)
-        + 0.444930066 / (1.0 - 0.00788536061 / u**2)
-        + 0.150133991 / (1.0 - 0.0124119491 / u**2)
-        + 8.85319946 / (1.0 - 2752.28175 / u**2)
-    ),
-    # Barium fluoride — J. Phys. Chem. Ref. Data 9, 161-289 (1980)
-    "BaF2": lambda u: np.sqrt(
-        1.0
-        + 0.33973
-        + 0.81070 / (1.0 - (0.10065 / u) ** 2)
-        + 0.19652 / (1.0 - (29.87 / u) ** 2)
-        + 4.52469 / (1.0 - (53.82 / u) ** 2)
-    ),
-    # Magnesium fluoride — Handbook of Optics
-    "MgF2": lambda u: np.sqrt(
-        1.0
-        + 0.27620
-        + 0.60967 / (1.0 - (0.08636 / u) ** 2)
-        + 0.0080 / (1.0 - (18.0 / u) ** 2)
-        + 2.14973 / (1.0 - (25.0 / u) ** 2)
-    ),
+
+@dataclass(frozen=True)
+class _Builtin:
+    """A built-in material: the optmat material it is, and how to describe it."""
+
+    optmat_id: str
+    axis: str | None
+    description: str
+
+
+# Each built-in name is optmat's recommended model of that material
+# (optmat.solid.models.registry.default_model). A uniaxial crystal uses its
+# ordinary index: a window or plate is cut with the optic axis along its normal,
+# so a beam at normal incidence sees n_o in either polarisation. croak's MgF2
+# before optmat was the ordinary ray too (within 4e-4).
+_BUILTINS: dict[str, _Builtin] = {
+    "SiO2": _Builtin("SiO2", None, "fused silica"),
+    "BK7": _Builtin("N-BK7", None, "SCHOTT N-BK7"),
+    "CaF2": _Builtin("CaF2", None, "CaF₂"),
+    "BaF2": _Builtin("BaF2", None, "BaF₂"),
+    "MgF2": _Builtin("MgF2", "o", "MgF₂ (ordinary ray)"),
+    "Al2O3": _Builtin("Al2O3", "o", "sapphire (ordinary ray)"),
+    "Si": _Builtin("Si", None, "crystalline silicon (opaque below 1.1 µm)"),
 }
 
-# Built-in tabulated materials shipped as CSV data files under ``data/materials``
-# (same packaging mechanism as the chirped-mirror data; see ``mirrors.py``). Each
-# maps a material name to its filename; the file is loaded and turned into a
-# smoothing-spline ``n(wavelength_m)`` lazily on first use (see
-# :func:`_load_tabulated`), so importing this module does no I/O.
-_DATA_DIR = Path(__file__).parent / "data" / "materials"
-_TABULATED_FILES: dict[str, str] = {
-    # Franta et al. broadband fused-silica optical constants (24.8 nm – 125 µm),
-    # extending well beyond the Malitson Sellmeier range (0.21–6.7 µm).
-    "SiO2-Franta": "FrantaSiO2.csv",
-}
+# Names earlier croak versions offered, kept so saved sessions and scripts still
+# resolve. SiO2-Franta was Franta et al.'s tabulated fused silica; optmat's SiO2
+# model is Franta's universal dispersion model refitted to absolute refractometry
+# (optmat TC-399), so the two names are now the same material.
+_ALIASES: dict[str, str] = {"SiO2-Franta": "SiO2"}
 
-#: Names of the materials available in the dispersion registry (built-in
-#: Sellmeier formulae plus built-in tabulated datasets).
-MATERIALS: tuple[str, ...] = tuple(_SELLMEIER_UM) + tuple(_TABULATED_FILES)
+#: Names of the built-in materials, each optmat's recommended model of it.
+MATERIALS: tuple[str, ...] = tuple(_BUILTINS)
+
+#: A short description of each built-in material, by name (for labels and help).
+DESCRIPTIONS: dict[str, str] = {name: b.description for name, b in _BUILTINS.items()}
 
 # Runtime-registered materials (e.g. a gas at a pressure, or custom data),
 # each a callable ``n(wavelength_m) -> ndarray``. Consulted by
@@ -125,7 +109,7 @@ def register_material(
     The callable must accept a vacuum wavelength array in metres and return the
     real refractive index; values outside its validity range should be returned
     as ``nan`` so :func:`beta` masks them. Registered materials are resolved
-    case-insensitively and take precedence over the built-in Sellmeier set.
+    case-insensitively and take precedence over the built-in materials.
     """
     _CUSTOM[name] = n_func
 
@@ -245,22 +229,94 @@ def make_tabulated_material(
     return n_of_lambda_m, (lo, hi)
 
 
-def _load_tabulated(
-    material: str,
-) -> Callable[[ArrayLike], NDArray[np.float64]] | None:
-    """Lazily build and cache a built-in tabulated material's ``n`` callable.
+def canonical_name(material: str) -> str:
+    """Return the current name of a built-in material given by an earlier name.
 
-    Returns the callable for a name in ``_TABULATED_FILES`` (case-insensitive),
-    caching it via :func:`register_material` so the CSV is read and the spline
-    fitted only once; returns ``None`` for any other name.
+    Parameters
+    ----------
+    material : str
+        A material name, any case.
+
+    Returns
+    -------
+    str
+        The :data:`MATERIALS` name that ``material`` refers to (``"SiO2"`` for
+        ``"sio2-franta"``), or ``material`` unchanged if it names no built-in
+        material (a registered one, say).
+
+    Examples
+    --------
+    >>> canonical_name("SiO2-Franta")
+    'SiO2'
+    >>> canonical_name("MyGlass")
+    'MyGlass'
     """
-    for name, filename in _TABULATED_FILES.items():
-        if name.lower() == material.lower():
-            lam_m, n_vals = read_nk_csv(_DATA_DIR / filename)
-            n_func, _ = make_tabulated_material(lam_m, n_vals)
-            register_material(name, n_func)  # cache for subsequent lookups
-            return n_func
-    return None
+    lowered = material.lower()
+    for old, new in _ALIASES.items():
+        if old.lower() == lowered:
+            return new
+    for name in _BUILTINS:
+        if name.lower() == lowered:
+            return name
+    return material
+
+
+@functools.cache
+def material_model(material: str) -> Model:
+    """Return the optmat model behind a built-in material.
+
+    Parameters
+    ----------
+    material : str
+        A name in :data:`MATERIALS` (or an earlier name of one), any case.
+
+    Returns
+    -------
+    optmat.solid.models.base.Model
+        optmat's recommended model of the material, with its ``name``,
+        ``citation``, ``wavelength_range`` (m) and ``identity`` for provenance.
+
+    Raises
+    ------
+    ValueError
+        If ``material`` is not a built-in material.
+
+    Examples
+    --------
+    >>> material_model("BK7").name
+    'schott_2023/sellmeier'
+    """
+    name = canonical_name(material)
+    if name not in _BUILTINS:
+        raise ValueError(
+            f"unknown material {material!r}; available: {', '.join(MATERIALS)}"
+        )
+    builtin = _BUILTINS[name]
+    return default_model(builtin.optmat_id, axis=builtin.axis)
+
+
+def _optmat_index(model: Model) -> Callable[[ArrayLike], NDArray[np.float64]]:
+    """Wrap an optmat model as croak's ``n(wavelength_m)`` callable."""
+
+    def n(wavelength_m: ArrayLike) -> NDArray[np.float64]:
+        lam = np.asarray(wavelength_m, dtype=float)
+        # A centred frequency grid can reach ω ≤ 0 (λ ≤ 0 or ∞), where optmat
+        # refuses to evaluate: no frequency of a model lies there. Those points
+        # become nan, which beta() masks, as it masks every unphysical entry.
+        physical = np.isfinite(lam) & (lam > 0.0)
+        out = np.full(lam.shape, np.nan)
+        # warn=False: the grid spans far beyond any model's stated range, where
+        # the pulse carries no energy, so a range warning would fire on every
+        # call and mean nothing; the model is extrapolated there. The real part
+        # is taken because the propagation model is lossless.
+        out[physical] = np.real(model.refractive_index(lam[physical], warn=False))
+        return out
+
+    n.__doc__ = (
+        f"Refractive index of {model.material} (optmat {model.name}) as a function "
+        "of wavelength (m)."
+    )
+    return n
 
 
 def refractive_index(material: str) -> Callable[[ArrayLike], NDArray[np.float64]]:
@@ -269,41 +325,30 @@ def refractive_index(material: str) -> Callable[[ArrayLike], NDArray[np.float64]
     Parameters
     ----------
     material : str
-        Material name (case-insensitive); a built-in Sellmeier or tabulated
-        material (see :data:`MATERIALS`) or one added via
-        :func:`register_material`.
+        Material name (case-insensitive): one added via :func:`register_material`,
+        or a built-in material (see :data:`MATERIALS`).
 
     Returns
     -------
     callable
         Function mapping vacuum wavelength in metres to the real refractive
-        index. Non-finite results (e.g. at Sellmeier poles, or outside a
-        registered or tabulated material's validity range) are returned as-is;
-        callers working on a frequency grid should mask them.
+        index. A built-in material gives ``nan`` at a non-positive or non-finite
+        wavelength and is extrapolated beyond its model's stated range; a
+        registered material returns what its callable returns. Callers working on
+        a frequency grid should mask non-finite values.
+
+    Raises
+    ------
+    ValueError
+        If ``material`` is neither registered nor built in.
     """
     for key, fn in _CUSTOM.items():
         if key.lower() == material.lower():
             return fn
-    tabulated = _load_tabulated(material)
-    if tabulated is not None:
-        return tabulated
-    key = _resolve(material)
-    sell = _SELLMEIER_UM[key]
-
-    def n(wavelength_m: ArrayLike) -> NDArray[np.float64]:
-        um = np.asarray(wavelength_m, dtype=float) * 1e6
-        return np.real(sell(um))
-
-    n.__doc__ = f"Refractive index of {key} as a function of wavelength (m)."
-    return n
-
-
-def _resolve(material: str) -> str:
-    for key in _SELLMEIER_UM:
-        if key.lower() == material.lower():
-            return key
-    available = ", ".join((*MATERIALS, *_CUSTOM))
-    raise ValueError(f"unknown material {material!r}; available: {available}")
+    if canonical_name(material) not in _BUILTINS:
+        available = ", ".join((*MATERIALS, *_CUSTOM))
+        raise ValueError(f"unknown material {material!r}; available: {available}")
+    return _optmat_index(material_model(material))
 
 
 def beta1(material: str, omega0: float) -> float:
@@ -330,8 +375,8 @@ def beta(
     Returns :math:`\beta(\omega) = (\omega+\omega_0)\,n/c - \beta_1(\omega_0)\,\omega`,
     where ``omega`` is the centred grid (relative to ``omega0``) and the group
     delay term keeps the pulse centred in the time window. Non-finite entries
-    (outside the Sellmeier validity range) are set to zero; a finite value
-    outside a formula's validated range is not detected.
+    (a non-positive frequency, or outside a registered material's range) are set
+    to zero.
 
     Parameters
     ----------

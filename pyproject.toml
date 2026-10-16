@@ -35,6 +35,7 @@ dependencies = [
     "nlopt>=2.10.0",
     "numpy>=2.4.6",
     "optimistix>=0.1.0",
+    "optmat[gas]>=0.8.1",
     "scipy>=1.17.1",
     "tomli-w>=1.2.0",
     "tqdm>=4.66.0",
@@ -74,7 +75,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 # `packages = ["croak"]` already bundles every file under croak/ (including the
 # non-Python data files in croak/data/, e.g. the chirped-mirror reflectivity/GDD
-# tables and tabulated refractive-index CSVs ported from Luna.jl). Do not add a
+# tables ported from Luna.jl). Do not add a
 # force-include for croak/data here: it would re-add those files at the same
 # archive path and hatchling aborts with a duplicate-path error.
 packages = ["croak"]

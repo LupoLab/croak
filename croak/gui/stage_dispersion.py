@@ -37,7 +37,7 @@ _GAS_PRESSURE_RANGE_BAR = (0.0, 10.0)
 _GAS_PATH_RANGE_CM = (-999.0, 999.0)
 
 # Material thickness controls follow the single source of truth in
-# ``materials.MATERIALS`` (built-in Sellmeier + tabulated), so new materials
+# ``materials.MATERIALS`` (the built-in optmat materials), so new materials
 # surface here automatically and stay in sync with the other GUI stages.
 _MATERIALS = list(materials.MATERIALS)
 # Slider bounds (fs² / fs³ / fs⁴, mm). Chosen to span the residual dispersion a
@@ -90,20 +90,12 @@ class StageDispersion(Stage):
             "Materials (mm)",
             [
                 (
-                    "SiO2",
-                    "Thickness (mm) of fused silica to add; negative "
-                    "pre-compensates. 'Auto' optimises it.",
-                ),
-                ("BK7", "Thickness (mm) of N-BK7 to add (negative pre-compensates)."),
-                ("CaF2", "Thickness (mm) of CaF₂ to add (negative pre-compensates)."),
-                ("BaF2", "Thickness (mm) of BaF₂ to add (negative pre-compensates)."),
-                ("MgF2", "Thickness (mm) of MgF₂ to add (negative pre-compensates)."),
-                (
-                    "SiO2-Franta",
-                    "Thickness (mm) of fused silica using Franta et al. broadband "
-                    "tabulated optical constants (24.8 nm – 125 µm), valid far "
-                    "beyond the Sellmeier range.",
-                ),
+                    name,
+                    f"Thickness (mm) of {description} to add; negative "
+                    "pre-compensates. 'Auto' optimises it. The index is optmat's "
+                    "recommended model of the material.",
+                )
+                for name, description in materials.DESCRIPTIONS.items()
             ],
         ),
         (
@@ -111,14 +103,14 @@ class StageDispersion(Stage):
             [
                 (
                     "gas",
-                    "Gas filling the beam path (Helium or Air), or '(none)'. "
-                    "Sellmeier data ported from Luna.jl; the index scales with "
-                    "pressure via the ideal-gas law.",
+                    "Gas filling the beam path — air or one of optmat's gases "
+                    "(He, Ar, N₂, …) — or '(none)'. The index is optmat's "
+                    "polarisability model at the ideal-gas density, 20 °C.",
                 ),
                 (
                     "pressure (bar)",
-                    "Gas pressure in bar (n−1 scales linearly with it; 0 is "
-                    "vacuum). Coefficients are referenced to 1 bar.",
+                    "Gas pressure in bar (n−1 is very nearly proportional to it; "
+                    "0 is vacuum).",
                 ),
                 (
                     "path length (cm)",
