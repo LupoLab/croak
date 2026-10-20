@@ -15,6 +15,9 @@ semantic versioning.
   `lint-type-test` check reports success only after all three platforms pass.
 - Coding agents use an isolated worktree by default and may create topic branches
   and worktrees without requesting permission.
+- Replace the large two-phase LM thickness-polishing convergence tests with a
+  small shared delay-offset regression. It checks both optimization phases for
+  SciPy and Optimistix LM; separate thickness-recovery tests remain in place.
 
 ### Fixed
 

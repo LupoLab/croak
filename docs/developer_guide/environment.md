@@ -69,6 +69,14 @@ The suite is strict, and each rule is set in `pyproject.toml`:
   block, a guarded optional import) and carries its reason on the same line.
   The threshold and the exclusions are not lowered to make a change pass.
 
+Keep orchestration regressions small and separate from numerical convergence
+tests. For example, the two-phase LM polish tests use a 32-point SHG pulse and
+17 delays: live snapshots show the delay offset held during the first phase,
+then the joint phase recovers it and reduces the remaining trace error.
+The separate thickness-fitting tests exercise slab-thickness recovery. Reserve
+that larger dispersive convergence problem for those dedicated tests, and use
+the compact example to check the two-phase sequence.
+
 GUI tests live in `tests/gui/` and run offscreen through pytest-qt; the shared
 `tests/conftest.py` points `QSettings` at a per-test directory for them. The
 `evo` extra (evosax) is part of the development group so the `cma-es` retriever
