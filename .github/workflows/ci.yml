@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-type-test:
+  checks:
     name: Checks (${{ matrix.os }})
     strategy:
       # Keep the other platforms running when one exposes a regression.
@@ -75,3 +75,14 @@ jobs:
           files: build/coverage/coverage.xml
           name: ${{ matrix.os }}
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Keep the check name required by the main branch's repository ruleset.
+  lint-type-test:
+    needs: checks
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every platform to pass
+        env:
+          MATRIX_RESULT: ${{ needs.checks.result }}
+        run: test "$MATRIX_RESULT" = "success"

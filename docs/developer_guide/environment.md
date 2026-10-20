@@ -34,6 +34,8 @@ GUI tests and doctests. Linux installs Qt system libraries and runs under Xvfb;
 Windows and macOS run the gate directly. Qt uses its offscreen backend on all
 three platforms. A failure on one platform leaves the others running so all
 failures can be inspected together.
+The final `lint-type-test` check succeeds only when every platform passes,
+preserving the check name required by the `main` branch's repository rules.
 
 The workflow runs for pull requests and pushes to `main` or `master`, and can
 also be started manually from the Actions tab. CI fails if the gate's lint

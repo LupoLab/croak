@@ -10,7 +10,8 @@ semantic versioning.
 
 - GitHub Actions runs the full lint, formatting, type, test, and 100% coverage
   gate on Windows and macOS as well as Linux. Platform jobs finish independently,
-  and the workflow also supports manual runs.
+  and the workflow also supports manual runs. The required `lint-type-test`
+  check now reports success only after all three platforms pass.
 - Coding agents use an isolated worktree by default and may create topic branches
   and worktrees without requesting permission.
 
