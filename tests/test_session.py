@@ -10,6 +10,7 @@ retargeting it at a new dataset folder, and replaying it with
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -281,9 +282,9 @@ def test_retarget_swaps_dataset_dir_keeps_calibration(tmp_path):
 
     moved = croak.retarget(options, "/data/run02")
 
-    assert moved.load.frog_path == "/data/run02/acq.h5"
-    assert moved.load.spec_path == "/data/run02/spectrum.h5"
-    assert moved.load.frog_bg_path == "/data/run02/bg.h5"
+    assert Path(moved.load.frog_path) == Path("/data/run02/acq.h5")
+    assert Path(moved.load.spec_path) == Path("/data/run02/spectrum.h5")
+    assert Path(moved.load.frog_bg_path) == Path("/data/run02/bg.h5")
     # calibration paths are shared and must not move
     assert moved.load.frog_calib_path == "/calib/response.dat"
     assert moved.load.spec_calib_path == "/calib/spec_response.dat"

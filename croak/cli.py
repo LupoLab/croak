@@ -125,7 +125,7 @@ def _cmd_script(args: argparse.Namespace) -> int:
         print(f"[croak] {exc}", file=sys.stderr)
         return 1
     if args.out:
-        Path(args.out).write_text(source)
+        Path(args.out).write_text(source, encoding="utf-8")
         print(f"[croak] wrote {args.out}")
     else:
         sys.stdout.write(source)

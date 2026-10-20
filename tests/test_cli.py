@@ -201,13 +201,26 @@ def test_cli_script_to_stdout(tmp_path, experiment_h5, experiment, capsys):
     assert "SEED = 4" in source
 
 
-def test_cli_script_to_file(tmp_path, experiment_h5, experiment, capsys):
+@pytest.mark.parametrize("default_encoding", ["utf-8", "cp1252"])
+def test_cli_script_to_file(
+    tmp_path, experiment_h5, experiment, capsys, monkeypatch, default_encoding
+):
+    write_text = Path.write_text
+
+    def write_with_locale_default(path, data, encoding=None, **kwargs):
+        # Exercise Windows' legacy locale even on a UTF-8 development machine.
+        return write_text(path, data, encoding=encoding or default_encoding, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", write_with_locale_default)
     opts_path = str(tmp_path / "options.toml")
     _write_options(experiment_h5, experiment, opts_path)
     target = tmp_path / "rerun.py"
     assert main(["script", opts_path, "-o", str(target)]) == 0
     assert f"wrote {target}" in capsys.readouterr().out
-    compile(target.read_text(), str(target), "exec")
+    source = target.read_bytes()
+    assert "load → preproc → retrieve" in source.decode("utf-8")
+    # Python reads source bytes as UTF-8 by default, regardless of the locale.
+    compile(source, str(target), "exec")
 
 
 def test_cli_script_reports_a_synthetic_session(tmp_path, capsys):

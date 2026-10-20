@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -2488,7 +2489,8 @@ def test_fit_to_screen_never_enlarges_and_caps_at_the_screen_fill(
 
 def test_settings_file_lives_under_the_redirected_path(tmp_path):
     """Guards the isolation fixture: nothing here can reach real preferences."""
-    assert settings.user_settings().fileName().startswith(str(tmp_path))
+    # Qt uses forward slashes even when Windows' native separator is a backslash.
+    assert Path(settings.user_settings().fileName()).is_relative_to(tmp_path)
 
 
 def test_new_window_is_clamped_to_the_screen(qtbot):

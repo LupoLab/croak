@@ -19,6 +19,10 @@ semantic versioning.
 - Keep a GUI canvas's owning window alive while Matplotlib draws. Garbage
   collection could otherwise delete a discarded stage's canvas during rendering,
   causing a `wrapped C/C++ object ... has been deleted` error.
+- `croak script … -o …` writes UTF-8 source explicitly, so exporting scripts
+  containing Unicode works with Windows' legacy default text encoding.
+- Session-retargeting and GUI-settings tests compare paths independently of the
+  platform's directory separator.
 
 ## [0.3.0] - 2026-10-16
 

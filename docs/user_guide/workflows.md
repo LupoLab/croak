@@ -32,6 +32,10 @@ preprocessing, retrieval, dispersion and uncertainty. `croak replay
 options.toml` reruns a session; `croak script options.toml` writes the
 equivalent Python script.
 
+Use `croak script options.toml -o replay.py` to save the script as UTF-8 Python
+source. This preserves Unicode text on Windows as well as on Linux and macOS,
+independently of the system's default text encoding.
+
 ## Main entry points
 
 - {func}`~croak.save.save_result`, {func}`~croak.save.load_result`,
