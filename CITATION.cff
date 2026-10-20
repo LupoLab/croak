@@ -4,7 +4,7 @@ message: >-
   (preferred-citation below), and this record for the software itself.
 type: software
 title: "croak: complete retrieval of ultrashort laser pulses from FROG traces"
-version: 0.3.0
+version: 0.3.1
 authors:
   - family-names: Travers
     given-names: John C.
