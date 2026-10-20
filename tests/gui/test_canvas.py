@@ -2,11 +2,41 @@
 
 from __future__ import annotations
 
+import gc
+import weakref
+
 import pytest
 
 pytest.importorskip("PyQt6")
 
-from croak.gui.canvas import MplCanvas, check, combo, dspin, spin
+from croak.gui.canvas import MplCanvas, check, combo, dspin, spin, with_toolbar
+
+
+def test_canvas_keeps_its_window_alive_during_a_draw(qapp):
+    """A pending canvas draw must outlive its otherwise unreachable parent."""
+    canvas = MplCanvas()
+    panel = with_toolbar(canvas)
+    # Model a discarded stage awaiting cyclic collection while its queued draw
+    # still owns a Python reference to the canvas, but not to the parent widget.
+    panel.cycle = panel
+    owner = weakref.ref(panel)
+    owners = [panel]
+    del panel
+    alive_during_draw = []
+
+    def collect_during_draw(_event):
+        # Release it only once the draw has started, regardless of when Python
+        # happens to collect cycles from earlier tests.
+        owners.clear()
+        gc.collect()
+        alive_during_draw.append(owner() is not None)
+
+    canvas.mpl_connect("draw_event", collect_during_draw)
+    canvas.draw()
+    assert alive_during_draw == [True]
+    # Drawing should keep the window alive only for the duration of the draw.
+    gc.collect()
+    assert owner() is None
 
 
 def test_canvas_draw_without_a_plot_function_is_an_error(qtbot):

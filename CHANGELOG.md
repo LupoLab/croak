@@ -14,6 +14,12 @@ semantic versioning.
 - Coding agents use an isolated worktree by default and may create topic branches
   and worktrees without requesting permission.
 
+### Fixed
+
+- Keep a GUI canvas's owning window alive while Matplotlib draws. Garbage
+  collection could otherwise delete a discarded stage's canvas during rendering,
+  causing a `wrapped C/C++ object ... has been deleted` error.
+
 ## [0.3.0] - 2026-10-16
 
 ### Changed

@@ -29,3 +29,9 @@ invariant the tests hold them to is that `update(draw(d1), d2)` shows exactly
 what `draw(d2)` shows. {func}`~croak.plotting.plot_convergence` returns its
 artists for the same reason, and `update_convergence_curve` grows the error
 history in place.
+
+An embedded `MplCanvas` keeps its owning Qt window alive for the duration of a
+draw. A queued Matplotlib draw holds the Python canvas wrapper, but that alone
+does not keep Qt from deleting the canvas when its parent is garbage-collected.
+Retaining the window during rendering prevents a discarded stage from losing
+its canvas midway through a draw; it does not retain the window after drawing.
