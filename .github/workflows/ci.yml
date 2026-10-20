@@ -5,6 +5,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -12,7 +13,16 @@ concurrency:
 
 jobs:
   lint-type-test:
-    runs-on: ubuntu-latest
+    name: Checks (${{ matrix.os }})
+    strategy:
+      # Keep the other platforms running when one exposes a regression.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -33,8 +43,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --group dev
 
-      # PyQt6 needs system libraries and a virtual display.
+      # Only Linux needs these system packages and a virtual display.
       - name: Install Qt system libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -49,7 +60,11 @@ jobs:
       # gate fails if they changed anything.
       - name: Gate (poe check)
         run: |
-          xvfb-run -a uv run poe check
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a uv run poe check
+          else
+            uv run poe check
+          fi
           git diff --exit-code
 
       # Tokenless upload works for public repos; set CODECOV_TOKEN in the repo
@@ -58,4 +73,5 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: build/coverage/coverage.xml
+          name: ${{ matrix.os }}
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -151,7 +151,8 @@ Keep each comment next to what it describes and update it when the code changes.
 
 ## Git
 
-- Work on a topic branch (`fix/…`, `feature/…`, `docs/…`, `test/…`). Before creating or switching branches or worktrees, propose the name and **ask**, unless the user already authorised it.
+- Work in an isolated Git worktree by default, reusing the current worktree when it is already dedicated to the task. Keep the primary checkout untouched.
+- Work on a topic branch (`fix/…`, `feature/…`, `docs/…`, `test/…`). Create or switch to an appropriate topic branch and worktree as needed without asking for permission.
 - Make clean, logical commits with descriptive but not verbose messages. Prefer several small commits over one large one.
 - Stage deliberately: `git add <paths>`, not `git add -A`.
 - Never tag, make releases or change the package version.

@@ -27,6 +27,18 @@ fix), `pyright`, and finally `poe cov`: the test suite on every core
 of the whole `croak` package, GUI included, and failing below 100%. The XML
 report is written to `build/coverage/coverage.xml`.
 
+GitHub Actions runs this gate on `ubuntu-latest`, `windows-latest`, and
+`macos-latest`, using Python 3.14 and the committed lockfile on each platform.
+Every platform must independently meet the 100% coverage threshold, including
+GUI tests and doctests. Linux installs Qt system libraries and runs under Xvfb;
+Windows and macOS run the gate directly. Qt uses its offscreen backend on all
+three platforms. A failure on one platform leaves the others running so all
+failures can be inspected together.
+
+The workflow runs for pull requests and pushes to `main` or `master`, and can
+also be started manually from the Actions tab. CI fails if the gate's lint
+autofixes or formatting leave a tracked-file diff.
+
 For focused work run single files serially, without coverage:
 
 ```bash

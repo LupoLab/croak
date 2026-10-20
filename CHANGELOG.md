@@ -6,6 +6,14 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- GitHub Actions runs the full lint, formatting, type, test, and 100% coverage
+  gate on Windows and macOS as well as Linux. Platform jobs finish independently,
+  and the workflow also supports manual runs.
+- Coding agents use an isolated worktree by default and may create topic branches
+  and worktrees without requesting permission.
+
 ## [0.3.0] - 2026-10-16
 
 ### Changed
