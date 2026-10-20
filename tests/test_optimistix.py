@@ -208,8 +208,8 @@ def test_optx_callback_and_errlog(setup, solver):
 
 
 # -- extra fitted parameters (thickness / tau0), OptxLM only ------------------
-# These mirror the LM tests in tests/test_lm.py: OptxLM reuses the same
-# augmentation machinery and two-phase polish, only the optimiser differs.
+# These mirror the LM recovery tests in tests/test_lm.py. The shared two-phase
+# contract is tested on a small delay-offset problem in tests/test_polish.py.
 
 
 def test_optx_lm_fits_tau0(setup):
@@ -256,35 +256,6 @@ def test_optx_lm_fits_thickness():
     ).run(trace, g.omega, delays, "pg", guess=ew, omega0=omega0)
     assert fit.thickness == pytest.approx(L_true, rel=0.05)
     assert fit.error < no_fit.error
-
-
-def test_optx_lm_two_phase_polish_thickness():
-    """The two-phase polish recovers the thickness even from a cold pulse start."""
-    g = Grid(128, dt=2e-15)
-    omega0 = wlfreq(800e-9)
-    ew = gaussian_pulse(g, 8e-15)
-    delays = np.linspace(-120e-15, 120e-15, 90)
-    L_true = 400e-6
-    trace = maketrace(
-        g.omega,
-        delays,
-        ew,
-        "pg",
-        material="SiO2",
-        thickness=L_true,
-        npoints=20,
-        omega0=omega0,
-    )
-    res = OptxLM(
-        maxiters=300,
-        material="SiO2",
-        thickness=250e-6,
-        npoints=20,
-        omega0=omega0,
-        fit_thickness=True,
-        polish=True,
-    ).run(trace, g.omega, delays, "pg", guess=ew, omega0=omega0)
-    assert res.thickness == pytest.approx(L_true, rel=0.05)
 
 
 def test_optx_lm_thickness_fit_shg_guard(setup):

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -2488,7 +2489,8 @@ def test_fit_to_screen_never_enlarges_and_caps_at_the_screen_fill(
 
 def test_settings_file_lives_under_the_redirected_path(tmp_path):
     """Guards the isolation fixture: nothing here can reach real preferences."""
-    assert settings.user_settings().fileName().startswith(str(tmp_path))
+    # Qt uses forward slashes even when Windows' native separator is a backslash.
+    assert Path(settings.user_settings().fileName()).is_relative_to(tmp_path)
 
 
 def test_new_window_is_clamped_to_the_screen(qtbot):
@@ -2505,12 +2507,15 @@ def test_new_window_is_clamped_to_the_screen(qtbot):
     assert w.width() < settings.DEFAULT_WINDOW_SIZE.width()
 
 
-def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot):
-    """Closing saves the geometry; the next window restores it, kept on screen."""
+@pytest.mark.parametrize("layout_min_width", [0, 920])
+def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot, layout_min_width):
+    """Closing saves geometry; restoration also clamps oversized saved geometry."""
     from PyQt6.QtWidgets import QMainWindow
 
     w = Wizard()
     qtbot.addWidget(w)
+    # Windows font metrics can make the layout wider than the offscreen display.
+    w.centralWidget().setMinimumWidth(layout_min_width)
     w.resize(700, 600)  # the width is clamped up to the window's minimum
     w.show()
     qtbot.waitExposed(w)
@@ -2519,6 +2524,11 @@ def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot):
     w.close()
     again = Wizard()
     qtbot.addWidget(again)
+    again.centralWidget().setMinimumWidth(layout_min_width)
+    # Compare at the same lifecycle stage: restoreGeometry clamps to the screen
+    # before show() applies the platform's layout minimums.
+    again.show()
+    qtbot.waitExposed(again)
     assert (again.width(), again.height()) == shown
     # a geometry saved on a larger display never restores wider than this screen
     big = QMainWindow()

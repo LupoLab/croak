@@ -6,6 +6,31 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- GitHub Actions runs the complete test suite on Windows and macOS as well as
+  Linux. Linux retains the full lint, formatting, type, test, and 100% coverage
+  gate; Windows and macOS omit coverage instrumentation. Platform jobs finish
+  independently, and the workflow also supports manual runs. The required
+  `lint-type-test` check reports success only after all three platforms pass.
+- Coding agents use an isolated worktree by default and may create topic branches
+  and worktrees without requesting permission.
+- Replace the large two-phase LM thickness-polishing convergence tests with a
+  small shared delay-offset regression. It checks both optimization phases for
+  SciPy and Optimistix LM; separate thickness-recovery tests remain in place.
+
+### Fixed
+
+- Keep a GUI canvas's owning window alive while Matplotlib draws. Garbage
+  collection could otherwise delete a discarded stage's canvas during rendering,
+  causing a `wrapped C/C++ object ... has been deleted` error.
+- `croak script … -o …` writes UTF-8 source explicitly, so exporting scripts
+  containing Unicode works with Windows' legacy default text encoding.
+- Session-retargeting and GUI-settings tests compare paths independently of the
+  platform's directory separator.
+- Window-geometry tests compare both windows after exposure, accounting for
+  Windows' layout minimums on the small offscreen test display.
+
 ## [0.3.0] - 2026-10-16
 
 ### Changed

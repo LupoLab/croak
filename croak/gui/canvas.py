@@ -109,6 +109,15 @@ class MplCanvas(FigureCanvasQTAgg):
         self.figure.clear()
         self.draw_idle()
 
+    def draw(self) -> None:
+        """Render while keeping the owning Qt window alive."""
+        # A queued draw retains the Python canvas but not its owning window.
+        # If cyclic collection destroys that window during rendering, Qt also
+        # deletes the canvas before matplotlib updates it/restores its cursor.
+        # Retain the owner only for this call, without creating a permanent cycle.
+        _window = self.window()
+        super().draw()
+
     def save_figure(self, path: str | Path, *, dpi: int) -> None:
         """Save the remembered plot at the design size and full text density.
 

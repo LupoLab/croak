@@ -5,14 +5,27 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint-type-test:
-    runs-on: ubuntu-latest
+  checks:
+    name: Checks (${{ matrix.os }})
+    strategy:
+      # Keep the other platforms running when one exposes a regression.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Keep timing evidence in the log when a platform's suite is slow.
+      PYTEST_ADDOPTS: --durations=20
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -33,8 +46,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --group dev
 
-      # PyQt6 needs system libraries and a virtual display.
+      # Only Linux needs these system packages and a virtual display.
       - name: Install Qt system libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -43,19 +57,39 @@ jobs:
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
             libxcb-xinerama0 libxcb-cursor0 xvfb
 
-      # Exactly the local definition-of-done gate (AGENTS.md): lint, format,
-      # types, then the suite under xdist with the coverage threshold.
+      # Linux runs the local definition-of-done gate (AGENTS.md): lint, format,
+      # types, then the suite under xdist with the 100% coverage threshold.
       # `ruff check --fix` and `ruff format` rewrite files here too, so the
       # gate fails if they changed anything.
       - name: Gate (poe check)
+        if: runner.os == 'Linux'
         run: |
           xvfb-run -a uv run poe check
           git diff --exit-code
 
+      # Exercise the same complete suite, including GUI tests and doctests,
+      # without repeating coverage instrumentation on the other platforms.
+      - name: Tests (poe test)
+        if: runner.os != 'Linux'
+        run: uv run poe test
+
       # Tokenless upload works for public repos; set CODECOV_TOKEN in the repo
       # secrets to avoid rate limits (see the release checklist).
       - name: Upload coverage to Codecov
+        if: runner.os == 'Linux'
         uses: codecov/codecov-action@v5
         with:
           files: build/coverage/coverage.xml
+          name: ${{ matrix.os }}
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Keep the check name required by the main branch's repository ruleset.
+  lint-type-test:
+    needs: checks
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every platform to pass
+        env:
+          MATRIX_RESULT: ${{ needs.checks.result }}
+        run: test "$MATRIX_RESULT" = "success"
