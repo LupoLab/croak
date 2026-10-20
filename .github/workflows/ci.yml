@@ -20,6 +20,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Keep timing evidence in the log when a platform's suite is slow.
+      PYTEST_ADDOPTS: --durations=20
     defaults:
       run:
         shell: bash
@@ -54,22 +57,26 @@ jobs:
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
             libxcb-xinerama0 libxcb-cursor0 xvfb
 
-      # Exactly the local definition-of-done gate (AGENTS.md): lint, format,
-      # types, then the suite under xdist with the coverage threshold.
+      # Linux runs the local definition-of-done gate (AGENTS.md): lint, format,
+      # types, then the suite under xdist with the 100% coverage threshold.
       # `ruff check --fix` and `ruff format` rewrite files here too, so the
       # gate fails if they changed anything.
       - name: Gate (poe check)
+        if: runner.os == 'Linux'
         run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run -a uv run poe check
-          else
-            uv run poe check
-          fi
+          xvfb-run -a uv run poe check
           git diff --exit-code
+
+      # Exercise the same complete suite, including GUI tests and doctests,
+      # without repeating coverage instrumentation on the other platforms.
+      - name: Tests (poe test)
+        if: runner.os != 'Linux'
+        run: uv run poe test
 
       # Tokenless upload works for public repos; set CODECOV_TOKEN in the repo
       # secrets to avoid rate limits (see the release checklist).
       - name: Upload coverage to Codecov
+        if: runner.os == 'Linux'
         uses: codecov/codecov-action@v5
         with:
           files: build/coverage/coverage.xml

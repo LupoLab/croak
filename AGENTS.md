@@ -60,9 +60,11 @@ rather than style, ask rather than guess.
 5. `poe cov` — the suite (doctests included) on every core with pytest-xdist, requiring
    **100% statement and branch coverage** of `croak/`, GUI included ⚙.
 
-CI runs exactly this task; if you change the sequence, change `.github/workflows/ci.yml`
-in the same commit. Do not declare work finished while a step fails. If a step genuinely
-cannot pass, say so and why — never suppress a check to make the gate green.
+Linux CI runs exactly this task. Windows and macOS run the same complete test suite
+with `uv run poe test`, without coverage instrumentation. If you change the sequence,
+change `.github/workflows/ci.yml` in the same commit. Do not declare work finished while
+a step fails. If a step genuinely cannot pass, say so and why — never suppress a check
+to make the gate green.
 
 **The coverage gate is not negotiable.** Do not lower the threshold, add `omit` entries or
 exclusion patterns, or add `# pragma: no cover` to make it pass. Cover new code with tests
