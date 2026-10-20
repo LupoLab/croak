@@ -2507,12 +2507,15 @@ def test_new_window_is_clamped_to_the_screen(qtbot):
     assert w.width() < settings.DEFAULT_WINDOW_SIZE.width()
 
 
-def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot):
-    """Closing saves the geometry; the next window restores it, kept on screen."""
+@pytest.mark.parametrize("layout_min_width", [0, 920])
+def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot, layout_min_width):
+    """Closing saves geometry; restoration also clamps oversized saved geometry."""
     from PyQt6.QtWidgets import QMainWindow
 
     w = Wizard()
     qtbot.addWidget(w)
+    # Windows font metrics can make the layout wider than the offscreen display.
+    w.centralWidget().setMinimumWidth(layout_min_width)
     w.resize(700, 600)  # the width is clamped up to the window's minimum
     w.show()
     qtbot.waitExposed(w)
@@ -2521,6 +2524,11 @@ def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot):
     w.close()
     again = Wizard()
     qtbot.addWidget(again)
+    again.centralWidget().setMinimumWidth(layout_min_width)
+    # Compare at the same lifecycle stage: restoreGeometry clamps to the screen
+    # before show() applies the platform's layout minimums.
+    again.show()
+    qtbot.waitExposed(again)
     assert (again.width(), again.height()) == shown
     # a geometry saved on a larger display never restores wider than this screen
     big = QMainWindow()

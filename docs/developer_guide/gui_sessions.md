@@ -35,3 +35,10 @@ draw. A queued Matplotlib draw holds the Python canvas wrapper, but that alone
 does not keep Qt from deleting the canvas when its parent is garbage-collected.
 Retaining the window during rendering prevents a discarded stage from losing
 its canvas midway through a draw; it does not retain the window after drawing.
+
+When testing saved window geometry, expose both the original and restored
+window with `qtbot.waitExposed` before comparing their displayed sizes. Qt
+clamps saved geometry to the available screen before applying layout minimums
+on show. Windows font metrics can make those minimums wider than the offscreen
+test display, so comparing a shown window to a hidden one tests different
+layout states.

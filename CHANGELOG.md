@@ -24,6 +24,8 @@ semantic versioning.
   containing Unicode works with Windows' legacy default text encoding.
 - Session-retargeting and GUI-settings tests compare paths independently of the
   platform's directory separator.
+- Window-geometry tests compare both windows after exposure, accounting for
+  Windows' layout minimums on the small offscreen test display.
 
 ## [0.3.0] - 2026-10-16
 
