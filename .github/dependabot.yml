@@ -1,0 +1,11 @@
+# Weekly updates of the GitHub Actions the workflows use. Python dependencies are
+# updated deliberately, not here.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
