@@ -16,10 +16,10 @@ jobs:
       id-token: write   # the OIDC token PyPI trusted publishing exchanges
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Set up Python
         run: uv python install
