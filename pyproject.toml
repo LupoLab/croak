@@ -146,6 +146,8 @@ convention = "numpy"
 "examples/**" = ["D", "S"]
 "croak/gui/**" = ["D"]           # relax docstrings in GUI glue code
 "**/__init__.py" = ["F401"]     # re-exports
+# Fixed `git` and `gh` argument lists, found on PATH, run only from trusted main.
+"tools/update_release_notes.py" = ["S603", "S607"]
 
 [tool.pyright]
 include = ["croak"]
@@ -175,6 +177,9 @@ fmt = "ruff format ."
 lint = "ruff check ."
 types = "pyright"
 docs = "sphinx-build -b html -W --keep-going docs docs/_build/html"
+changelog-check = "python -m tools.release_notes check"
+changelog-preview = "python -m tools.release_notes preview"
+changelog-collect = "python -m tools.release_notes collect"
 
 # The suite on every core; a module's tests stay on one worker so module-scoped
 # fixtures are built once. Qt runs offscreen so workers never open windows.
