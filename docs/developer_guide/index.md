@@ -15,5 +15,6 @@ extending
 gui_sessions
 validation
 documentation
+releasing
 Project name and history <../reference/naming>
 ```

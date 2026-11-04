@@ -75,7 +75,7 @@ jobs:
         run: uv run poe test
 
       # Tokenless upload works for public repos; set CODECOV_TOKEN in the repo
-      # secrets to avoid rate limits (see the release checklist).
+      # secrets to avoid rate limits (docs/developer_guide/releasing.md).
       - name: Upload coverage to Codecov
         if: runner.os == 'Linux'
         uses: codecov/codecov-action@v5

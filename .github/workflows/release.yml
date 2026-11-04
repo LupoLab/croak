@@ -1,7 +1,8 @@
 # Publishes to PyPI via trusted publishing (OIDC) — no token stored anywhere.
 # Triggered by publishing a GitHub Release whose tag is v<version> (e.g. v0.1.0).
 # One-time setup: a "pending publisher" on PyPI pointing at this repo/workflow/
-# environment, and a GitHub environment named "pypi" (see the release checklist).
+# environment, and a GitHub environment named "pypi"
+# (docs/developer_guide/releasing.md).
 name: Release
 
 on:
