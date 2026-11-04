@@ -87,7 +87,8 @@ is tested.
 Tests live in `tests/` and follow the package's domain structure. Numerical tests
 should state their tolerances and check physical or mathematical invariants as
 well as individual values. Document public behaviour in NumPy-style docstrings
-and in the manual, and record notable changes in `CHANGELOG.md`.
+and in the manual, and record notable changes in a `changelog.d/` fragment (see
+[releasing](releasing.md)).
 
 See [numerical validation](validation.md) for model and gradient checks, and
 [building the documentation](documentation.md) for executed tutorial caches.

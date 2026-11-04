@@ -2,7 +2,9 @@
 
 Working instructions for coding agents (and people) in this repository. The long form
 is the Developer's guide under `docs/developer_guide/` (environment, architecture,
-extending, GUI sessions, validation, documentation).
+extending, GUI sessions, validation, documentation, releasing).
+[`CONTRIBUTING.md`](CONTRIBUTING.md) is the short guide for a first contribution, and
+holds the standard for issues and pull requests.
 
 Rules marked ⚙ are enforced by the configuration in `pyproject.toml` (ruff, pyright,
 pytest, coverage). If a ⚙ rule and the configuration disagree, the configuration wins and
@@ -20,6 +22,7 @@ rather than style, ask rather than guess.
 | Numerics | NumPy/SciPy, with JAX (optimistix, lineax) for the differentiable solvers |
 | GUI | the `gui` extra (PyQt6, superqt); the dev group always installs it, and its tests run offscreen with pytest-qt |
 | Optional extras | `evo` (evosax, the `cma-es` retriever; in the dev group) |
+| Planned work | [GitHub issues](https://github.com/LupoLab/croak/issues). [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write an issue and how to label an issue or a pull request |
 
 ## Guiding principles
 
@@ -47,6 +50,8 @@ rather than style, ask rather than guess.
 | Focused tests, serial | `uv run pytest tests/test_x.py` |
 | Lint with autofix / format | `uv run ruff check --fix .` / `uv run ruff format .` |
 | Type-check | `uv run pyright` |
+| Spelling | `uv run codespell` |
+| Check / preview the pending release notes | `uv run poe changelog-check` / `uv run poe changelog-preview` |
 | Build docs | `uv run poe docs` |
 
 ## Definition of done
@@ -57,7 +62,9 @@ rather than style, ask rather than guess.
 2. `ruff format .` — so the fixes are formatted;
 3. `ruff check .` — catches what autofix could not;
 4. `pyright` — no errors;
-5. `poe cov` — the suite (doctests included) on every core with pytest-xdist, requiring
+5. `codespell` — no misspellings;
+6. `poe changelog-check` — the release-note fragments and the changelog's structure validate;
+7. `poe cov` — the suite (doctests included) on every core with pytest-xdist, requiring
    **100% statement and branch coverage** of `croak/`, GUI included ⚙.
 
 Linux CI runs exactly this task. Windows and macOS run the same complete test suite
@@ -73,17 +80,28 @@ reached is deleted or simplified, not excluded. A pragma is only for code that g
 cannot run under test (`if __name__ == "__main__":`, a guarded optional import's
 `ImportError`) and carries its reason on the same line.
 
-**Documentation-only changes** (the manual, docstring prose, AGENTS.md) do not need the
-full suite: run `git diff --check` and `uv run poe docs`.
+**Documentation-only changes** (the manual, docstring prose, AGENTS.md, a release-note
+fragment) do not need the full suite: run `git diff --check`, `uv run codespell` and
+`uv run poe docs`.
 
 New functionality is not done until it is **tested**, **documented in the manual** as well
-as in docstrings, and recorded in `CHANGELOG.md`.
+as in docstrings, and recorded in a `changelog.d/` fragment
+([format](changelog.d/README.md)). The rolling release PR collects these into
+`CHANGELOG.md`; implementation PRs do not edit that shared file. Any physical constant,
+coefficient, citation or validity range you transcribe is cited to its primary source in
+the docstring or the data file; say in your summary what you verified against that
+source and what you could not.
 
 ## Working agreement
 
+- **Agree the plan for large changes.** A new model or numerical scheme, a changed physics default or convention, a public interface redesign, or any other change that touches more than a couple of files or alters a public signature starts from an issue or a short agreed plan. A focused fix or documentation update does not need one.
+- **Re-derive, do not transcribe.** When taking an algorithm or a model from another code or a paper, re-derive it, choose deliberately, test it against an analytic or independent reference and document it.
 - **Stay in scope.** No refactoring, renaming or reformatting unrelated to the task.
+- **Open an issue for what you find.** Whatever you notice while working and do not fix in the change in hand — a bug, a wrong statement, a missing test, a slow path — gets an issue straight away, so that it outlives the session and the branch. Do not wait to be asked, and write it as [`CONTRIBUTING.md`](CONTRIBUTING.md) says, searching first. If you plan to fix it yourself, open it all the same and keep it in your own plan too.
+- **Connect a fix to its issue.** When you fix something you noticed, search the issues for it. If the change closes one, say `Closes #N` in the pull request; if it only goes part of the way or bears on one, comment there on what changed and what is left, and do not close it. `Closes` acts only on a pull request based on `main`: after a stacked pull request or a local merge reaches `main`, close the issue by hand, naming the commit.
 - **Never hand-edit generated files**: `uv.lock`, `docs/_build/`, `docs/.jupyter_cache/`. Regenerate them.
 - **Report failure honestly.** A check that fails, a test you could not make pass, an assumption you had to invent: say it plainly. Silent partial completion is worse than an admitted gap.
+- **The public tree stands alone.** No local paths, host names, private notes or links to them in code, tests, docs, the changelog, issues or pull requests.
 
 ## Code style
 
@@ -147,15 +165,17 @@ Keep each comment next to what it describes and update it when the code changes.
 ## Documentation
 
 - Docs are built with **Sphinx**, and the API reference is generated from docstrings — so the docstring is the source of truth. Keep `README.md` current with behaviour changes.
-- Record notable changes in `CHANGELOG.md` (Keep a Changelog style), under `Unreleased`.
+- Record notable changes in a unique `changelog.d/<slug>.<category>.md` fragment. No issue is needed just for a fragment. Only the rolling release PR normally edits `CHANGELOG.md` (Keep a Changelog style): it collects the fragments under `Unreleased` after merges. Edit the source fragments, not the generated draft ([releasing](docs/developer_guide/releasing.md)).
 - All functionality must be described in the user manual under `docs/`: background and context, how it works, and examples. When you add functionality, add documentation; when you touch something undocumented, document it.
 - The tutorials under `docs/tutorials/` are executed notebooks whose results are cached in `docs/.jupyter_cache`, which is **committed** so Read the Docs never re-executes unchanged tutorials (its builders are too slow for the solver tutorials; see `docs/conf.py`). Whenever you edit a tutorial — or change croak behaviour that alters a tutorial's output — rebuild the docs locally (`uv run poe docs`) and commit the refreshed `docs/.jupyter_cache` together with the change. The build must succeed with no warnings.
 
 ## Git
 
 - Work in an isolated Git worktree by default, reusing the current worktree when it is already dedicated to the task. Keep the primary checkout untouched.
-- Work on a topic branch (`fix/…`, `feature/…`, `docs/…`, `test/…`). Create or switch to an appropriate topic branch and worktree as needed without asking for permission.
+- Work on a topic branch (`fix/…`, `feature/…`, `docs/…`, `test/…`, `chore/…`). Create or switch to an appropriate topic branch and worktree as needed without asking for permission, for example `git worktree add -b fix/edge-peak ../croak-edge-peak main`. Give the worktree its own environment (`uv sync` there).
 - Make clean, logical commits with descriptive but not verbose messages. Prefer several small commits over one large one.
 - Stage deliberately: `git add <paths>`, not `git add -A`.
-- Never tag, make releases or change the package version.
-- **Coding agents:** never push; never run a destructive or history-rewriting command (`git reset --hard`, `git checkout .`, `git restore` over uncommitted changes, `git clean`, `git commit --amend`, `git rebase`, a force push). `fetch`, `pull` and `merge` only when asked.
+- Changes reach `main` as pull requests with green CI, or by a local merge when the maintainers ask for one.
+- **Before opening an issue or a pull request,** read [`CONTRIBUTING.md`](CONTRIBUTING.md): search the issues and the pull requests, link what is related, and follow its sections and labels.
+- Change the package version only in a release PR ([releasing](docs/developer_guide/releasing.md)).
+- **Coding agents:** merge, push, tag or release only when asked; `fetch` and `pull` only when asked; never run a destructive or history-rewriting command (`git reset --hard`, `git checkout .`, `git restore` over uncommitted changes, `git clean`, `git commit --amend`, `git rebase`, a force push) — it can destroy work that is not yours.

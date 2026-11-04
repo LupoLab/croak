@@ -6,6 +6,11 @@ or [user guide](../user_guide/index.md). The scientific derivations remain in th
 user guide so that understanding a retrieval does not require following the
 package's internal organisation.
 
+The standard for issues and pull requests is in
+[`CONTRIBUTING.md`](https://github.com/LupoLab/croak/blob/main/CONTRIBUTING.md), and
+the working rules for people and coding agents are in
+[`AGENTS.md`](https://github.com/LupoLab/croak/blob/main/AGENTS.md).
+
 ```{toctree}
 :maxdepth: 1
 
