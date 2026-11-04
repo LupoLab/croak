@@ -43,8 +43,8 @@ diagnose differences in runtime.
 The final `lint-type-test` check succeeds only when every platform passes,
 preserving the check name required by the `main` branch's repository rules.
 
-The workflow runs for pull requests and pushes to `main` or `master`, and can
-also be started manually from the Actions tab. CI fails if the gate's lint
+The workflow runs for pull requests and pushes to `main`, and can also be
+started manually from the Actions tab. CI fails if the gate's lint
 autofixes or formatting leave a tracked-file diff.
 
 For focused work run single files serially, without coverage:
