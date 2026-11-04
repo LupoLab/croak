@@ -97,6 +97,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "pytest-randomly>=5.0.0",
     "poethepoet>=0.49.0",
+    "codespell>=2.4.3",
 ]
 docs = [
     "sphinx>=8.1",
@@ -154,6 +155,15 @@ include = ["croak"]
 pythonVersion = "3.14"
 typeCheckingMode = "basic"
 
+[tool.codespell]
+# Generated files and data hold no prose worth checking. docs/.jupyter_cache is the
+# committed tutorial cache, and the notebooks' stored outputs are base64 images.
+skip = "uv.lock,*.json,*.h5,*.npz,*.csv,*.txt,*.dat,*.ipynb,*.png,*.svg,*.pdf,*/_build/*,*/.jupyter_cache/*,./build/*,*/.venv*/*,*/.git/*,*/.ruff_cache/*,*/.pytest_cache/*"
+quiet-level = 3
+# `te` and `nd` are short variable names in the solvers, plots and tests; `mis` is the
+# prefix in the manual's "(mis)calibrated".
+ignore-words-list = "te,nd,mis"
+
 # The whole package, GUI included, at 100% statement and branch coverage: the
 # `poe cov` step of the gate. See AGENTS.md before touching any of this.
 [tool.coverage.run]
@@ -176,6 +186,7 @@ lint-fix = "ruff check --fix ."
 fmt = "ruff format ."
 lint = "ruff check ."
 types = "pyright"
+spell = "codespell"
 docs = "sphinx-build -b html -W --keep-going docs docs/_build/html"
 changelog-check = "python -m tools.release_notes check"
 changelog-preview = "python -m tools.release_notes preview"
@@ -194,5 +205,5 @@ env = { QT_QPA_PLATFORM = "offscreen" }
 help = "The suite under xdist with the 100% statement and branch coverage gate."
 
 [tool.poe.tasks.check]
-sequence = ["lint-fix", "fmt", "lint", "types", "cov"]
+sequence = ["lint-fix", "fmt", "lint", "types", "spell", "changelog-check", "cov"]
 help = "The definition-of-done gate, in order; CI runs exactly this."

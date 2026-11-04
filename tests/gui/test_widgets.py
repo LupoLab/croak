@@ -18,7 +18,7 @@ def test_sci_spinbox_text_round_trip(qapp):
     assert box.textFromValue(5e-3) == "5.0e-03"
     assert box.textFromValue(0.0) == "0"
     assert box.valueFromText("2e-3") == pytest.approx(2e-3)
-    # Unparseable text keeps the current value.
+    # Unparsable text keeps the current value.
     assert box.valueFromText("abc") == pytest.approx(5e-3)
 
 

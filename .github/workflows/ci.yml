@@ -58,7 +58,8 @@ jobs:
             libxcb-xinerama0 libxcb-cursor0 xvfb
 
       # Linux runs the local definition-of-done gate (AGENTS.md): lint, format,
-      # types, then the suite under xdist with the 100% coverage threshold.
+      # types, spelling, the changelog fragments, then the suite under xdist with
+      # the 100% coverage threshold.
       # `ruff check --fix` and `ruff format` rewrite files here too, so the
       # gate fails if they changed anything.
       - name: Gate (poe check)
