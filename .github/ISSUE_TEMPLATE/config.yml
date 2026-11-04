@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How to write an issue
+    url: https://github.com/LupoLab/croak/blob/main/CONTRIBUTING.md#writing-an-issue
+    about: What to check first, the sections and the labels.
