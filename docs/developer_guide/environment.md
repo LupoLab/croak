@@ -22,7 +22,9 @@ uv run poe check
 ```
 
 It runs `ruff check --fix`, `ruff format`, `ruff check` (what autofix could not
-fix), `pyright`, and finally `poe cov`: the test suite on every core
+fix), `pyright`, `codespell`, `poe changelog-check` (the pending release notes under
+`changelog.d/` and the changelog's structure), and finally `poe cov`: the test suite
+on every core
 (pytest-xdist), doctests included, measuring statement **and** branch coverage
 of the whole `croak` package, GUI included, and failing below 100%. The XML
 report is written to `build/coverage/coverage.xml`.
@@ -32,7 +34,7 @@ GitHub Actions uses Python 3.14 and the committed lockfile on `ubuntu-latest`,
 the 100% statement and branch coverage requirement, and uploads its coverage
 report to Codecov. Windows and macOS run `uv run poe test`: the same complete
 suite, including GUI tests and doctests, without coverage instrumentation.
-Lint, formatting, and type checks run once, on Linux.
+Lint, formatting, type, spelling, and changelog checks run once, on Linux.
 Linux installs Qt system libraries and runs under Xvfb; Windows and macOS run
 their tests directly. Qt uses its offscreen backend on all three platforms.
 A failure on one platform leaves the others running so all failures can be
@@ -85,7 +87,8 @@ is tested.
 Tests live in `tests/` and follow the package's domain structure. Numerical tests
 should state their tolerances and check physical or mathematical invariants as
 well as individual values. Document public behaviour in NumPy-style docstrings
-and in the manual, and record notable changes in `CHANGELOG.md`.
+and in the manual, and record notable changes in a `changelog.d/` fragment (see
+[releasing](releasing.md)).
 
 See [numerical validation](validation.md) for model and gradient checks, and
 [building the documentation](documentation.md) for executed tutorial caches.

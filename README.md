@@ -285,8 +285,9 @@ uv run sphinx-build -b html docs docs/_build/html
 Start with the [Introduction](https://croak.readthedocs.io/en/latest/introduction/index.html),
 then follow the [User guide](https://croak.readthedocs.io/en/latest/user_guide/index.html)
 or explore the [Examples](https://croak.readthedocs.io/en/latest/examples/index.html).
-The [Developer's guide](https://croak.readthedocs.io/en/latest/developer_guide/index.html)
-covers contributing, and the [API](https://croak.readthedocs.io/en/latest/reference/api/index.html)
+[CONTRIBUTING.md](CONTRIBUTING.md) says how to report a problem or open a pull request,
+the [Developer's guide](https://croak.readthedocs.io/en/latest/developer_guide/index.html)
+covers the code, and the [API](https://croak.readthedocs.io/en/latest/reference/api/index.html)
 documents the Python interfaces.
 
 ## The name

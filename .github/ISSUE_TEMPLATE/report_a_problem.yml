@@ -1,0 +1,44 @@
+name: Report a problem
+description: A wrong result, a failure or a question about the physics. A maintainer fills in the rest.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please [search the issues](https://github.com/LupoLab/croak/issues?q=is%3Aissue) first.
+  - type: textarea
+    id: script
+    attributes:
+      label: The smallest script that shows it
+      description: Simulated data is best, as anyone can run it. For a problem in the GUI, the steps you took.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: The measurement and the retrieval
+      description: The geometry (SHG, SD or PG), the grid, the solver, and any medium the pulse passes through.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: For a physics question, what you compared against (a paper, an independent code, an analytic limit) and at what parameters.
+    validations:
+      required: true
+  - type: textarea
+    id: got
+    attributes:
+      label: What you got
+      description: The output, the figure or the traceback.
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: The output of `python -c "import croak, sys; print(croak.__version__, sys.platform)"`.
+      render: text
+    validations:
+      required: true
