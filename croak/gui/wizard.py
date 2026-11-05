@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 
-import numpy as np
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -29,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from .. import save
 from ..session import retarget
+from ..session.files import result_mismatch
 from . import settings
 from .base import Stage
 from .branding import app_icon
@@ -65,52 +65,6 @@ _NSTAGES = len(_TITLES)
 # the six linear stages live behind the welcome (0), synthetic (1) and
 # simulated (2) entry pages
 _STAGE_OFFSET = 3
-
-
-def _result_mismatch(saved, td, retrieve_params) -> str:
-    """Why a saved ``result.h5`` cannot be paired with ``td``, or ``""`` if it can.
-
-    Reuse is only sound when the saved retrieval was fitted to *this* trace, so
-    the saved measured trace and frequency axis are compared with the current
-    ones element-wise rather than by shape. Both are stored exactly as the
-    retrieval saw them (``trace_meas`` is the array handed to
-    :func:`croak.processing.process_result`), so equality is the honest test and
-    any difference — a moved delay grid, a changed filter, a new calibration —
-    is grounds to re-run rather than to display a fit against data it never saw.
-
-    A file too old to carry ``trace_meas`` cannot be verified at all, so it is
-    also refused: the fast path is an optimisation, and declining it costs only
-    a re-run, while wrongly taking it costs a wrong residual panel.
-    """
-    cur = td.trace
-    meas = saved.get("trace_meas")
-    if meas is None:
-        return "the saved result does not store the trace it was fitted to"
-    meas = np.asarray(meas, float)
-    if meas.shape != np.shape(cur):
-        return (
-            f"the saved result is on a {meas.shape[0]}x{meas.shape[1]} grid but "
-            f"this trace regrids to {np.shape(cur)[0]}x{np.shape(cur)[1]}"
-        )
-    peak = float(np.max(np.abs(cur))) or 1.0
-    if float(np.max(np.abs(meas - cur))) > 1e-9 * peak:
-        return "preprocessing no longer reproduces the trace the result was fitted to"
-    w_saved = saved.get("omega")
-    if w_saved is not None:
-        w_cur = np.asarray(td.grid.omega, float)
-        w_saved = np.asarray(w_saved, float)
-        span = float(np.max(np.abs(w_cur))) or 1.0
-        if w_saved.shape != w_cur.shape or (
-            float(np.max(np.abs(w_saved - w_cur))) > 1e-9 * span
-        ):
-            return "the saved result is on a different frequency grid"
-    algo = saved.get("algorithm")
-    if algo is not None and str(algo) != str(retrieve_params.solver):
-        return (
-            f"the saved result came from {algo!s} but the loaded settings select "
-            f"{retrieve_params.solver}"
-        )
-    return ""
 
 
 class Wizard(QMainWindow):
@@ -573,7 +527,8 @@ class Wizard(QMainWindow):
         A shape test alone would not establish this: any preprocessing change
         that alters trace values without changing its size (a filtering default,
         the edge taper, a recalibration) would slip through and be displayed as
-        a consistent fit when it is not. See :func:`_result_mismatch`.
+        a consistent fit when it is not. See
+        :func:`croak.session.files.result_mismatch`.
         """
         td = self.state.tracedata
         if td is None:
@@ -583,7 +538,7 @@ class Wizard(QMainWindow):
             result = save.result_from_saved(saved, grid=td.grid)
         except KeyError, ValueError, OSError:
             return False
-        self._stale_result_note = _result_mismatch(saved, td, self.state.retrieve)
+        self._stale_result_note = result_mismatch(saved, td, self.state.retrieve)
         if self._stale_result_note:
             return False
         # processed is recomputed by the Retrieve stage's on_enter/_update_view.

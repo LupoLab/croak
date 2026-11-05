@@ -110,16 +110,21 @@ def blocked_reason(stage: Stage, progress: Progress) -> str:
     return "" if progress.has_result else "Run a retrieval first."
 
 
-def next_stage(stage: Stage, progress: Progress) -> Stage | None:
-    """The stage the primary action leads to from ``stage``, if it leads on.
+def next_stage(stage: Stage, progress: Progress) -> Stage:
+    """The stage "Continue" leads to from ``stage``.
 
     From Data a raw simulated scan goes straight to Retrieve.
+
+    Raises
+    ------
+    ValueError
+        For a stage with no "Continue" (Home, Retrieve, Analyse).
     """
     if stage is Stage.DATA:
         return Stage.RETRIEVE if progress.raw_direct else Stage.PREPARE
     if stage is Stage.PREPARE:
         return Stage.RETRIEVE
-    return None
+    raise ValueError(f"{stage.title} has no next stage")
 
 
 @dataclass(frozen=True)

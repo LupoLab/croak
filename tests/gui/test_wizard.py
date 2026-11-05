@@ -19,7 +19,8 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 from croak import save
 from croak.gui import stage_preprocess, wizard
 from croak.gui.state import WizardState
-from croak.gui.wizard import Wizard, _result_mismatch
+from croak.gui.wizard import Wizard
+from croak.session.files import result_mismatch
 
 
 @pytest.fixture
@@ -37,7 +38,7 @@ def _point_at_experiment(state, experiment_h5, experiment):
     p.interaction = experiment.interaction
 
 
-# -- _result_mismatch -----------------------------------------------------------
+# -- result_mismatch ------------------------------------------------------------
 def _td(trace, omega):
     return SimpleNamespace(trace=trace, grid=SimpleNamespace(omega=omega))
 
@@ -76,14 +77,14 @@ def _td(trace, omega):
 )
 def test_wizard_result_mismatch_explains_why_a_result_is_refused(saved, reason):
     td = _td(np.ones((2, 3)), np.array([1.0, 2.0]))
-    assert _result_mismatch(saved, td, SimpleNamespace(solver="copra")) == reason
+    assert result_mismatch(saved, td, SimpleNamespace(solver="copra")) == reason
 
 
 def test_wizard_result_mismatch_handles_an_all_zero_trace():
     # a zero peak/span falls back to an absolute tolerance of 1e-9
     td = _td(np.zeros((1, 2)), np.zeros(2))
     saved = {"trace_meas": np.zeros((1, 2)), "omega": np.zeros(2)}
-    assert _result_mismatch(saved, td, SimpleNamespace(solver="copra")) == ""
+    assert result_mismatch(saved, td, SimpleNamespace(solver="copra")) == ""
 
 
 # -- navigation -------------------------------------------------------------------

@@ -19,6 +19,7 @@ real preferences.
 
 from __future__ import annotations
 
+import json
 from typing import cast
 
 from PySide6.QtCore import QByteArray, QSettings, QSize
@@ -26,6 +27,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QWidget
 
 from .branding import APP_NAME, ORGANISATION_NAME
+from .workflow import remember_recent
 
 __all__ = [
     "KEY_WINDOW_GEOMETRY",
@@ -43,10 +45,16 @@ __all__ = [
     "set_value",
     "text",
     "set_text",
+    "KEY_RECENT_SESSIONS",
+    "recent_sessions",
+    "remember_session",
 ]
 
 #: Settings key holding ``QWidget.saveGeometry()`` of the main window.
 KEY_WINDOW_GEOMETRY = "window/geometry"
+#: Settings key holding the recently saved or opened sessions (``options.toml``
+#: paths, newest first) as JSON text.
+KEY_RECENT_SESSIONS = "home/recent_sessions"
 #: Settings key holding the control column's width in logical pixels.
 KEY_CONTROLS_WIDTH = "stage/controls_width"
 #: First-run window size (logical px) before clamping to the screen; large enough
@@ -164,3 +172,26 @@ def set_text(key: str, choice: str) -> None:
     store = user_settings()
     store.setValue(key, str(choice))
     store.sync()
+
+
+def recent_sessions() -> list[str]:
+    """The recently saved or opened sessions' ``options.toml`` paths, newest first.
+
+    Stored as JSON text: an INI list of one item reads back as a bare string, and
+    a hand-edited or corrupt value reads as no history rather than an error.
+    """
+    raw = text(KEY_RECENT_SESSIONS, "[]")
+    try:
+        paths = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(paths, list):
+        return []
+    return [p for p in paths if isinstance(p, str)]
+
+
+def remember_session(path: str) -> list[str]:
+    """Put ``path`` first in the recent sessions and return the new list."""
+    paths = remember_recent(recent_sessions(), path)
+    set_text(KEY_RECENT_SESSIONS, json.dumps(paths))
+    return paths

@@ -60,15 +60,16 @@ def test_workflow_raw_simulated_scan_skips_prepare_with_a_reason():
 
 @pytest.mark.parametrize(
     ("stage", "expected"),
-    [
-        (Stage.DATA, Stage.PREPARE),
-        (Stage.PREPARE, Stage.RETRIEVE),
-        (Stage.RETRIEVE, None),
-        (Stage.ANALYSE, None),
-    ],
+    [(Stage.DATA, Stage.PREPARE), (Stage.PREPARE, Stage.RETRIEVE)],
 )
 def test_workflow_next_stage_follows_the_session(stage, expected):
     assert next_stage(stage, LOADED) is expected
+
+
+@pytest.mark.parametrize("stage", [Stage.HOME, Stage.RETRIEVE, Stage.ANALYSE])
+def test_workflow_next_stage_refuses_a_stage_without_continue(stage):
+    with pytest.raises(ValueError, match="has no next stage"):
+        next_stage(stage, LOADED)
 
 
 @pytest.mark.parametrize(
