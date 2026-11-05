@@ -132,12 +132,12 @@ class StageRetrieve(RunControls, Stage):
                 ),
                 (
                     "Live full-plot preview",
-                    "Redraw the visible result page (retrieved trace, pulse, "
-                    "spectrum, marginals… — the other pages redraw when selected) "
-                    "as the retrieval converges, throttled to about once a "
-                    "second, instead of only the convergence curve. Useful for "
-                    "long LM runs. Pressing Stop keeps the latest full plot on "
-                    "screen. Turn off for the cheaper convergence-only curve.",
+                    "Redraw the overview (traces, pulse and spectrum) as the "
+                    "retrieval converges, up to four times a second and less "
+                    "often when drawing is slow, instead of only the convergence "
+                    "curve. Useful for long LM runs. Pressing Stop keeps the "
+                    "latest full plot on screen. Turn off for the cheaper "
+                    "convergence-only curve.",
                 ),
             ],
         ),
@@ -344,7 +344,7 @@ class StageRetrieve(RunControls, Stage):
         self._worker = None
         self._base_result = None  # unfiltered retrieval, for post-filter toggles
         self._elapsed = None  # wall-clock time of the last retrieval (s)
-        # Whether a live full-plot preview has taken over the canvas this run; until
+        # Whether a live full-plot preview has taken over the plots this run; until
         # the first preview arrives we draw the cheap convergence curve.
         self._live_full = False
         # Last regularisation weights used with each solver family, so switching
