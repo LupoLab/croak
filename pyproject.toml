@@ -4,8 +4,9 @@ version = "0.3.1"
 description = "Complete retrieval of ultrashort laser pulses from FROG traces — amplitude and phase, with dispersive media, geometric smearing and uncertainty"
 readme = "README.md"
 requires-python = ">=3.14"
-license = "MIT"
-license-files = ["LICENSE"]
+# The code is MIT; the window's font, IBM Plex Sans, is under the Open Font License.
+license = "MIT AND OFL-1.1"
+license-files = ["LICENSE", "croak/gui/assets/fonts/LICENSE.txt"]
 authors = [{ name = "John Travers" }, { name = "Christian Brahms" }]
 keywords = [
     "ultrafast",
