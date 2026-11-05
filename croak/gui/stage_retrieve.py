@@ -1,4 +1,4 @@
-"""Stage 3 — run the retrieval (threaded) and show the result on pages of panels.
+"""Retrieve — run the retrieval (threaded) and show it live on the overview.
 
 Post-retrieval λ/τ filtering can be toggled on the result pane and re-plots the
 stored result without re-running the retrieval.
@@ -62,11 +62,12 @@ _INITIAL_GUESSES = {
 class StageRetrieve(RunControls, Stage):
     HELP_TITLE = "Retrieve"
     HELP_INTRO = (
-        "Run the phase-retrieval algorithm on the preprocessed trace. The result "
-        "is shown on three pages of panels — Traces, Pulse and Diagnostics — each "
-        "of which can be popped out into its own window; Save… writes the full "
-        "twelve-panel overview. Post-retrieval λ/τ filtering re-plots the stored "
-        "result without re-running the retrieval."
+        "Run the phase-retrieval algorithm on the preprocessed trace. The live "
+        "overview shows the traces, the pulse and its spectrum as it converges; "
+        "the full pages of panels (Traces, Pulse, Diagnostics) are under Analyse, "
+        "where each can be exported or popped out. Save… writes the twelve-panel "
+        "overview. Post-retrieval λ/τ filtering re-plots the stored result "
+        "without re-running the retrieval."
     )
     HELP = [
         (
@@ -1887,9 +1888,9 @@ class StageRetrieve(RunControls, Stage):
         self.set_status("Stopped." if message == "stopped" else f"Failed: {message}")
 
     def _retarget(self):
-        """Ask for a new dataset folder and hand off to the wizard to replay it.
+        """Ask for a new dataset folder and hand off to the window to replay it.
 
-        The wizard rewrites the dataset-folder load paths (keeping calibration
+        The window rewrites the dataset-folder load paths (keeping calibration
         fixed) and reruns load → preprocess → retrieve with the current settings.
         """
         folder = QFileDialog.getExistingDirectory(self, "Select new dataset folder")

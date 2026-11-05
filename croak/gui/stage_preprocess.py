@@ -663,7 +663,7 @@ class StagePreprocess(Stage):
         """Drop our reference to a finished worker (kept alive while running)."""
         if worker in self._workers:
             self._workers.remove(worker)
-        # The worker is parented to this stage, so when the wizard rebuilds its
+        # The worker is parented to this stage, so when the window rebuilds its
         # stages (``deleteLater`` on each) between the thread finishing and this
         # queued slot running, Qt has already destroyed it with its parent.
         if shiboken6.isValid(worker):

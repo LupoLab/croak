@@ -31,8 +31,8 @@ ENTRY_TILES = (
     (
         "experimental",
         "Measured trace",
-        "Load a FROG or dispersion-scan measurement from HDF5, NPZ or text, "
-        "with its spectrum, backgrounds and calibration.",
+        "Load a measured FROG trace from HDF5 or NPZ, with its independent "
+        "spectrum, backgrounds and calibration.",
     ),
     (
         "simulated",

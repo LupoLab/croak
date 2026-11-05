@@ -1,4 +1,4 @@
-"""Application icon and desktop identity for the wizard.
+"""Application icon and desktop identity for the GUI.
 
 Keeps the window-system-facing identity — the name the desktop shows, the icon in
 the macOS Dock / Windows taskbar / Linux dock — in one place, out of

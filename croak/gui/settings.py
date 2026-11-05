@@ -1,8 +1,9 @@
-"""Persistent user preferences: window geometry, control-column width, folded strips.
+"""Persistent user preferences: window geometry, folded sections, recent sessions.
 
-The wizard remembers how its user last arranged it — the un-maximised window
-size and position, the width of the control column, which auxiliary strips were
-folded — so a small-screen user sets things up once. Values live in a
+The window remembers how its user last arranged it — the un-maximised window
+size and position, which sections and strips were folded, the spectral axis —
+and the sessions last saved or opened, so a small-screen user sets things up
+once. Values live in a
 :class:`~PySide6.QtCore.QSettings` store in INI format under the user scope, keyed
 by the organisation and application names from :mod:`.branding`; passing those
 explicitly means the store is the same whether or not
@@ -58,7 +59,7 @@ SCREEN_FILL = 0.9
 
 
 def user_settings() -> QSettings:
-    """Open the wizard's settings store (INI, user scope, explicit names)."""
+    """Open the GUI's settings store (INI, user scope, explicit names)."""
     return QSettings(
         QSettings.Format.IniFormat,
         QSettings.Scope.UserScope,

@@ -474,7 +474,7 @@ class StageSimulated(Stage):
         self.changed.emit()
 
     def _set_can_load(self, can: bool) -> None:
-        """Record whether a trace previewed, and refresh the wizard's Next button."""
+        """Record whether a trace previewed, and refresh the window's Continue."""
         self._can_load = can
         self.changed.emit()
 

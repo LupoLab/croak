@@ -4,7 +4,7 @@ Each stage declares :data:`Stage.HELP` as an ordered list of
 ``(section, [(label, text)])``. The same ``text`` is shown in two places from a
 single source:
 
-* the scrollable summary dialog opened by the wizard header's ``?`` button
+* the scrollable summary dialog opened by Help for this stage (F1, or the ⋯ menu)
   (:class:`HelpDialog`), and
 * the hover tooltip on the matching control, applied by :func:`apply_tooltips`.
 

@@ -102,7 +102,7 @@ class MirrorRow(QWidget):
         outer.addWidget(line)
 
         self.range_label = QLabel("–")
-        self.range_label.setStyleSheet("color: gray;")
+        self.range_label.setObjectName("help")  # secondary text, from the theme
         outer.addWidget(self.range_label)
 
         # custom-file sub-controls, shown only when 'Custom file…' is selected
