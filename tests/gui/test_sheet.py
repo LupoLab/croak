@@ -1,4 +1,4 @@
-"""Sheet building blocks: sections, rows, help, find, reflow and status widgets."""
+"""Sheet building blocks: sections, help, find, reflow and status widgets."""
 
 from __future__ import annotations
 
@@ -9,87 +9,89 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QSpinBox, QWidget
 
 from croak.gui import settings
+from croak.gui.help import apply_tooltips
 from croak.gui.sheet import (
-    LABEL_WIDTH,
     NARROW_WIDTH,
     AdviceBox,
     DerivedGrid,
     Form,
     ProgressStrip,
     ReadyLine,
-    Row,
+    Section,
     Segments,
     Sheet,
+    row_text,
 )
 
-HELP = [
-    ("Grid", [("Points", "How many samples."), ("Resample t", "Resample in time.")]),
-    ("Filtering", [("Threshold", "Clip below this.")]),
-    ("Unused", [("Nothing", "No control has this label.")]),
-]
+HELP = {
+    ("Grid", "Points"): "How many samples.",
+    ("Grid", "Resample t"): "Resample in time.",
+    ("Filtering", "Threshold"): "Clip below this.",
+}
 
 
 def _form(qtbot, **kwargs) -> Form:
-    form = Form(HELP, **kwargs)
+    form = Form(**kwargs)
     qtbot.addWidget(form)
     return form
 
 
-def test_sheet_rows_take_their_help_from_section_and_label(qtbot):
-    form = _form(qtbot)
+def _grid(form: Form):
     grid = form.add_section("Grid")
-    points = grid.add_row("Points", QSpinBox())
-    resample = grid.add_row("ignored", QCheckBox("Resample t"))
-    loose = grid.add_row("Undocumented", QLineEdit())
-    assert points.editor.toolTip() == "How many samples."
-    assert points.label is not None and points.label.width() == LABEL_WIDTH
-    # A check box is its own label and is keyed by its text.
-    assert resample.label is None
-    assert resample.text == "Resample t"
-    assert resample.editor.toolTip() == "Resample in time."
-    assert loose.editor.toolTip() == ""
-    assert form.matched == {("Grid", "Points"), ("Grid", "Resample t")}
+    points = QSpinBox()
+    resample = QCheckBox("Resample t")
+    grid.form.addRow("Points", points)
+    grid.form.addRow(resample)
+    return grid, points, resample
 
 
-def test_sheet_check_box_with_escaped_ampersand_finds_its_help(qtbot):
-    form = Form([("S", [("Skip filtering & regrid", "Raw.")])])
-    qtbot.addWidget(form)
-    row = form.add_section("S").add_row("", QCheckBox("Skip filtering && regrid"))
-    assert row.help_text == "Raw."
+def test_sheet_section_rows_take_help_by_section_and_label(qtbot):
+    form = _form(qtbot)
+    _, points, resample = _grid(form)
+    loose = QLineEdit()
+    form.add_section("Other").form.addRow("Undocumented", loose)
+    matched = apply_tooltips(form, HELP)
+    assert matched == {("Grid", "Points"), ("Grid", "Resample t")}
+    assert points.toolTip() == "How many samples."
+    assert resample.toolTip() == "Resample in time."
+    assert loose.toolTip() == ""
 
 
-def test_sheet_row_label_greys_with_its_row(qtbot):
-    row = Row("Points", QSpinBox())
-    qtbot.addWidget(row)
-    row.setEnabled(False)
-    assert row.label is not None and not row.label.isEnabled()
-    row.setEnabled(True)
-    assert row.label.isEnabled()
-    box = Row("", QCheckBox("Flag"))
-    qtbot.addWidget(box)
-    box.setEnabled(False)  # a check box row has no separate label to grey
+def test_sheet_section_title_reads_an_escaped_ampersand(qtbot):
+    section = Section("Units && interaction")
+    qtbot.addWidget(section)
+    assert section.section_title == "Units & interaction"
+    assert section.header.text() == "Units && interaction"
 
 
-def test_sheet_focused_row_shows_its_help_line(qtbot):
+def test_sheet_row_text_reads_a_label_or_a_check_box(qtbot):
+    form = _form(qtbot)
+    grid, _, _ = _grid(form)
+    grid.form.addRow(QWidget())  # neither: no text
+    assert [row_text(grid.form, r) for r in range(3)] == ["Points", "Resample t", ""]
+
+
+def test_sheet_focused_control_shows_its_help_line(qtbot):
     form = _form(qtbot)
     form.show()
     qtbot.waitExposed(form)
-    spin = QSpinBox()
-    form.add_section("Grid").add_row("Points", spin)
-    spin.setFocus()
+    _, points, _ = _grid(form)
+    apply_tooltips(form, HELP)
+    points.setFocus()
     qtbot.waitUntil(lambda: form.help.text() == "How many samples.")
-    other = QLineEdit()
-    form.add_widget(other)  # outside any row: the help line keeps its text
-    other.setFocus()
-    qtbot.waitUntil(other.hasFocus)
+    plain = QLineEdit()  # no tooltip anywhere up to the form: help unchanged
+    form.add_widget(plain)
+    plain.setFocus()
+    qtbot.waitUntil(plain.hasFocus)
     assert form.help.text() == "How many samples."
 
 
-def test_sheet_help_ignores_rows_of_another_form(qtbot):
+def test_sheet_help_ignores_controls_of_another_form(qtbot):
     form, other = _form(qtbot), _form(qtbot)
-    spin = QSpinBox()
-    other.add_section("Grid").add_row("Points", spin)
-    form._focus_moved(None, spin)
+    elsewhere = QSpinBox()
+    elsewhere.setToolTip("Not mine.")
+    other.add_widget(elsewhere)
+    form._focus_moved(None, elsewhere)
     assert form.help.text() == ""
     form._focus_moved(None, None)
 
@@ -106,18 +108,18 @@ def test_sheet_sections_fold_and_remember_it(qtbot):
     assert not again.folded  # the remembered state wins over the default
     plain = form.add_section("Filtering")
     plain.set_folded(True)  # no key: nothing remembered
-    plain.add_widget(QLabel("extra"))
     assert plain.folded
+    assert form.sections == [section, plain]
 
 
 def test_sheet_find_shows_only_matching_rows(qtbot):
     form = _form(qtbot, find=True)
     form.show()
-    grid = form.add_section("Grid")
-    points = grid.add_row("Points", QSpinBox())
-    resample = grid.add_row("", QCheckBox("Resample t"))
+    grid, points, resample = _grid(form)
     filtering = form.add_section("Filtering", folded=True)
-    threshold = filtering.add_row("Threshold", QSpinBox())
+    threshold = QSpinBox()
+    filtering.form.addRow("Threshold", threshold)
+    apply_tooltips(form, HELP)
     assert form.find is not None
     form.find.setText("clip")  # matches the threshold's help text
     assert threshold.isVisible() and filtering.body.isVisible()
@@ -133,7 +135,7 @@ def test_sheet_form_without_find_has_no_box(qtbot):
     form = Form()
     qtbot.addWidget(form)
     assert form.find is None
-    assert form.help_map == {}
+    assert form.sections == []
 
 
 def test_sheet_plots_move_below_the_form_on_a_narrow_window(qtbot):

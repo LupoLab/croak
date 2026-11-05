@@ -47,7 +47,7 @@ class StagePage(QWidget):
         super().__init__()
         self.state = state
         self._help_dialog: HelpDialog | None = None
-        self.form = Form(self.HELP, find=find)
+        self.form = Form(find=find)
         self.advice = AdviceBox()
         self.strip = ProgressStrip()
         self.derived = DerivedGrid()

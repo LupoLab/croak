@@ -407,7 +407,6 @@ class StagePreprocess(Stage):
         )
         self.reset_btn.clicked.connect(self._reset_defaults)
         self.controls.addWidget(self.reset_btn)
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
         self.canvas = MplCanvas(figsize=(9, 5))

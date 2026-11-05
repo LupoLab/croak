@@ -256,7 +256,6 @@ class StageDispersion(Stage):
         bl.addWidget(reset)
         bl.addWidget(save_btn)
         self.controls.addWidget(btns)
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
         self.canvas = MplCanvas(figsize=(9, 7))

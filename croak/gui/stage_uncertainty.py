@@ -162,7 +162,6 @@ class StageUncertainty(Stage):
         self.controls.addWidget(est_box)
 
         self.controls.addStretch(1)
-        self.controls.addWidget(self.status_label)
         self._sync_enabled()
 
         self.canvas = MplCanvas(figsize=(11, 4.5))

@@ -24,7 +24,6 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QSize, Qt
 
 from croak.gui import settings
-from croak.gui.base import CONTROLS_MIN_WIDTH
 from croak.gui.canvas import MplCanvas, collapsible
 from croak.gui.stage_load import assemble_load_data, seed_preproc_defaults
 from croak.gui.stage_marginal_check import StageMarginalCheck
@@ -1835,7 +1834,6 @@ def test_slider_controls_fill_the_control_column(qtbot):
     w.resize(1500, 950)
     w.show()
     qtbot.waitExposed(w)
-    assert stage.splitter.sizes()[0] == settings.DEFAULT_CONTROLS_WIDTH
 
     box = stage.lam_range.parentWidget()
     assert box is not None
@@ -1848,21 +1846,22 @@ def test_widget_labels_escape_literal_ampersands(qtbot):
     """A literal "&" in a widget label is written "&&", and help still matches.
 
     Regression: Qt reads a lone ``&`` in a check box, push button, radio button,
-    group-box title or form-row label as a keyboard-mnemonic marker and does not
+    section title or form-row label as a keyboard-mnemonic marker and does not
     draw it, so "Skip filtering & regrid" rendered as "Skip filtering  regrid".
-    Escaping it as ``&&`` fixes the rendering, and :func:`croak.gui.help._plain`
+    Escaping it as ``&&`` fixes the rendering, and :func:`croak.gui.sheet.plain`
     undoes the escape so the (unescaped) HELP keys still resolve to their controls.
     """
     from PySide6.QtWidgets import (
         QCheckBox,
         QFormLayout,
-        QGroupBox,
         QLabel,
         QPushButton,
         QRadioButton,
+        QToolButton,
     )
 
-    from croak.gui.help import _plain
+    from croak.gui.sheet import Section
+    from croak.gui.sheet import plain as _plain
 
     assert _plain("a && b") == "a & b"
 
@@ -1873,17 +1872,12 @@ def test_widget_labels_escape_literal_ampersands(qtbot):
     # no mnemonic-parsing label anywhere carries an unescaped ampersand
     unescaped = []
     for page in pages:
-        for cls in (QCheckBox, QPushButton, QRadioButton):
+        for cls in (QCheckBox, QPushButton, QRadioButton, QToolButton):
             unescaped += [
                 (type(page).__name__, x.text())
                 for x in page.findChildren(cls)
                 if "&" in x.text().replace("&&", "")
             ]
-        unescaped += [
-            (type(page).__name__, x.title())
-            for x in page.findChildren(QGroupBox)
-            if "&" in x.title().replace("&&", "")
-        ]
         for form in page.findChildren(QFormLayout):
             for row in range(form.rowCount()):
                 item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
@@ -1897,9 +1891,10 @@ def test_widget_labels_escape_literal_ampersands(qtbot):
     assert raw_direct.text() == "Skip filtering && regrid (raw → retrieval)"
     assert _plain(raw_direct.text()) == "Skip filtering & regrid (raw → retrieval)"
     units = next(
-        b for b in w.stages[0].findChildren(QGroupBox) if "interaction" in b.title()
+        b for b in w.stages[0].findChildren(Section) if "interaction" in b.section_title
     )
-    assert _plain(units.title()) == "Units & interaction"
+    assert units.section_title == "Units & interaction"
+    assert units.header.text() == "Units && interaction"
 
     # ...and their (unescaped) help entries still reach the controls
     assert "skipping the marginal-check" in raw_direct.toolTip()
@@ -2557,31 +2552,16 @@ def _marginal_stage_shown(qtbot, width, height):
     return w, w.stages[1]
 
 
-def test_stage_control_column_is_a_collapsible_splitter(qtbot):
-    """The controls sit on a splitter: 315 px by default, min 240, closable."""
-    _w, stage = _marginal_stage_shown(qtbot, 1366, 768)
-    sp = stage.splitter
-    assert sp.isCollapsible(0)
-    assert not sp.isCollapsible(1)
-    assert sp.sizes()[0] == settings.DEFAULT_CONTROLS_WIDTH
-    assert sp.widget(0).minimumWidth() == CONTROLS_MIN_WIDTH
-    before = stage.marg_canvas.width()
-    sp.setSizes([0, 1])
-    qtbot.waitUntil(lambda: sp.sizes()[0] == 0)
-    qtbot.waitUntil(lambda: stage.marg_canvas.width() >= before + 300)
-
-
-def test_control_column_width_is_shared_and_remembered(qtbot):
-    """A dragged divider is remembered, reaches the other stages and later runs."""
+def test_stage_plots_move_below_the_form_on_a_narrow_window(qtbot):
+    """Wide, the form sits beside the plots; narrow, the plots move below it."""
     w, stage = _marginal_stage_shown(qtbot, 1366, 768)
-    sp = stage.splitter
-    sp.setSizes([260, 1])
-    sp.splitterMoved.emit(260, 1)  # setSizes() is silent; a real drag emits this
-    qtbot.waitUntil(lambda: settings.controls_width() == 260)
-    w.state.stage = 3  # preprocess: shown for the first time, adopts the width
-    qtbot.waitUntil(lambda: w.stages[2].splitter.sizes()[0] == 260)
-    again, again_stage = _marginal_stage_shown(qtbot, 1366, 768)
-    assert again_stage.splitter.sizes()[0] == 260
+    assert not stage.sheet.narrow
+    assert (
+        stage.form.geometry().right()
+        < stage.marg_canvas.mapTo(stage, stage.marg_canvas.rect().topLeft()).x()
+    )
+    w.resize(900, 768)
+    qtbot.waitUntil(lambda: stage.sheet.narrow)
 
 
 def test_no_stage_needs_more_than_a_small_display(qtbot):

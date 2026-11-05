@@ -9,7 +9,6 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import (
     QCheckBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from croak.gui.help import HelpDialog, apply_tooltips, build_html, flatten
+from croak.gui.sheet import Section
 
 
 def test_build_html_escapes_and_skips_an_empty_intro():
@@ -41,8 +41,8 @@ def test_apply_tooltips_skips_rows_without_a_usable_field_or_label(qtbot):
     root = QWidget()
     qtbot.addWidget(root)
     outer = QVBoxLayout(root)
-    box = QGroupBox("Group && more")
-    form = QFormLayout(box)
+    box = Section("Group && more")
+    form = box.form
     labelled = QLineEdit()
     form.addRow("Plain", labelled)
     # A layout (not a widget) in the field column: no field widget, skipped.

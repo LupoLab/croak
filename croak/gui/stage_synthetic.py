@@ -174,7 +174,6 @@ class StageSynthetic(Stage):
 
         # Navigation (Back / "Generate →") lives in the shared wizard footer, via
         # the entry-page hooks below.
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
         self._seed_sampling()

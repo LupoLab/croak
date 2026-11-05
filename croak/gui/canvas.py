@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -25,6 +24,7 @@ from superqt import QCollapsible
 
 from ..plotting import FULL_SCALE, PlotScale, plot_scale, scaled_rc
 from . import settings
+from .sheet import Section
 
 __all__ = [
     "MplCanvas",
@@ -232,22 +232,18 @@ def collapsible(
 
 
 # -- tiny declarative widget builders ---------------------------------------
-def group(title: str) -> tuple[QGroupBox, QFormLayout]:
-    """A titled group box with a form layout.
+def group(
+    title: str, *, folded: bool = False, settings_key: str = ""
+) -> tuple[Section, QFormLayout]:
+    """A folding section and the form layout its rows go in.
 
-    The field-growth policy is set explicitly because ``QFormLayout``'s default is
-    style-dependent: the macOS style resolves it to ``FieldsStayAtSizeHint``, which
-    sizes each field to its *sizeHint* and so collapses the slider controls to the
-    width of their spin boxes. ``ExpandingFieldsGrow`` widens only the fields that
-    actually ask for the space (the ``Expanding`` size policy of
-    :class:`~croak.gui.widgets.RangeControl`/:class:`~croak.gui.widgets.ValueControl`
-    and of ``QLineEdit``), leaving spin boxes, combos and check boxes at their
-    natural size.
+    The section is added to a stage's ``controls``; its rows are added to the
+    form with ``form.addRow(label, widget)``. Help tooltips match rows by
+    ``(title, label)`` (:func:`croak.gui.help.apply_tooltips`). ``folded`` and
+    ``settings_key`` are as for :class:`~croak.gui.sheet.Section`.
     """
-    box = QGroupBox(title)
-    form = QFormLayout(box)
-    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-    return box, form
+    section = Section(title, folded=folded, settings_key=settings_key)
+    return section, section.form
 
 
 def add_wide_row(form: QFormLayout, label: str, widget: QWidget) -> None:

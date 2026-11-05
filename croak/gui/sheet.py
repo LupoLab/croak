@@ -1,27 +1,28 @@
 """The building blocks of a stage: a form of folding sections beside its plots.
 
 A :class:`Sheet` is the layout every stage shares: a :class:`Form` on the left
-(sections of rows, the one-line help for the focused row, and a
-:class:`ReadyLine`) and the stage's plots on the right, which move below the
+(folding :class:`Section` s of rows, a one-line help for the focused control and
+a :class:`ReadyLine`) and the stage's plots on the right, which move below the
 form when the window is narrow.
 
-Help text comes from the stage's ``HELP`` sections (:mod:`croak.gui.help`):
-a row added to section ``S`` with label ``L`` takes ``HELP[(S, L)]`` as its
-tooltip and as the help line shown while it has focus; a row whose editor is a
-check box is keyed by the box's text. :attr:`Form.matched` records the keys that
-found a row, so a test can check that no help entry is orphaned.
+A section's rows live in an ordinary :class:`~PySide6.QtWidgets.QFormLayout`
+(:attr:`Section.form`), so a stage adds them with ``form.addRow(label, widget)``.
+Help text is attached afterwards by :func:`croak.gui.help.apply_tooltips`, keyed
+by ``(section title, row label)``; the one-line help under the form shows the
+tooltip of whatever has focus, so the tooltip is the help's single source.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import cast
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QBoxLayout,
     QCheckBox,
+    QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -37,7 +38,6 @@ from PySide6.QtWidgets import (
 )
 
 from . import settings
-from .help import HelpSections, flatten
 from .theme import label, set_flag
 
 __all__ = [
@@ -46,14 +46,13 @@ __all__ = [
     "Form",
     "ProgressStrip",
     "ReadyLine",
-    "Row",
     "Section",
     "Segments",
     "Sheet",
+    "plain",
+    "row_field",
+    "row_text",
 ]
-
-LABEL_WIDTH = 124
-"""The width of a row's label column, logical px."""
 
 NARROW_WIDTH = 1000
 """Below this window width (logical px) a sheet's plots move under its form."""
@@ -65,6 +64,10 @@ FORM_MIN_WIDTH = 360
 def plain(text: str) -> str:
     """Undo Qt's ``&&`` escape, giving a label as the user reads it.
 
+    Qt reads a lone ``&`` in a check box, button or section title as a keyboard
+    mnemonic, so a literal ampersand is written ``&&``; help keys are written
+    the way the user reads them.
+
     Examples
     --------
     >>> plain("Skip filtering && regrid")
@@ -73,55 +76,37 @@ def plain(text: str) -> str:
     return text.replace("&&", "&")
 
 
-class Row(QWidget):
-    """One setting: a label in the label column beside its editor.
+def row_text(form: QFormLayout, row: int) -> str:
+    """The label of ``form``'s row ``row``: its label, else a check box's own text.
 
-    A check box carries its own text and takes the whole width.
+    A row with neither (a button row, a note) has no label: ``""``.
     """
+    item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+    label_widget = item.widget() if item is not None else None
+    if isinstance(label_widget, QLabel):
+        return plain(label_widget.text())
+    field = row_field(form, row)
+    return plain(field.text()) if isinstance(field, QCheckBox) else ""
 
-    def __init__(self, text: str, editor: QWidget, help_text: str = "") -> None:
-        super().__init__()
-        self.editor = editor
-        self.help_text = help_text
-        self.text = plain(editor.text()) if isinstance(editor, QCheckBox) else text
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
-        layout.setSpacing(8)
-        self.label: QLabel | None = None
-        if not isinstance(editor, QCheckBox):
-            self.label = label(text, "rowLabel")
-            self.label.setFixedWidth(LABEL_WIDTH)
-            self.label.setWordWrap(True)
-            layout.addWidget(self.label)
-        layout.addWidget(editor, stretch=1)
-        if help_text:
-            editor.setToolTip(help_text)
-            if self.label is not None:
-                self.label.setToolTip(help_text)
 
-    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 — Qt override
-        # The label greys with its editor: a disabled row reads as unavailable.
-        if event.type() == QEvent.Type.EnabledChange and self.label is not None:
-            self.label.setEnabled(self.isEnabled())
-        super().changeEvent(event)
-
-    def matches(self, query: str) -> bool:
-        """Whether ``query`` (case-insensitive) is in this row's label or help."""
-        query = query.casefold()
-        return query in self.text.casefold() or query in self.help_text.casefold()
+def row_field(form: QFormLayout, row: int) -> QWidget | None:
+    """The widget in ``form``'s row ``row``: its field, or one spanning the row."""
+    for role in (QFormLayout.ItemRole.FieldRole, QFormLayout.ItemRole.SpanningRole):
+        item = form.itemAt(row, role)
+        widget = item.widget() if item is not None else None
+        if widget is not None:
+            return widget
+    return None
 
 
 class Section(QWidget):
-    """A titled group of rows that folds open and shut in place.
+    """A titled group of form rows that folds open and shut in place.
 
     Parameters
     ----------
     title : str
-        Its heading, and the first half of its rows' help keys.
-    help_map : mapping
-        ``(section, label) -> text``, from the stage's ``HELP``.
-    matched : set
-        Where the help keys this section uses are recorded.
+        Its heading (``&&`` for a literal ampersand); the first half of its
+        rows' help keys.
     folded : bool
         Its initial state; a remembered state (``settings_key``) wins.
     settings_key : str
@@ -131,24 +116,15 @@ class Section(QWidget):
     toggled = Signal(bool)
 
     def __init__(
-        self,
-        title: str,
-        help_map: Mapping[tuple[str, str], str],
-        matched: set[tuple[str, str]],
-        *,
-        folded: bool = False,
-        settings_key: str = "",
+        self, title: str, *, folded: bool = False, settings_key: str = ""
     ) -> None:
         super().__init__()
-        self.title = title
-        self.rows: list[Row] = []
-        self._help = help_map
-        self._matched = matched
+        self.section_title = plain(title)
         self._key = settings_key
         if settings_key:
             folded = not settings.value(settings_key, not folded)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 6)
+        outer.setContentsMargins(0, 0, 0, 8)
         outer.setSpacing(0)
         self.header = QToolButton()
         self.header.setObjectName("sectionHeader")
@@ -160,15 +136,24 @@ class Section(QWidget):
         self.header.toggled.connect(self._fold)
         outer.addWidget(self.header)
         self.body = QWidget()
-        self.layout_ = QVBoxLayout(self.body)
-        self.layout_.setContentsMargins(14, 0, 0, 2)
-        self.layout_.setSpacing(2)
+        self.form = QFormLayout(self.body)
+        self.form.setContentsMargins(14, 2, 0, 2)
+        self.form.setHorizontalSpacing(10)
+        self.form.setVerticalSpacing(6)
+        self.form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        # Grow only the fields that ask for room (sliders, paths): the macOS
+        # style's default would size every field to its hint instead.
+        self.form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
         outer.addWidget(self.body)
         self._fold(not folded, remember=False)
 
     @property
     def folded(self) -> bool:
-        """Whether the body is hidden."""
+        """Whether the rows are hidden."""
         return not self.header.isChecked()
 
     def set_folded(self, folded: bool) -> None:
@@ -184,21 +169,20 @@ class Section(QWidget):
             settings.set_value(self._key, open_)
         self.toggled.emit(open_)
 
-    def add_row(self, text: str, editor: QWidget) -> Row:
-        """Add a setting labelled ``text`` (ignored for a check box) and return it."""
-        key_label = plain(editor.text()) if isinstance(editor, QCheckBox) else text
-        key = (self.title, key_label)
-        help_text = self._help.get(key, "")
-        if help_text:
-            self._matched.add(key)
-        row = Row(text, editor, help_text)
-        self.rows.append(row)
-        self.layout_.addWidget(row)
-        return row
+    def filter(self, query: str) -> int:
+        """Show only the rows whose label or help contains ``query``; count them.
 
-    def add_widget(self, widget: QWidget) -> None:
-        """Add a widget across the section's width (a button row, a table, …)."""
-        self.layout_.addWidget(widget)
+        An empty ``query`` shows every row.
+        """
+        query = query.casefold()
+        hits = 0
+        for row in range(self.form.rowCount()):
+            field = row_field(self.form, row)
+            tip = field.toolTip() if field is not None else ""
+            hit = not query or query in f"{row_text(self.form, row)}\n{tip}".casefold()
+            self.form.setRowVisible(row, hit)
+            hits += hit
+        return hits
 
 
 class Form(QFrame):
@@ -206,21 +190,14 @@ class Form(QFrame):
 
     Parameters
     ----------
-    help_sections : HelpSections
-        The stage's ``HELP``.
     find : bool
         Offer "Find a setting", which shows only the rows that match.
     """
 
-    def __init__(
-        self, help_sections: HelpSections | None = None, *, find: bool = False
-    ) -> None:
+    def __init__(self, *, find: bool = False) -> None:
         super().__init__()
         self.setObjectName("form")
         self.setMinimumWidth(FORM_MIN_WIDTH)
-        self.help_map = flatten(help_sections or [])
-        self.matched: set[tuple[str, str]] = set()
-        self.sections: list[Section] = []
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -243,8 +220,7 @@ class Form(QFrame):
         content = QWidget()
         self.content = QVBoxLayout(content)
         self.content.setContentsMargins(18, 10, 14, 10)
-        self.content.setSpacing(4)
-        self.content.addStretch(1)
+        self.content.setSpacing(2)
         scroll.setWidget(content)
         outer.addWidget(scroll, stretch=1)
         foot = QWidget()
@@ -263,46 +239,40 @@ class Form(QFrame):
             self._focus_moved
         )
 
+    @property
+    def sections(self) -> list[Section]:
+        """The form's sections, in order."""
+        return self.findChildren(Section)
+
     def add_section(
         self, title: str, *, folded: bool = False, settings_key: str = ""
     ) -> Section:
         """Append a section and return it."""
-        section = Section(
-            title,
-            self.help_map,
-            self.matched,
-            folded=folded,
-            settings_key=settings_key,
-        )
-        self.sections.append(section)
-        self.content.insertWidget(self.content.count() - 1, section)
+        section = Section(title, folded=folded, settings_key=settings_key)
+        self.content.addWidget(section)
         return section
 
     def add_widget(self, widget: QWidget) -> None:
-        """Append a widget outside any section (a heading, a file picker, …)."""
-        self.content.insertWidget(self.content.count() - 1, widget)
+        """Append a widget outside any section (a button row, a note, …)."""
+        self.content.addWidget(widget)
 
     def _focus_moved(self, _old: QWidget | None, new: QWidget | None) -> None:
-        widget: QObject | None = new
-        while widget is not None and not isinstance(widget, Row):
-            widget = widget.parent()
-        if isinstance(widget, Row) and self.isAncestorOf(widget):
-            self.help.setText(widget.help_text)
+        """Show the help of the newly focused control, if it is on this form."""
+        widget = new
+        while widget is not None and widget is not self:
+            if widget.toolTip():
+                if self.isAncestorOf(widget):
+                    self.help.setText(widget.toolTip())
+                return
+            widget = widget.parentWidget()
 
     def filter(self, query: str) -> None:
         """Show only the rows whose label or help contains ``query``."""
         query = query.strip()
         for section in self.sections:
-            hits = 0
-            for row in section.rows:
-                hit = not query or row.matches(query)
-                row.setVisible(hit)
-                hits += hit
+            hits = section.filter(query)
             section.setVisible(not query or hits > 0)
-            if query and hits:
-                section.body.setVisible(True)
-            elif not query:
-                section.body.setVisible(not section.folded)
+            section.body.setVisible(bool(query and hits) or not section.folded)
 
 
 class Sheet(QWidget):

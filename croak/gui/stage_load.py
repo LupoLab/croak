@@ -339,7 +339,7 @@ class StageLoad(Stage):
         )
         self.controls.addWidget(box)
 
-        # Units & interaction ("&&" escapes the literal ampersand; see help._plain)
+        # Units & interaction ("&&" escapes the literal ampersand; see sheet.plain)
         box, form = group("Units && interaction")
         self.lam_unit_combo = combo(
             _LAM_UNITS, p.lam_unit, lambda v: setattr(p, "lam_unit", v)
@@ -454,7 +454,6 @@ class StageLoad(Stage):
         load_btn = QPushButton("Load && Preview")
         load_btn.clicked.connect(self._load_preview)
         self.controls.addWidget(load_btn)
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
         self.trace_canvas = MplCanvas()

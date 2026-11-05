@@ -207,8 +207,19 @@ def stylesheet(p: Palette = PALETTE) -> str:
         f" background: {p.background}; color: {p.ink}; outline: 0;"
         f" selection-background-color: {p.selected_bg};"
         f" selection-color: {p.selected_ink}; }}",
+        # Spin boxes step with the wheel and the arrow keys; the arrow buttons
+        # are hidden so a spin box is the same height and look as a combo.
         "QAbstractSpinBox::up-button, QAbstractSpinBox::down-button"
-        " { width: 0; border: 0; }",
+        " { width: 0; height: 0; border: 0; }",
+        "QLineEdit, QComboBox, QAbstractSpinBox { min-height: 18px; }",
+        # thin scroll bars that do not compete with the content
+        "QScrollBar:vertical { width: 10px; background: transparent; margin: 0; }",
+        "QScrollBar:horizontal { height: 10px; background: transparent; margin: 0; }",
+        f"QScrollBar::handle {{ background: {p.track}; border-radius: 4px;"
+        " min-height: 24px; min-width: 24px; margin: 2px; }",
+        f"QScrollBar::handle:hover {{ background: {p.border}; }}",
+        "QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }",
+        "QScrollBar::add-page, QScrollBar::sub-page { background: none; }",
         f"QCheckBox {{ color: {p.ink}; spacing: 6px; }}",
         f"QCheckBox:disabled {{ color: {p.disabled}; }}",
         f"QLabel#derivedLabel {{ color: {p.muted}; font-size: {SMALL_PX}px; }}",

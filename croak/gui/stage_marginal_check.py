@@ -212,7 +212,6 @@ class StageMarginalCheck(Stage):
         form.addRow(self.marginal_correct_check)
         self.controls.addWidget(box)
 
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
         # Trace above, marginal comparison below, on a draggable divider so a

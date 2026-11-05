@@ -20,7 +20,6 @@ real preferences.
 from __future__ import annotations
 
 import json
-from typing import cast
 
 from PySide6.QtCore import QByteArray, QSettings, QSize
 from PySide6.QtGui import QGuiApplication
@@ -31,16 +30,12 @@ from .workflow import remember_recent
 
 __all__ = [
     "KEY_WINDOW_GEOMETRY",
-    "KEY_CONTROLS_WIDTH",
     "DEFAULT_WINDOW_SIZE",
-    "DEFAULT_CONTROLS_WIDTH",
     "SCREEN_FILL",
     "user_settings",
     "fit_to_screen",
     "restore_window",
     "save_window",
-    "controls_width",
-    "set_controls_width",
     "value",
     "set_value",
     "text",
@@ -55,13 +50,9 @@ KEY_WINDOW_GEOMETRY = "window/geometry"
 #: Settings key holding the recently saved or opened sessions (``options.toml``
 #: paths, newest first) as JSON text.
 KEY_RECENT_SESSIONS = "home/recent_sessions"
-#: Settings key holding the control column's width in logical pixels.
-KEY_CONTROLS_WIDTH = "stage/controls_width"
 #: First-run window size (logical px) before clamping to the screen; large enough
 #: for the plot pages at full text density on a 1920x1080 display.
 DEFAULT_WINDOW_SIZE = QSize(1500, 950)
-#: First-run width (logical px) of the control column on every stage.
-DEFAULT_CONTROLS_WIDTH = 315
 #: Fraction of the screen's available area a first-run window may fill.
 SCREEN_FILL = 0.9
 
@@ -133,20 +124,6 @@ def save_window(window: QWidget) -> None:
     """Remember ``window``'s geometry (size, position, maximised state)."""
     store = user_settings()
     store.setValue(KEY_WINDOW_GEOMETRY, window.saveGeometry())
-    store.sync()
-
-
-def controls_width() -> int:
-    """The remembered control-column width (logical px), else the default."""
-    # ``type=int`` makes Qt return an int; PySide6's stubs only say ``object``.
-    stored = user_settings().value(KEY_CONTROLS_WIDTH, DEFAULT_CONTROLS_WIDTH, int)
-    return int(cast(int, stored))
-
-
-def set_controls_width(px: int) -> None:
-    """Remember the control-column width (logical px) for every stage and launch."""
-    store = user_settings()
-    store.setValue(KEY_CONTROLS_WIDTH, int(px))
     store.sync()
 
 

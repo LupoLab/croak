@@ -281,7 +281,7 @@ class StageSimulated(Stage):
         add_wide_row(form, "load λ band (nm)", self.band)
         # Skip the marginal-check + preprocess stages and load the as-simulated
         # ω-density trace on its native grid straight into the retrieval. "&&" is
-        # Qt's escape for a literal ampersand in a widget label (see help._plain).
+        # Qt's escape for a literal ampersand in a widget label (see sheet.plain).
         self.raw_direct = check(
             "Skip filtering && regrid (raw → retrieval)",
             self._defaults.raw_direct,
@@ -292,7 +292,6 @@ class StageSimulated(Stage):
 
         # Navigation (Back / "Load & continue →") and Help live in the shared
         # wizard chrome, via the entry-page hooks below.
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
         self.canvas = MplCanvas(figsize=(9, 7))

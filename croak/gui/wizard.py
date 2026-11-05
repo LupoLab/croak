@@ -52,6 +52,7 @@ from .stage_synthetic import StageSynthetic
 from .stage_uncertainty import StageUncertainty
 from .stage_welcome import StageWelcome
 from .state import WizardState
+from .theme import load_fonts, stylesheet
 
 _TITLES = [
     "1. Load",
@@ -77,6 +78,8 @@ class Wizard(QMainWindow):
         # it opens; setting it here too means an embedder who built their own
         # QApplication still gets the icon.
         self.setWindowIcon(app_icon())
+        load_fonts()
+        self.setStyleSheet(stylesheet())
         # Un-maximised size: as the user last left it, else a default clamped to
         # the screen (run_wizard maximises on top of this).
         settings.restore_window(self)

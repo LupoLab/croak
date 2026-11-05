@@ -594,7 +594,11 @@ class StageRetrieve(Stage):
         form.addRow("Quadrature nodes", self.smear_nodes_spin)
         self.controls.addWidget(box)
 
-        self.focal_box, form = group("Chromatic focal mixture (advanced)")
+        self.focal_box, form = group(
+            "Chromatic focal mixture (advanced)",
+            folded=True,
+            settings_key="retrieve/open_focal",
+        )
         box = self.focal_box
         self.focal_check = check(
             "Enable focal mixture",
@@ -706,7 +710,9 @@ class StageRetrieve(Stage):
         self.collection_diam_spin.setEnabled(p.collection == "manual")
         self.controls.addWidget(box)
 
-        self.extra_box, form = group("Extra fit parameters")
+        self.extra_box, form = group(
+            "Extra fit parameters", folded=True, settings_key="retrieve/open_extra"
+        )
         box = self.extra_box
         self.fit_thickness_check = check(
             "Fit medium thickness",
@@ -762,7 +768,9 @@ class StageRetrieve(Stage):
         form.addRow("Delay origin", self.delay_origin_combo)
         self.controls.addWidget(box)
 
-        self.reg_box, form = group("Regularisation")
+        self.reg_box, form = group(
+            "Regularisation", folded=True, settings_key="retrieve/open_regularisation"
+        )
         box = self.reg_box
         # Scientific-notation spin boxes (decade-aware stepping) so weights well
         # below 0.001 — common with LM — can be entered, e.g. 5e-4.
@@ -802,7 +810,9 @@ class StageRetrieve(Stage):
         form.addRow("τ window hi (fs)", self.reg_time_hi_spin)
         self.controls.addWidget(box)
 
-        self.global_box, form = group("Global search (cma-es)")
+        self.global_box, form = group(
+            "Global search (cma-es)", folded=True, settings_key="retrieve/open_global"
+        )
         box = self.global_box
         self.strategy_combo = combo(
             ["cma", "sep-cma", "de"],
@@ -878,7 +888,6 @@ class StageRetrieve(Stage):
         self.retarget_btn.clicked.connect(self._retarget)
         self.retarget_btn.setEnabled(False)
         self.controls.addWidget(self.retarget_btn)
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
         # Figure on top (it takes every spare pixel), numeric read-out beneath it
