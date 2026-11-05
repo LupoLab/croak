@@ -339,7 +339,8 @@ class StageRetrieve(RunControls, Stage):
     ]
 
     def __init__(self, state):
-        super().__init__(state)
+        # The longest form: offer "Find a setting" over it.
+        super().__init__(state, find=True)
         p = state.retrieve
         self._worker = None
         self._base_result = None  # unfiltered retrieval, for post-filter toggles

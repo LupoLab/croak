@@ -126,6 +126,8 @@ def test_sheet_find_shows_only_matching_rows(qtbot):
     assert not grid.isVisible()
     form.find.setText("samples")
     assert points.isVisible() and not resample.isVisible()
+    form.find.setText("grid")  # the section's own name shows all of it
+    assert points.isVisible() and resample.isVisible()
     form.find.setText("")
     assert grid.isVisible() and resample.isVisible()
     assert filtering.folded and not filtering.body.isVisible()

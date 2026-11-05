@@ -461,3 +461,19 @@ def test_stage_retrieve_failure_reenables_run(stage, message, status):
     stage._on_failed(message)
     assert stage.run_btn.isEnabled() and not stage.stop_btn.isEnabled()
     assert stage.status_label.text() == status
+
+
+def test_retrieve_form_finds_a_setting_by_name_or_help(qtbot):
+    stage = StageRetrieve(WizardState())
+    qtbot.addWidget(stage)
+    stage.show()
+    assert stage.form.find is not None
+    stage.form.find.setText("regularisation")
+    shown = [s.section_title for s in stage.form.sections if not s.isHidden()]
+    assert "Regularisation" in shown and "Solver" not in shown
+    regularisation = next(
+        s for s in stage.form.sections if s.section_title == "Regularisation"
+    )
+    assert not regularisation.body.isHidden()  # unfolded to show the matches
+    stage.form.find.setText("")
+    assert regularisation.folded and regularisation.body.isHidden()

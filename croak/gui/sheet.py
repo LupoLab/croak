@@ -172,9 +172,11 @@ class Section(QWidget):
     def filter(self, query: str) -> int:
         """Show only the rows whose label or help contains ``query``; count them.
 
-        An empty ``query`` shows every row.
+        An empty ``query``, or one in the section's own title, shows every row.
         """
         query = query.casefold()
+        if query in self.section_title.casefold():
+            query = ""
         hits = 0
         for row in range(self.form.rowCount()):
             field = row_field(self.form, row)
