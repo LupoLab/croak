@@ -27,8 +27,8 @@ frequency centroid matches the measured one.
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QSplitter, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSplitter, QWidget
 
 from .. import io
 from ..marginal_checks import (

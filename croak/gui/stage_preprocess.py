@@ -24,9 +24,9 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TypedDict
 
-from PyQt6 import sip
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+import shiboken6
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
 from .. import io, plotting
 from ..preprocess import suggested_tau_exclude
@@ -646,7 +646,7 @@ class StagePreprocess(Stage):
         # The worker is parented to this stage, so when the wizard rebuilds its
         # stages (``deleteLater`` on each) between the thread finishing and this
         # queued slot running, Qt has already destroyed it with its parent.
-        if not sip.isdeleted(worker):
+        if shiboken6.isValid(worker):
             worker.deleteLater()
 
     def _show_tracedata(self, td):

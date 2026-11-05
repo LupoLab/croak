@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QGroupBox,

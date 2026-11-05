@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import fields
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 
 from ..session.options import SessionOptions
 from ..session.params import (
@@ -47,16 +47,16 @@ __all__ = [
 class WizardState(QObject):
     """Holds wizard parameters and pipeline outputs, with change signals."""
 
-    stage_changed = pyqtSignal(int)
-    load_data_changed = pyqtSignal()
-    tracedata_changed = pyqtSignal()
-    result_changed = pyqtSignal()
-    uncertainty_changed = pyqtSignal()
-    status = pyqtSignal(str)
+    stage_changed = Signal(int)
+    load_data_changed = Signal()
+    tracedata_changed = Signal()
+    result_changed = Signal()
+    uncertainty_changed = Signal()
+    status = Signal(str)
     # Request the wizard to point the current session at a new dataset folder
     # (its argument) and replay load → preprocess → retrieve. Emitted by the
     # Retrieve stage's "Retarget…" button; handled in croak.gui.wizard.Wizard.
-    retarget_requested = pyqtSignal(str)
+    retarget_requested = Signal(str)
 
     def __init__(self):
         super().__init__()

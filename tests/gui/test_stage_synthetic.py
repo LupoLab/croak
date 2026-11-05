@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from matplotlib.figure import Figure
 

@@ -6,9 +6,9 @@ import h5py
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PySide6.QtCore import QObject, Qt, Signal
 
 from croak.forward import maketrace
 from croak.grid import Grid
@@ -214,9 +214,9 @@ def test_save_writes_result_options_and_the_figure_if_drawn(
 class _FakeWorker(QObject):
     """Stands in for UncertaintyWorker: emits what the test scripts on start()."""
 
-    progress = pyqtSignal(int, int, float)
-    finished_ok = pyqtSignal(object)
-    failed = pyqtSignal(str)
+    progress = Signal(int, int, float)
+    finished_ok = Signal(object)
+    failed = Signal(str)
     script: list = []
     instances: list = []
 

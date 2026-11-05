@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6 import sip
+import shiboken6
 
 from croak.gui import stage_preprocess
 from croak.gui.stage_load import seed_preproc_defaults
@@ -190,7 +190,7 @@ def test_stage_preprocess_discard_worker_tolerates_destroyed_workers(loaded):
         loaded.state.preproc, loaded.state.load_data, 1, parent=loaded
     )
     loaded._workers.append(worker)
-    sip.delete(worker)  # destroyed with its stage before the queued slot ran
+    shiboken6.delete(worker)  # destroyed with its stage before the queued slot ran
     loaded._discard_worker(worker)
     assert loaded._workers == []
     # a worker no longer tracked (and still alive) is just scheduled for deletion
@@ -198,7 +198,7 @@ def test_stage_preprocess_discard_worker_tolerates_destroyed_workers(loaded):
         loaded.state.preproc, loaded.state.load_data, 2, parent=loaded
     )
     loaded._discard_worker(other)
-    assert not sip.isdeleted(other)
+    assert shiboken6.isValid(other)
 
 
 def test_stage_preprocess_baseline_toggle_gates_its_controls(stage):

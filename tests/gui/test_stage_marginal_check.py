@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from croak.gui import stage_marginal_check
 from croak.gui.stage_marginal_check import StageMarginalCheck, _peak_norm

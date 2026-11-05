@@ -1,4 +1,4 @@
-"""Offscreen smoke tests for the PyQt6 wizard.
+"""Offscreen smoke tests for the PySide6 wizard.
 
 Headless (``QT_QPA_PLATFORM=offscreen``); drive a synthetic dataset through
 Load → Marginal check → Preprocess → Retrieve → Dispersion. Smoke-level, not
@@ -19,9 +19,9 @@ import pytest
 
 import croak
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt
 
 from croak.gui import settings
 from croak.gui.base import CONTROLS_MIN_WIDTH
@@ -449,7 +449,7 @@ def test_new_session_clears_previous_data(qtbot, experiment_h5, experiment):
 
 
 def test_solver_combo_lists_all_algorithms(qtbot):
-    from PyQt6.QtWidgets import QComboBox
+    from PySide6.QtWidgets import QComboBox
 
     w = Wizard()
     qtbot.addWidget(w)
@@ -485,7 +485,7 @@ def test_every_stage_help_entry_maps_to_a_control(qtbot):
 
 def test_help_dialog_builds_and_shows(qtbot):
     """The header '?' opens a non-empty summary dialog for the current stage."""
-    from PyQt6.QtWidgets import QTextBrowser
+    from PySide6.QtWidgets import QTextBrowser
 
     from croak.gui.help import HelpDialog
 
@@ -504,7 +504,7 @@ def test_help_dialog_builds_and_shows(qtbot):
 
 def test_load_options_refreshes_controls(qtbot, tmp_path):
     """'Load saved…' must update the on-screen controls, not just the params."""
-    from PyQt6.QtWidgets import QComboBox, QSpinBox
+    from PySide6.QtWidgets import QComboBox, QSpinBox
 
     from croak import save
 
@@ -535,7 +535,7 @@ def test_load_options_refreshes_controls(qtbot, tmp_path):
     assert w.state.retrieve.reltol == pytest.approx(1e-6)
     assert w.state.retrieve.reg_spectrum == pytest.approx(0.25)
     # the λ-spectrum control is present in the Regularisation group
-    from PyQt6.QtWidgets import QDoubleSpinBox
+    from PySide6.QtWidgets import QDoubleSpinBox
 
     dspin_values = {round(s.value(), 3) for s in stage.findChildren(QDoubleSpinBox)}
     assert 0.25 in dspin_values
@@ -1073,7 +1073,7 @@ def test_load_reverse_trace_mirrors_delay_columns(experiment_h5, experiment):
 
 def test_load_reverse_trace_checkbox_sets_the_param(qtbot, experiment_h5, experiment):
     """The Load stage's checkbox writes ``LoadParams.reverse_trace`` live."""
-    from PyQt6.QtWidgets import QCheckBox
+    from PySide6.QtWidgets import QCheckBox
 
     w = Wizard()
     qtbot.addWidget(w)
@@ -1672,7 +1672,7 @@ def test_stage6_combine_estimates(qtbot):
 
 def test_stage6_save_appends_uncertainty(qtbot, tmp_path, monkeypatch):
     """The stage-6 Save writes the intervals (and bands) into result.h5."""
-    from PyQt6.QtWidgets import QFileDialog
+    from PySide6.QtWidgets import QFileDialog
 
     import croak
     from croak.maths import wlfreq
@@ -1853,7 +1853,7 @@ def test_widget_labels_escape_literal_ampersands(qtbot):
     Escaping it as ``&&`` fixes the rendering, and :func:`croak.gui.help._plain`
     undoes the escape so the (unescaped) HELP keys still resolve to their controls.
     """
-    from PyQt6.QtWidgets import (
+    from PySide6.QtWidgets import (
         QCheckBox,
         QFormLayout,
         QGroupBox,
@@ -2230,7 +2230,7 @@ def test_app_icon_loads_at_every_size(qtbot):
 
 def test_apply_identity_names_the_application(qtbot):
     """Name, display name and window icon reach the running QApplication."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from croak.gui.branding import APP_NAME, ORGANISATION_NAME, apply_identity
 
@@ -2277,7 +2277,8 @@ def test_importing_croak_gui_does_not_import_qt():
     import subprocess
 
     code = (
-        "import croak.gui, sys; print(any(m.startswith('PyQt6') for m in sys.modules))"
+        "import croak.gui, sys; "
+        "print(any(m.startswith('PySide6') for m in sys.modules))"
     )
     out = subprocess.run(  # noqa: S603 — sys.executable and a literal, nothing untrusted
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
@@ -2495,7 +2496,7 @@ def test_settings_file_lives_under_the_redirected_path(tmp_path):
 
 def test_new_window_is_clamped_to_the_screen(qtbot):
     """With nothing saved, a fresh window fills at most 90 % of the screen."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     screen = QApplication.primaryScreen()
     assert screen is not None
@@ -2510,7 +2511,7 @@ def test_new_window_is_clamped_to_the_screen(qtbot):
 @pytest.mark.parametrize("layout_min_width", [0, 920])
 def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot, layout_min_width):
     """Closing saves geometry; restoration also clamps oversized saved geometry."""
-    from PyQt6.QtWidgets import QMainWindow
+    from PySide6.QtWidgets import QMainWindow
 
     w = Wizard()
     qtbot.addWidget(w)
@@ -2585,7 +2586,7 @@ def test_control_column_width_is_shared_and_remembered(qtbot):
 
 def test_no_stage_needs_more_than_a_small_display(qtbot):
     """No page (or widget on it) demands a window wider or taller than 1366x768."""
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     w = Wizard()
     qtbot.addWidget(w)
@@ -2608,7 +2609,7 @@ def test_marginal_check_canvases_share_a_vertical_splitter(qtbot):
 
 
 def test_collapsible_strip_folds_and_remembers_its_state(qtbot):
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtWidgets import QLabel
 
     strip = collapsible("Read-out", QLabel("x"), settings_key="test/strip")
     qtbot.addWidget(strip)
@@ -2740,7 +2741,7 @@ def test_retrieve_readout_collapse_frees_canvas_height(qtbot):
 
 
 def test_retrieve_save_writes_the_full_overview_pdf(qtbot, tmp_path, monkeypatch):
-    from PyQt6.QtWidgets import QFileDialog
+    from PySide6.QtWidgets import QFileDialog
 
     from croak.gui import stage_retrieve as sr
 

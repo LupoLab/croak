@@ -25,7 +25,7 @@ the PNPS (parameterised nonlinear process spectra) class of measurements,
 currently focused on FROG: the SHG, SD and PG/transient-grating geometries, ten
 solvers over a single physical forward model, and the workflow around them
 (loading, cleaning, retrieval, post-processing, dispersion tuning, uncertainty,
-plotting and saving). The library is headless (NumPy/SciPy/JAX); a PyQt6 GUI is
+plotting and saving). The library is headless (NumPy/SciPy/JAX); a Qt GUI (PySide6) is
 optional.
 
 What distinguishes croak from a classic FROG code is the forward model.
@@ -96,7 +96,7 @@ uv run croak-gui
 <details>
 <summary><b>Platform notes</b>: read this if the install fails</summary>
 
-The binary dependencies (`jax`, `nlopt`, `finufft`, `pyqt6`) do not publish
+The binary dependencies (`jax`, `nlopt`, `finufft`, `pyside6-essentials`) do not publish
 wheels for every platform. Where a wheel is missing, pip/uv falls back to
 building from source, which needs CMake and a C++ toolchain.
 
@@ -233,7 +233,7 @@ from the underlying propagation physics.
 
 ## GUI
 
-A PyQt6 wizard (Load → Marginal check → Preprocess → Retrieve → Dispersion →
+A PySide6 wizard (Load → Marginal check → Preprocess → Retrieve → Dispersion →
 Uncertainty) drives the same library functions, with embedded plots, threaded
 retrieval and a live preview:
 

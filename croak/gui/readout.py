@@ -30,9 +30,9 @@ The widget is pure display: it holds no state beyond the label text and is fed b
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFontDatabase
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontDatabase
+from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -127,7 +127,7 @@ def _cell(*, bold: bool = False, fixed_width: bool = False) -> QLabel:
 class RetrievalReadout(QWidget):
     """The parameter table and scalar read-outs beneath the retrieval figure.
 
-    Built from plain :class:`~PyQt6.QtWidgets.QLabel` grids rather than a table
+    Built from plain :class:`~PySide6.QtWidgets.QLabel` grids rather than a table
     widget: the labels size themselves to their content, so the strip stays the
     few-line height the figure can spare without any per-style height arithmetic,
     and a refresh is a handful of ``setText`` calls with no item allocation.

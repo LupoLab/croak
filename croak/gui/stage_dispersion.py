@@ -12,7 +12,7 @@ import os
 from dataclasses import replace
 
 import numpy as np
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QValidator
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QValidator
+from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QHBoxLayout,
     QSizePolicy,
@@ -106,7 +106,7 @@ class RangeControl(QWidget):
     box. Programmatic :meth:`set_bounds`/:meth:`set_values` are signal-safe.
     """
 
-    changed = pyqtSignal(float, float)
+    changed = Signal(float, float)
 
     def __init__(
         self,
@@ -201,7 +201,7 @@ class ValueControl(QWidget):
     ``changed(value)`` fires on slider drag or spin commit.
     """
 
-    changed = pyqtSignal(float)
+    changed = Signal(float)
 
     def __init__(
         self,

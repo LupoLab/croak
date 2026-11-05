@@ -15,9 +15,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog
 
 from croak.gui import stage_retrieve
 from croak.gui.stage_load import seed_preproc_defaults

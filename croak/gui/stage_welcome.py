@@ -9,8 +9,8 @@ navigation; the actual work lives in the wizard and the stages it routes to.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,

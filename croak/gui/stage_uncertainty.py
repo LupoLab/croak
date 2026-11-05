@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QListWidget,
@@ -319,7 +319,7 @@ class StageUncertainty(Stage):
         if self.state.result is None or self.state.tracedata is None:
             self.set_status("Retrieve a pulse first.")
             return
-        # Import here so the rest of the GUI imports even if PyQt-less envs build
+        # Import here so the rest of the GUI imports even if Qt-less envs build
         # the worker lazily; the worker pulls in the (heavier) solver stack.
         from .worker import UncertaintyWorker
 

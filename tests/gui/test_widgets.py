@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtGui import QValidator
+from PySide6.QtGui import QValidator
 
 from croak.gui.widgets import RangeControl, SciSpinBox, ValueControl
 

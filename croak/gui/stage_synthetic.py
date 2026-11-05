@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from PyQt6.QtCore import QTimer
+from PySide6.QtCore import QTimer
 
 from .. import dispersion
 from ..constants import C

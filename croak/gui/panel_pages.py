@@ -24,8 +24,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from matplotlib.figure import Figure
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QTabWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QTabWidget, QToolButton, QVBoxLayout, QWidget
 
 from .. import plotting
 from ..plotting import (

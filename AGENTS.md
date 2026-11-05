@@ -20,7 +20,7 @@ rather than style, ask rather than guess.
 | Python | 3.14, equal to `requires-python` in `pyproject.toml` |
 | Type checker | `pyright`, `basic` mode, over `croak/` |
 | Numerics | NumPy/SciPy, with JAX (optimistix, lineax) for the differentiable solvers |
-| GUI | the `gui` extra (PyQt6, superqt); the dev group always installs it, and its tests run offscreen with pytest-qt |
+| GUI | the `gui` extra (PySide6, pyqtgraph, superqt); the dev group always installs it, and its tests run offscreen with pytest-qt |
 | Optional extras | `evo` (evosax, the `cma-es` retriever; in the dev group) |
 | Planned work | [GitHub issues](https://github.com/LupoLab/croak/issues). [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write an issue and how to label an issue or a pull request |
 

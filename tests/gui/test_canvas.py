@@ -7,7 +7,7 @@ import weakref
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from croak.gui.canvas import MplCanvas, check, combo, dspin, spin, with_toolbar
 

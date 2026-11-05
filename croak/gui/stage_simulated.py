@@ -17,8 +17,8 @@ interaction; the simulated angular-frequency density is divided by
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QHBoxLayout,

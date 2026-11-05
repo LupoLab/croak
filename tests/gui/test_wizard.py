@@ -12,9 +12,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from croak import save
 from croak.gui import stage_preprocess, wizard

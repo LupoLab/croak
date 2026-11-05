@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from croak.gui.state import WizardState
 

@@ -3,7 +3,7 @@
 The wizard remembers how its user last arranged it — the un-maximised window
 size and position, the width of the control column, which auxiliary strips were
 folded — so a small-screen user sets things up once. Values live in a
-:class:`~PyQt6.QtCore.QSettings` store in INI format under the user scope, keyed
+:class:`~PySide6.QtCore.QSettings` store in INI format under the user scope, keyed
 by the organisation and application names from :mod:`.branding`; passing those
 explicitly means the store is the same whether or not
 :func:`~croak.gui.branding.apply_identity` has run (the tests build a
@@ -19,9 +19,11 @@ real preferences.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QByteArray, QSettings, QSize
-from PyQt6.QtGui import QGuiApplication
-from PyQt6.QtWidgets import QWidget
+from typing import cast
+
+from PySide6.QtCore import QByteArray, QSettings, QSize
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QWidget
 
 from .branding import APP_NAME, ORGANISATION_NAME
 
@@ -128,7 +130,9 @@ def save_window(window: QWidget) -> None:
 
 def controls_width() -> int:
     """The remembered control-column width (logical px), else the default."""
-    return int(user_settings().value(KEY_CONTROLS_WIDTH, DEFAULT_CONTROLS_WIDTH, int))
+    # ``type=int`` makes Qt return an int; PySide6's stubs only say ``object``.
+    stored = user_settings().value(KEY_CONTROLS_WIDTH, DEFAULT_CONTROLS_WIDTH, int)
+    return int(cast(int, stored))
 
 
 def set_controls_width(px: int) -> None:

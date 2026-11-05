@@ -150,7 +150,7 @@ def _wait_for(signal, timeout_ms: int = 120_000) -> None:
     it the way the application does rather than by sleeping. This is the
     no-pytest-qt equivalent of ``qtbot.waitSignal``.
     """
-    from PyQt6.QtCore import QEventLoop, QTimer
+    from PySide6.QtCore import QEventLoop, QTimer
 
     loop = QEventLoop()
     signal.connect(loop.quit)
@@ -172,7 +172,7 @@ def make_gui_screenshot(path: Path) -> Path:
     session is used deliberately — it carries the known ground truth, so the
     read-out's ``truth`` row is populated and the plot gains its truth overlay.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from croak.gui.wizard import Wizard
 

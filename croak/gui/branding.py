@@ -5,7 +5,7 @@ the macOS Dock / Windows taskbar / Linux dock — in one place, out of
 :func:`~croak.gui.run_wizard`.
 
 This module imports Qt, so it must only be imported from *inside* the functions
-that already need Qt: importing :mod:`croak.gui` deliberately does not pull PyQt6
+that already need Qt: importing :mod:`croak.gui` deliberately does not pull PySide6
 in, so the library stays usable headless.
 """
 
@@ -14,8 +14,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
 
 __all__ = ["APP_NAME", "ORGANISATION_NAME", "ICON_PATH", "app_icon", "apply_identity"]
 
@@ -46,7 +46,7 @@ def app_icon() -> QIcon:
 
     Returns
     -------
-    PyQt6.QtGui.QIcon
+    PySide6.QtGui.QIcon
         The icon, carrying a pixmap at each of :data:`_ICON_SIZES`. Null only if
         the SVG is missing or Qt's SVG image plugin is unavailable.
     """

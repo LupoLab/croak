@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QShowEvent
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QShowEvent
+from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
@@ -29,7 +29,7 @@ _SAVE_WIDTH_DELAY_MS = 250
 class Stage(QWidget):
     """A wizard page: a scrollable control column on the left, plots on the right.
 
-    The two sit on a :class:`~PyQt6.QtWidgets.QSplitter`, so on a small display the
+    The two sit on a :class:`~PySide6.QtWidgets.QSplitter`, so on a small display the
     control column can be narrowed or dragged fully closed to give the plots the
     room; its width is shared by every stage and remembered between launches
     (:mod:`croak.gui.settings`). The plot side never collapses.

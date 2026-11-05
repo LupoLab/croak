@@ -1,4 +1,4 @@
-"""PyQt6 Qt-Widgets wizard GUI for croak (matplotlib plots).
+"""PySide6 Qt-Widgets wizard GUI for croak (matplotlib plots).
 
 The GUI is a thin orchestration layer over the croak library: it loads, cleans,
 retrieves, post-processes, tunes dispersion, plots and saves — all via the
@@ -37,7 +37,7 @@ def run_wizard(argv=None) -> int:
     through untouched, so Qt's own flags (``-style``, ``-platform``, …) still work.
     """
     try:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
     except ImportError as exc:  # the gui extra is optional — say how to get it
         raise ImportError(
             "croak's GUI needs the optional Qt dependencies, which are not "

@@ -234,7 +234,7 @@ Further reading: [Estimating FWHM uncertainty](../howto/uncertainty.md),
 ## Interfaces
 
 - **Library first** — every stage is callable without the GUI.
-- **The wizard** — a six-stage PyQt6 application (Load → Marginal check →
+- **The wizard** — a six-stage PySide6 application (Load → Marginal check →
   Preprocess → Retrieve → Dispersion → Uncertainty) with live retrieval previews and a numeric
   read-out of retrieved, measured, transform-limited and (for synthetic
   sessions) true pulse parameters. Laid out for 1366×768 displays and up.

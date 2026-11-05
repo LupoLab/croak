@@ -10,9 +10,9 @@ import h5py
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QFileDialog, QPushButton
+from PySide6.QtWidgets import QFileDialog, QPushButton
 
 from croak.gui import stage_load
 from croak.gui.stage_load import StageLoad

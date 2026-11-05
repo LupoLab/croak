@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 import croak.gui as gui
 from croak.gui import wizard as wizard_mod
@@ -33,7 +33,7 @@ def test_main_delegates_to_run_wizard(monkeypatch):
 
 def test_run_wizard_without_qt_says_how_to_install(monkeypatch):
     # A None entry in sys.modules makes the import raise ImportError.
-    monkeypatch.setitem(sys.modules, "PyQt6.QtWidgets", None)
+    monkeypatch.setitem(sys.modules, "PySide6.QtWidgets", None)
     with pytest.raises(ImportError, match=r"croak\[gui\]"):
         gui.run_wizard([])
 

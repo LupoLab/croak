@@ -9,9 +9,9 @@ import matplotlib
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QResizeEvent
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QResizeEvent
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
