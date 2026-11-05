@@ -131,7 +131,7 @@ Prefer plain pip? `python3.14 -m venv .venv && . .venv/bin/activate && pip insta
 The [installation guide](https://croak.readthedocs.io/en/latest/getting_started/installation.html)
 covers all of this in more detail.
 
-Optional extras: `croak[gui]` (the wizard) and
+Optional extras: `croak[gui]` (the graphical interface) and
 `croak[evo]` (the cma-es global solver; pulls in `evosax` and its
 `flax`/`optax` dependency tree). In a clone the same extras are
 `uv sync --extra gui` etc.
@@ -233,9 +233,11 @@ from the underlying propagation physics.
 
 ## GUI
 
-A PySide6 wizard (Load → Marginal check → Preprocess → Retrieve → Dispersion →
-Uncertainty) drives the same library functions, with embedded plots, threaded
-retrieval and a live preview:
+A PySide6 window drives the same library functions. A session starts on Home
+from a measured trace, a simulated scan or a synthetic pulse, and runs through
+Data (load the trace and check its marginal) → Prepare → Retrieve → Analyse
+(the retrieval's panels, dispersion tuning and uncertainty), with interactive
+plots, threaded retrieval and a live preview:
 
 ```bash
 uv run croak-gui          # or: uv run python -m croak.gui

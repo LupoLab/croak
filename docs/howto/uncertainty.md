@@ -209,7 +209,7 @@ print(u.summary())   # FWHM = … ± … fs at −1 mm SiO2 (…)
 
 The same `propagation=H` works for {func}`~croak.covariance.covariance_uncertainty` and the
 other estimators. The intervening dispersion is assumed exactly known. In the GUI, tick
-*"at dispersion-stage point"* to reuse the Dispersion stage's settings as $H$.
+*"at dispersion-stage point"* to reuse the Dispersion page's settings as $H$.
 
 ## Reading and plotting the result
 
@@ -282,10 +282,10 @@ retrievals — keep `n_trials`/`n_resamples` modest while exploring).
 
 ## In the GUI
 
-The wizard's **Uncertainty** stage (after Dispersion) runs the bootstrap in the background
+The GUI's **Uncertainty** page (under Analyse) runs the bootstrap in the background
 on the current retrieval, using the same solver settings, and plots the result. Pick the
 method, the replicate count and (for the parametric method) the noise source, then click
-**Estimate**; **Stop** cancels mid-run. For a dispersive retrieval, choose method
+**Estimate** (on the page or in the top bar); **Stop** cancels mid-run. For a dispersive retrieval, choose method
 **thickness** and set **Thickness σ (µm)** to your measured substrate-thickness
 uncertainty (the central value is the retrieval's own thickness) to get the systematic
 FWHM error bar.

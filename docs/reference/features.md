@@ -234,18 +234,20 @@ Further reading: [Estimating FWHM uncertainty](../howto/uncertainty.md),
 ## Interfaces
 
 - **Library first** — every stage is callable without the GUI.
-- **The wizard** — a six-stage PySide6 application (Load → Marginal check →
-  Preprocess → Retrieve → Dispersion → Uncertainty) with live retrieval previews and a numeric
-  read-out of retrieved, measured, transform-limited and (for synthetic
-  sessions) true pulse parameters. Laid out for 1366×768 displays and up.
-  Importing `croak` does not import Qt.
+- **The GUI** — a PySide6 window that takes a session from Home through Data
+  (load and marginal check) → Prepare → Retrieve → Analyse (the retrieval's
+  panels, Dispersion and Uncertainty), with interactive pyqtgraph plots, live
+  retrieval previews and a numeric read-out of retrieved, measured,
+  transform-limited and (for synthetic sessions) true pulse parameters. It shows
+  a session's settings as `options.toml` or as a Python script on request. Laid
+  out for 1366×768 displays and up. Importing `croak` does not import Qt.
 - **Sessions** — the session engine replays a saved TOML session end to end
   through the same stage operations the GUI uses.
 - **CLI** — `croak replay` reruns a session headlessly, including batch
   retargeting across datasets; `croak script` generates a standalone, editable
   Python script from it.
 
-Further reading: [The wizard GUI](../howto/gui.md),
+Further reading: [Using the GUI](../howto/gui.md),
 [Saving and loading](../howto/saving_and_loading.md).
 
 ## Conventions

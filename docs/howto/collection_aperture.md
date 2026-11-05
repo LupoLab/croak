@@ -95,7 +95,8 @@ hard-edged pinhole at the phase-matched corner) and `spectrum_frame_p` (the
 spectral-frame exponent — the mixture's field is the *on-axis* one, bluer than
 an integrated measured spectrum; the exponent reweights the initial guess and
 the `reg_spectrum` target together into that frame). The GUI exposes all of
-these in the *Chromatic focal mixture (advanced)* group of the retrieve stage,
+these in the *Chromatic focal mixture (advanced)* section of the Retrieve stage
+(folded by default),
 mutually exclusive with the reduced-kernel checkbox, and
 `croak.session.pipeline.focal_mixture_from_params(params, td, scan_path)`
 builds the object — `run_retrieval` calls it automatically when `params.focal`

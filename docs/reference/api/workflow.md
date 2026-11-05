@@ -110,9 +110,9 @@ different beamline point. The background and caveats are in
 A whole retrieval — load, preprocess, retrieve, dispersion compensation and
 uncertainty — captured as serialisable per-stage parameters and replayed without
 the GUI. {func}`~croak.session.engine.run_session` drives the same stage mappings the
-wizard uses; {func}`~croak.session.retarget.retarget` re-points an *experimental* session at
+GUI uses; {func}`~croak.session.retarget.retarget` re-points an *experimental* session at
 a new dataset folder. {class}`~croak.session.options.SessionOptions` also records
-which stage-1 loader the trace came from (`entry`, see
+which loader the trace came from (`entry`, see
 {data}`~croak.session.options.ENTRIES`), so a simulated session replays through
 {func}`~croak.session.pipeline.assemble_simulated_load_data` rather than the
 measured loader — see [Saving and loading](../../howto/saving_and_loading.md).

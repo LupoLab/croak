@@ -8,8 +8,9 @@ your own analysis. You can move between these approaches using saved sessions.
 ## Work in the GUI
 
 After [installing the GUI](../getting_started/gui.md), launch `croak-gui`.
-The wizard guides you through loading data, preparing a trace, retrieving a
-pulse, and analysing the result. The [GUI guide](../howto/gui.md) describes the
+Its window takes you through loading data, preparing a trace, retrieving a
+pulse, and analysing the result, and can show the session's settings as a Python
+script. The [GUI guide](../howto/gui.md) describes the
 controls and stages; [preparing and checking data](../user_guide/data.md)
 explains the choices behind them.
 

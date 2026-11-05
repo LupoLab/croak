@@ -265,7 +265,7 @@ chosen solver supports it:
 - *Quadrature nodes*
 
 *Fit smearing width* sits in **Extra fit parameters** and is enabled only once the
-kernel is on. When it has been fitted, the post-retrieval status line reports the
+kernel is on. When it has been fitted, the ready line under the form reports the
 result next to the other fitted extras, as the physical delay width and the
 multiplier it came from:
 

@@ -18,6 +18,7 @@ environment
 architecture
 extending
 gui_sessions
+gui_design
 validation
 documentation
 releasing
