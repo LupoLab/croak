@@ -33,7 +33,7 @@ from ..plotting.screen import FILTER_PANELS, filter_views
 from ..preprocess import suggested_tau_exclude
 from ..session import pipeline
 from .base import Stage
-from .canvas import (
+from .controls import (
     add_wide_row,
     check,
     combo,

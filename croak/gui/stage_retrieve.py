@@ -36,7 +36,7 @@ from ..session.pipeline import extra_param_centres, smearing_kernel
 from ..truth_metrics import truth_errors
 from . import settings
 from .base import RunControls, Stage
-from .canvas import check, collapsible, combo, dspin, group, spin
+from .controls import check, collapsible, combo, dspin, group, spin
 from .readout import DASH, RetrievalReadout
 from .retrieval_views import RetrievalPanels
 from .widgets import SciSpinBox

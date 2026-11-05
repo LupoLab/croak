@@ -43,7 +43,7 @@ from ..session.pipeline import (
     assemble_simulated_tracedata,
 )
 from .base import Stage
-from .canvas import add_wide_row, check, combo, group
+from .controls import add_wide_row, check, combo, group
 from .retrieval_views import ViewPanel
 from .stage_load import seed_preproc_defaults
 from .widgets import RangeControl

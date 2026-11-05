@@ -27,7 +27,7 @@ from ..interactions import get_interaction
 from ..plotting.screen import raw_trace_map
 from ..session.pipeline import assemble_load_data
 from .base import Stage
-from .canvas import check, combo, group
+from .controls import check, combo, group
 from .retrieval_views import ViewPanel
 from .state import PreprocParams
 from .widgets import SciSpinBox

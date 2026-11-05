@@ -9,7 +9,8 @@ The retrieval summary is assembled from twelve independent **panels**
 (``draw_<key>(ax, data)`` over one :class:`RetrievalPlotData` bundle, registered in
 :data:`RETRIEVAL_PANELS`). :func:`plot_retrieval` lays them out as the 3×4
 overview; :func:`plot_retrieval_page` draws one of the three 2×2 pages
-(:data:`RETRIEVAL_PAGES`: Traces, Pulse, Diagnostics) the GUI shows as tabs.
+(:data:`RETRIEVAL_PAGES`: Traces, Pulse, Diagnostics), as the GUI's Analyse
+pages show them.
 
 Figures are built with :external+matplotlib:class:`matplotlib.figure.Figure` directly
 (no ``pyplot`` global state), so they embed cleanly in a Qt canvas and also save
@@ -18,15 +19,11 @@ standalone via ``fig.savefig(...)``.
 Every public name is importable from ``croak.plotting`` itself; the submodules
 group them by domain:
 
-``scale``
-    On-screen text density (:class:`PlotScale`, :func:`plot_scale`,
-    :func:`scaled_rc`).
 ``units``
     Display units and read-out formatting (:func:`sig3`, :func:`si_power`).
 ``traces``
     FROG-trace images: colormaps, :func:`signed_pcolormesh`, the residual and
-    marginal plotters, :func:`plot_frog_filter`, :class:`FrogFilterView` and
-    :func:`plot_simulated_trace`.
+    marginal plotters, :func:`plot_frog_filter` and :func:`plot_simulated_trace`.
 ``pulse``
     The retrieved pulse: :func:`plot_temporal`, :func:`plot_spectral` and
     :func:`plot_spectrogram`.
@@ -34,15 +31,16 @@ group them by domain:
     The artist bundles each panel returns (:class:`TraceArtists`, …).
 ``panels``
     :class:`RetrievalPlotData` and the twelve ``draw_<key>`` panels.
-``updates``
-    The ``update_<key>`` in-place twins of the panels, for the live preview.
 ``retrieval``
-    The panel registry, pages and overview, :func:`plot_retrieval_page`,
-    :func:`plot_retrieval` and :class:`RetrievalPageView`.
+    The panel registry, pages and overview, :func:`plot_retrieval_page` and
+    :func:`plot_retrieval`.
 ``uncertainty``
     Bootstrap and substrate-thickness uncertainty figures.
 ``figure``
     The figure set-up the composites share.
+``screen``
+    What the GUI's interactive views show, as plain data
+    (:mod:`croak.plotting.screen`).
 """
 
 from .artists import (
@@ -90,22 +88,10 @@ from .retrieval import (
     PageSpec,
     PanelDraw,
     PanelSpec,
-    PanelUpdate,
-    RetrievalPageView,
     plot_retrieval,
     plot_retrieval_page,
 )
-from .scale import (
-    COMPACT_BELOW,
-    FONT_SCALE_MIN,
-    FONT_SCALE_STEP,
-    FULL_SCALE,
-    PlotScale,
-    plot_scale,
-    scaled_rc,
-)
 from .traces import (
-    FrogFilterView,
     cmap_negwhite,
     cmap_white,
     filter_view_vmax,
@@ -127,30 +113,8 @@ from .units import (
     si_power,
     sig3,
 )
-from .updates import (
-    update_convergence,
-    update_convergence_curve,
-    update_delay_marginal,
-    update_freq_marginal,
-    update_measured_lin,
-    update_measured_log,
-    update_residual,
-    update_retrieved_lin,
-    update_retrieved_log,
-    update_spectral,
-    update_spectral_filter,
-    update_spectrogram,
-    update_temporal,
-)
 
 __all__ = [
-    "PlotScale",
-    "FULL_SCALE",
-    "FONT_SCALE_MIN",
-    "FONT_SCALE_STEP",
-    "COMPACT_BELOW",
-    "plot_scale",
-    "scaled_rc",
     "cmap_white",
     "cmap_negwhite",
     "signed_pcolormesh",
@@ -195,23 +159,8 @@ __all__ = [
     "draw_freq_marginal",
     "draw_delay_marginal",
     "draw_spectrogram",
-    "update_measured_log",
-    "update_retrieved_log",
-    "update_measured_lin",
-    "update_retrieved_lin",
-    "update_temporal",
-    "update_spectral",
-    "update_convergence",
-    "update_convergence_curve",
-    "update_residual",
-    "update_spectral_filter",
-    "update_freq_marginal",
-    "update_delay_marginal",
-    "update_spectrogram",
-    "RetrievalPageView",
     "plot_frog_filter",
     "filter_view_vmax",
-    "FrogFilterView",
     "plot_simulated_trace",
     "plot_fwhm_distribution",
     "plot_intensity_band",

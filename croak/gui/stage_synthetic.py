@@ -30,7 +30,7 @@ from ..plotting.screen import pulse_field_views, raw_trace_map
 from ..processing import TruthPulse
 from ..pulses import gaussian_pulse, sech_pulse
 from .base import Stage
-from .canvas import (
+from .controls import (
     add_wide_row,
     check,
     combo,

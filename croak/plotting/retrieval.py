@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from matplotlib.figure import Figure
 from numpy.typing import ArrayLike
@@ -36,21 +36,6 @@ from .panels import (
     retrieval_plot_data,
 )
 from .pulse import SpectralAxis
-from .updates import (
-    _update_signature,
-    update_convergence,
-    update_delay_marginal,
-    update_freq_marginal,
-    update_measured_lin,
-    update_measured_log,
-    update_residual,
-    update_retrieved_lin,
-    update_retrieved_log,
-    update_spectral,
-    update_spectral_filter,
-    update_spectrogram,
-    update_temporal,
-)
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -58,20 +43,15 @@ if TYPE_CHECKING:
 
 
 type PanelDraw = Callable[[Axes, RetrievalPlotData], PanelArtists]
-# Any: each update_<key> takes its own artists dataclass, and a registry entry
-# typed with the union would reject them (parameters are contravariant). The draw
-# side keeps the precise union because a return type is covariant.
-type PanelUpdate = Callable[[Any, RetrievalPlotData], None]
 
 
 @dataclass(frozen=True)
 class PanelSpec:
-    """One retrieval panel: registry key, axes title, draw and in-place update."""
+    """One retrieval panel: registry key, axes title and how to draw it."""
 
     key: str
     title: str
     draw: PanelDraw
-    update: PanelUpdate
 
 
 @dataclass(frozen=True)
@@ -115,41 +95,18 @@ class ColorbarSpec:
 RETRIEVAL_PANELS: Mapping[str, PanelSpec] = {
     spec.key: spec
     for spec in (
-        PanelSpec(
-            "measured_log", "Measured (log)", draw_measured_log, update_measured_log
-        ),
-        PanelSpec(
-            "retrieved_log", "Retrieved (log)", draw_retrieved_log, update_retrieved_log
-        ),
-        PanelSpec("temporal", "Retrieved pulse", draw_temporal, update_temporal),
-        PanelSpec(
-            "delay_marginal",
-            "Delay marginal",
-            draw_delay_marginal,
-            update_delay_marginal,
-        ),
-        PanelSpec(
-            "measured_lin", "Measured (lin)", draw_measured_lin, update_measured_lin
-        ),
-        PanelSpec(
-            "retrieved_lin", "Retrieved (lin)", draw_retrieved_lin, update_retrieved_lin
-        ),
-        PanelSpec("spectral", "Spectrum", draw_spectral, update_spectral),
-        PanelSpec(
-            "freq_marginal",
-            "Frequency marginal",
-            draw_freq_marginal,
-            update_freq_marginal,
-        ),
-        PanelSpec("convergence", "Convergence", draw_convergence, update_convergence),
-        PanelSpec("residual", "Residuals", draw_residual, update_residual),
-        PanelSpec(
-            "spectral_filter",
-            "Spectral filter",
-            draw_spectral_filter,
-            update_spectral_filter,
-        ),
-        PanelSpec("spectrogram", "Spectrogram", draw_spectrogram, update_spectrogram),
+        PanelSpec("measured_log", "Measured (log)", draw_measured_log),
+        PanelSpec("retrieved_log", "Retrieved (log)", draw_retrieved_log),
+        PanelSpec("temporal", "Retrieved pulse", draw_temporal),
+        PanelSpec("delay_marginal", "Delay marginal", draw_delay_marginal),
+        PanelSpec("measured_lin", "Measured (lin)", draw_measured_lin),
+        PanelSpec("retrieved_lin", "Retrieved (lin)", draw_retrieved_lin),
+        PanelSpec("spectral", "Spectrum", draw_spectral),
+        PanelSpec("freq_marginal", "Frequency marginal", draw_freq_marginal),
+        PanelSpec("convergence", "Convergence", draw_convergence),
+        PanelSpec("residual", "Residuals", draw_residual),
+        PanelSpec("spectral_filter", "Spectral filter", draw_spectral_filter),
+        PanelSpec("spectrogram", "Spectrogram", draw_spectrogram),
     )
 }
 
@@ -234,94 +191,6 @@ def _draw_panels(
     artists = {key: RETRIEVAL_PANELS[key].draw(ax, data) for key, ax in axd.items()}
     _draw_colorbars(fig, axd, artists)
     return axd, artists
-
-
-class RetrievalPageView:
-    """Maintain a page of retrieval plots for repeated GUI updates.
-
-    The live preview hands the Retrieve stage a new result a few times a second.
-    Clearing a figure and rebuilding a page's axes, colourbars and legends for
-    each one costs a full constrained-layout solve and lets legends jump between
-    frames; this view draws the page once and then pushes later results onto the
-    existing artists when :meth:`can_update` accepts the new data, as
-    :class:`FrogFilterView` does for the preprocessing figure. It redraws when
-    the grid, optional curves or panel structure change.
-
-    Parameters
-    ----------
-    page : PageSpec
-        Panels and their layout.
-
-    Examples
-    --------
-    >>> view = RetrievalPageView(RETRIEVAL_PAGES["pulse"])  # doctest: +SKIP
-    >>> view.draw(fig, data1)  # doctest: +SKIP
-    >>> if view.can_update(data2):  # doctest: +SKIP
-    ...     view.update(data2)
-    ... else:
-    ...     view.draw(fig, data2)
-    """
-
-    def __init__(self, page: PageSpec):
-        self.page = page
-        self.fig: Figure | None = None
-        self.axd: dict[str, Axes] = {}
-        self.artists: dict[str, PanelArtists] = {}
-        self._signature: tuple | None = None
-
-    @property
-    def attached(self) -> bool:
-        """Whether the view has drawn into a figure."""
-        return self.fig is not None
-
-    def draw(self, fig: Figure, data: RetrievalPlotData) -> None:
-        """Clear ``fig`` and draw the page afresh for ``data``.
-
-        Constrained layout is solved on the first real draw and then frozen (the
-        engine is swapped for matplotlib's placeholder), so later in-place updates
-        neither re-solve it nor nudge the panels as tick labels change width.
-        """
-        _prepare_fig(fig, None)
-        self.fig = fig
-        self.axd, self.artists = _draw_panels(fig, self.page, data)
-        self._signature = _update_signature(data)
-        canvas = fig.canvas
-
-        def freeze(_event) -> None:
-            canvas.mpl_disconnect(cid)
-            if self.fig is fig:
-                fig.set_layout_engine("none")
-
-        cid = canvas.mpl_connect("draw_event", freeze)
-
-    def can_update(self, data: RetrievalPlotData) -> bool:
-        """Whether ``data`` differs from the drawn result in values only."""
-        return self.attached and _update_signature(data) == self._signature
-
-    def update(self, data: RetrievalPlotData) -> None:
-        """Push ``data`` onto the drawn artists.
-
-        Raises
-        ------
-        RuntimeError
-            If nothing has been drawn yet.
-        ValueError
-            If :meth:`can_update` is false (different grid or optional artists);
-            :meth:`draw` it instead.
-        """
-        if not self.attached:
-            raise RuntimeError("draw(fig, data) before update(data)")
-        if not self.can_update(data):
-            raise ValueError("the result's shape or contents changed: draw() it")
-        for key, artists in self.artists.items():
-            RETRIEVAL_PANELS[key].update(artists, data)
-
-    def reset(self) -> None:
-        """Forget the figure (someone else cleared it); the next call must draw."""
-        self.fig = None
-        self.axd = {}
-        self.artists = {}
-        self._signature = None
 
 
 def plot_retrieval_page(

@@ -46,7 +46,7 @@ from ..preprocess import (
 )
 from ..session.pipeline import assemble_load_data, assemble_simulated_load_data
 from .base import Stage
-from .canvas import add_wide_row, check, combo, dspin, group
+from .controls import add_wide_row, check, combo, dspin, group
 from .retrieval_views import ViewPanel
 from .widgets import RangeControl
 

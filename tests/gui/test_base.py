@@ -9,7 +9,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QLabel, QLineEdit
 
 from croak.gui.base import Stage
-from croak.gui.canvas import group
+from croak.gui.controls import group
 from croak.gui.state import WizardState
 
 

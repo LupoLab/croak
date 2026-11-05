@@ -21,7 +21,7 @@ __all__ = ["RunControls", "Stage"]
 class Stage(StagePage):
     """A stage page: build into :attr:`controls`, then :meth:`set_plot_area`.
 
-    Subclasses add their sections (:func:`croak.gui.canvas.group`) to
+    Subclasses add their sections (:func:`croak.gui.controls.group`) to
     ``self.controls``, hand their plots to :meth:`set_plot_area`, call
     :meth:`apply_help` at the end of ``__init__`` and implement :meth:`on_enter`.
 

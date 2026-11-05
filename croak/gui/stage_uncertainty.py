@@ -28,7 +28,7 @@ from ..plotting.screen import uncertainty_views
 from ..processing import TruthPulse
 from ..uncertainty import UncertaintyResult, combine_uncertainties
 from .base import RunControls, Stage
-from .canvas import check, combo, dspin, group, spin
+from .controls import check, combo, dspin, group, spin
 from .retrieval_views import ViewPanel
 
 _METHODS = ["parametric", "delay", "frequency", "thickness", "covariance"]

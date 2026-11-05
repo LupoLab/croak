@@ -327,3 +327,21 @@ def test_screen_uncertainty_band_of_nothing_has_no_window():
     flat = replace(_estimate(), profiles=np.zeros((40, 30)))
     _, band = screen.uncertainty_views(flat)
     assert band.xrange is None
+
+
+def test_screen_filter_is_the_peak_normalised_factor_else_flat(data):
+    flat = replace(data, result=replace(data.result, mu=1.0))
+    assert_allclose(screen.filter_view(flat).curves[0].y, 1.0)
+    n = data.result.omega.size
+    shaped = replace(data, result=replace(data.result, mu=np.linspace(1.0, 4.0, n)))
+    factor = screen.filter_view(shaped).curves[0].y
+    assert factor.max() == pytest.approx(1.0) and factor.min() == pytest.approx(0.25)
+
+
+def test_screen_truth_spectrum_on_either_axis_or_none(data):
+    by_wavelength = replace(data, spectral_axis="wavelength")
+    roles = [c.role for c in screen.spectral_view(by_wavelength).curves]
+    assert "truth" in roles
+    no_spectrum = replace(data, truth=replace(data.truth, lam=None))
+    roles = [c.role for c in screen.spectral_view(no_spectrum).curves]
+    assert "truth" not in roles

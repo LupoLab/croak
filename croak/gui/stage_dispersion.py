@@ -32,7 +32,7 @@ from ..plotting.screen import (
 )
 from ..processing import process_result, spectrogram
 from .base import Stage
-from .canvas import combo, group
+from .controls import combo, group
 from .mirror_stack import MirrorStack
 from .retrieval_views import ViewPanel
 from .widgets import SciSpinBox, ValueControl

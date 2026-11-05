@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 
 from .. import dispersion, io, mirrors
 from ..session.params import BeamPathMirror
-from .canvas import combo, spin
+from .controls import combo, spin
 
 __all__ = ["MirrorRow", "MirrorStack"]
 
