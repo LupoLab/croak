@@ -2484,16 +2484,7 @@ def test_collapsible_strip_folds_and_remembers_its_state(qtbot):
     assert plain.isExpanded()  # no key: the default
 
 
-# -- Retrieve pages ----------------------------------------------------------------
-def _titles(figure):
-    return [ax.get_title() for ax in figure.axes if ax.get_title()]
-
-
-def _page_titles(key):
-    page = croak.plotting.RETRIEVAL_PAGES[key]
-    return [croak.plotting.RETRIEVAL_PANELS[k].title for k in page.keys]
-
-
+# -- Retrieve's live overview and Analyse's pages ---------------------------------
 class _IdleWorker:
     """A retrieval worker that never runs, so a just-started state can be inspected."""
 
@@ -2509,78 +2500,68 @@ class _IdleWorker:
         pass
 
 
-def test_retrieve_pages_show_three_tabs_and_draw_the_visible_page(qtbot):
+def test_retrieve_shows_the_overview_after_a_run(qtbot):
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    pages = rs.pages
-    assert pages.page_keys() == ("traces", "pulse", "diagnostics")
-    assert pages.current_page() == "traces"
-    assert _titles(pages.canvas("traces").figure) == _page_titles("traces")
-    assert pages.is_stale("pulse") and pages.is_stale("diagnostics")
-    assert not pages.canvas("pulse").figure.axes  # not drawn until selected
+    assert rs.pages.mode == "panels"
+    assert set(rs.pages.boxes) == {
+        "measured_log",
+        "retrieved_log",
+        "temporal",
+        "spectral",
+    }
+    assert rs.pages.data is not None and rs.pages.data.result is w.state.result
 
 
-def test_retrieve_pages_redraw_a_stale_page_when_selected(qtbot):
+def test_analyse_rail_shows_every_page_of_the_result(qtbot):
     w = Driver(qtbot)
-    rs = _run_synthetic_retrieval(w, qtbot)
-    rs.pages.set_current_page("pulse")
-    assert not rs.pages.is_stale("pulse")
-    assert _titles(rs.pages.canvas("pulse").figure) == _page_titles("pulse")
-    rs.pages.set_current_page("diagnostics")
-    assert _titles(rs.pages.canvas("diagnostics").figure) == _page_titles("diagnostics")
+    _run_synthetic_retrieval(w, qtbot)
+    w.win.go(Stage.ANALYSE)
+    analyse = w.analyse
+    assert list(analyse.rail_items)[:4] == [
+        "overview",
+        "traces",
+        "pulse",
+        "diagnostics",
+    ]
+    for key in ("traces", "pulse", "diagnostics"):
+        analyse.show_page(key)
+        page = analyse.pages[key]
+        expected = set(croak.plotting.RETRIEVAL_PAGES[key].keys)
+        assert set(page.panels.boxes) == expected
+        assert page.panels.mode == "panels"
 
 
-def test_retrieve_pages_pop_out_opens_a_window_that_follows_the_result(qtbot):
-    w = Driver(qtbot)
-    rs = _run_synthetic_retrieval(w, qtbot)
-    dlg = rs.pages.pop_out("pulse")
-    assert dlg.isWindow()
-    assert dlg.isVisible()
-    assert _titles(dlg.canvas.figure) == _page_titles("pulse")
-    before = dlg.canvas.figure.axes[0]
-    rs._update_view()  # the pop-out follows, updated in place
-    assert dlg.canvas.figure.axes[0] is before
-    assert rs.pages.pop_out("pulse") is dlg  # one window per page
-    dlg.close()
-    qtbot.waitUntil(lambda: "pulse" not in rs.pages._popouts)
-
-
-def test_retrieve_progress_curve_shows_on_the_visible_page(qtbot):
+def test_retrieve_progress_curve_shows_before_the_first_preview(qtbot):
     w = Driver(qtbot)
     w.start("synthetic")
     w.synthetic.advance()
     w.goto(3)
     w.goto(4)
     rs = w.stages[3]
-    rs.pages.set_current_page("pulse")
     rs._errors = []
     rs._on_progress(1, 0.1, 0.1)
     rs._on_progress(2, 0.05, 0.05)
-    fig = rs.pages.canvas("pulse").figure
-    qtbot.waitUntil(lambda: _titles(fig) == ["Convergence"])  # after the debounce
-    line = fig.axes[0].lines[0]
-    assert line.get_xydata().shape == (2, 2)
+    qtbot.waitUntil(lambda: rs.pages.mode == "progress")  # after the debounce
+    line = rs.pages.convergence.items[0]
+    assert line.yData.size == 2
     rs._on_progress(3, 0.02, 0.02)
-    qtbot.waitUntil(lambda: line.get_xydata().shape == (3, 2))  # grown in place
-    assert fig.axes[0].lines[0] is line
-    # switching tabs while running shows the curve there too
-    rs.pages.set_current_page("traces")
-    assert _titles(rs.pages.canvas("traces").figure) == ["Convergence"]
+    qtbot.waitUntil(lambda: rs.pages.convergence.items[0].yData.size == 3)
 
 
-def test_retrieve_run_clears_the_pages(qtbot, monkeypatch):
+def test_retrieve_run_clears_the_overview(qtbot, monkeypatch):
     from croak.gui import stage_retrieve as sr
 
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    assert rs.pages.canvas("traces").figure.axes
+    assert rs.pages.mode == "panels"
     monkeypatch.setattr(sr, "RetrievalWorker", _IdleWorker)
     rs._run()
-    assert all(not rs.pages.canvas(k).figure.axes for k in rs.pages.page_keys())
+    assert rs.pages.mode == "empty"
     assert rs.pages.data is None
 
 
-def test_retrieve_readout_collapse_frees_canvas_height(qtbot):
+def test_retrieve_readout_collapse_frees_plot_height(qtbot):
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
     w.resize(1366, 768)
@@ -2616,12 +2597,11 @@ def test_retrieve_save_writes_the_full_overview_pdf(qtbot, tmp_path, monkeypatch
     assert (tmp_path / "retrieval.pdf").stat().st_size > 0
     page, fig = seen[-1]
     assert page is croak.plotting.RETRIEVAL_OVERVIEW
-    assert len(_titles(fig)) == 12
+    assert len([ax for ax in fig.axes if ax.get_title()]) == 12
 
 
-# -- live preview in place -----------------------------------------------------------
-def test_retrieve_live_preview_updates_the_page_in_place(qtbot):
-    """A later snapshot of the same run reuses the drawn axes and artists."""
+def test_retrieve_live_preview_redraws_the_overview(qtbot):
+    """A later snapshot of the same run is drawn on the same plots."""
     from dataclasses import replace
 
     w = Driver(qtbot)
@@ -2630,33 +2610,21 @@ def test_retrieve_live_preview_updates_the_page_in_place(qtbot):
     assert r1 is not None
     r2 = replace(r1, errors=list(r1.errors[:5]), error=float(r1.errors[4]))
     rs._on_preview(r1)
-    figure = rs.pages.canvas("traces").figure
-    axes = list(figure.axes)
-    retrieved_lin = next(
-        ax for ax in figure.axes if ax.get_title() == "Retrieved (lin)"
-    )
-    label = retrieved_lin.texts[0]  # the bold error/shape annotation
+    plot = rs.pages.boxes["temporal"].plot
     rs._on_preview(r2)
-    assert list(figure.axes) == axes
+    assert rs.pages.boxes["temporal"].plot is plot
     assert rs._live_full
-    assert f"{r2.error * 100:.2f}%" in label.get_text()
+    assert rs.pages.data is not None and rs.pages.data.result is r2
     assert "iter 5" in rs.status_label.text()
-    # a stale page drawn later shows the latest snapshot
-    rs.pages.set_current_page("pulse")
-    assert rs.pages.data is not None
-    assert rs.pages.data.result is r2
 
 
-def test_retrieve_post_filter_updates_in_place(qtbot):
+def test_retrieve_post_filter_redraws_the_stored_result(qtbot):
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    figure = rs.pages.canvas("traces").figure
-    axes = list(figure.axes)
-    status = rs.status_label.text()
+    before = rs.pages.data
     rs.pf_lam.setChecked(True)  # re-plots the stored result through _update_view
-    assert list(figure.axes) == axes
     assert rs.state.retrieve.post_filter_lam is True
-    assert rs.status_label.text() != status or "Done" in rs.status_label.text()
+    assert rs.pages.data is not before
 
 
 def test_retrieve_convergence_redraw_is_throttled(qtbot, monkeypatch):
@@ -2682,22 +2650,14 @@ def test_retrieve_convergence_redraw_is_throttled(qtbot, monkeypatch):
 
 
 # -- spectrum axis and preview cadence -------------------------------------------------
-def _spectrum_axes(rs):
-    return next(
-        ax
-        for ax in rs.pages.canvas("pulse").figure.axes
-        if ax.get_title() == "Spectrum"
-    )
-
-
 def test_retrieve_spectrum_axis_defaults_to_frequency_and_is_remembered(qtbot):
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
     assert rs.spectrum_axis_combo.currentText() == "frequency"
-    rs.pages.set_current_page("pulse")
-    assert _spectrum_axes(rs).get_xlabel() == "Frequency (PHz)"
+    spectrum = rs.pages.boxes["spectral"].plot
+    assert spectrum.item.getAxis("bottom").labelText == "Frequency (PHz)"
     rs.spectrum_axis_combo.setCurrentText("wavelength")  # re-presents the result
-    assert _spectrum_axes(rs).get_xlabel() == "Wavelength (nm)"
+    assert spectrum.item.getAxis("bottom").labelText == "Wavelength (nm)"
     assert settings.text("retrieve/spectrum_axis", "frequency") == "wavelength"
     again = Driver(qtbot)
     assert again.stages[3].spectrum_axis_combo.currentText() == "wavelength"

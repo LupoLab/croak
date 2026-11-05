@@ -30,6 +30,7 @@ __all__ = [
     "LinePlot",
     "MapPlot",
     "Plot",
+    "colormap",
     "curve_reader",
     "map_reader",
     "signed_colormap",
@@ -199,6 +200,24 @@ class Plot(pg.PlotWidget):
         super().leaveEvent(event)  # pyright: ignore[reportArgumentType]
 
 
+def colormap(name: str) -> pg.ColorMap:
+    """Return the colour map ``name``: pyqtgraph's own, else matplotlib's.
+
+    Raises
+    ------
+    ValueError
+        If neither knows the name.
+    """
+    for source in (None, "matplotlib"):
+        try:
+            # Either source raises for a name it lacks (pyqtgraph looks for a
+            # file of that name); the stubs allow None, which it never returns.
+            return cast(pg.ColorMap, pg.colormap.get(name, source=source))
+        except FileNotFoundError, ValueError:
+            continue
+    raise ValueError(f"unknown colour map {name!r}")
+
+
 def signed_colormap(name: str, low: float, high: float) -> pg.ColorMap:
     """Return colour map ``name`` for levels ``(low, high)``, white at zero.
 
@@ -227,12 +246,7 @@ def signed_colormap(name: str, low: float, high: float) -> pg.ColorMap:
     """
     if not high > 0 or not low < high:
         raise ValueError(f"need low < high and high > 0, got ({low}, {high})")
-    try:
-        base = pg.colormap.get(name)
-    except FileNotFoundError:  # pyqtgraph looks the name up as a file
-        base = None
-    if base is None:
-        raise ValueError(f"unknown colour map {name!r}")
+    base = colormap(name)
     stops = np.linspace(0.0, 1.0, 9)
     colours = np.array(base.map(stops, mode=pg.ColorMap.FLOAT), dtype=float)
     colours[0] = (1.0, 1.0, 1.0, 1.0)
@@ -273,6 +287,9 @@ class MapPlot(Plot):
         The colour bar's label.
     signed : bool
         Draw values below zero in red fading to white (:func:`signed_colormap`).
+    white : bool
+        Start the colour map at white, so an empty background reads as paper,
+        as the matplotlib figures do (off for a diverging map such as ``bwr``).
     """
 
     def __init__(
@@ -283,17 +300,19 @@ class MapPlot(Plot):
         colours: str = "viridis",
         unit: str = "",
         signed: bool = False,
+        white: bool = True,
     ) -> None:
         super().__init__(xlabel=xlabel, ylabel=ylabel)
         self.colours = colours
         self.signed = signed
+        self.white = white
         self.data: np.ndarray | None = None
         self.x_axis = np.zeros(0)
         self.y_axis = np.zeros(0)
         self.image = _SmoothImage(axisOrder="row-major")
         self.addItem(self.image)
         self.bar = pg.ColorBarItem(
-            colorMap=pg.colormap.get(colours),
+            colorMap=signed_colormap(colours, 0.0, 1.0) if white else colormap(colours),
             interactive=False,
             width=10,
             colorMapMenu=False,
@@ -356,8 +375,10 @@ class MapPlot(Plot):
     def set_levels(self, levels: tuple[float, float]) -> None:
         """Change the colour bar's span without touching the data."""
         low, high = float(levels[0]), float(levels[1])
-        if self.signed and high > 0 and low < high:
+        if self.signed and high > 0 and low < 0:
             self.bar.setColorMap(signed_colormap(self.colours, low, high))
+        elif self.signed:
+            self.bar.setColorMap(signed_colormap(self.colours, 0.0, 1.0))
         self.bar.setLevels(values=(low, high))
 
     def value_at(self, x: float, y: float) -> float | None:
@@ -397,6 +418,10 @@ class Curve:
         Draw dashed.
     right : bool
         Plot against the right-hand axis (e.g. a phase beside an intensity).
+    width : float
+        Line width, logical px.
+    under : bool
+        Draw beneath the other curves (a reference such as a known pulse).
     """
 
     x: np.ndarray
@@ -405,6 +430,8 @@ class Curve:
     colour: str = ""
     dashed: bool = False
     right: bool = False
+    width: float = PEN_WIDTH
+    under: bool = False
 
 
 class LinePlot(Plot):
@@ -473,7 +500,9 @@ class LinePlot(Plot):
         self.item.setLogMode(False, log_y)
         named = [c for c in curves if c.name]
         if len(named) > 1 and self.legend is None:
-            self.legend = self.item.addLegend(offset=(-8, 8), labelTextSize="8pt")
+            self.legend = self.item.addLegend(
+                offset=(-8, 8), labelTextSize="8pt", brush=(255, 255, 255, 210)
+            )
         if self.legend is not None:
             self.legend.setVisible(len(named) > 1)
         auto = 0
@@ -481,9 +510,10 @@ class LinePlot(Plot):
             colour = curve.colour or COLOURS[auto % len(COLOURS)]
             auto += not curve.colour
             style = Qt.PenStyle.DashLine if curve.dashed else Qt.PenStyle.SolidLine
-            pen = pg.mkPen(colour, width=PEN_WIDTH, style=style)
+            pen = pg.mkPen(colour, width=curve.width, style=style)
             x, y = self._points(curve, curve.x, curve.y)
             item = pg.PlotDataItem(x, y, pen=pen)
+            item.setZValue(-1 if curve.under else 0)
             if curve.right and self.right_box is not None:
                 self.right_box.addItem(item)
             else:
@@ -497,6 +527,11 @@ class LinePlot(Plot):
         curve = replace(self.curves[index], x=np.asarray(x), y=np.asarray(y))
         self.curves[index] = curve
         self.items[index].setData(*self._points(curve, curve.x, curve.y))
+
+    def set_right_label(self, text: str) -> None:
+        """Change the right-hand axis's label (no-op without a right axis)."""
+        if self.right_box is not None:
+            _set_label(self.item.getAxis("right"), text)
 
     def set_right_range(self, low: float, high: float) -> None:
         """Fix the right-hand axis's range."""
@@ -526,11 +561,17 @@ class LinePlot(Plot):
         x = np.concatenate([d[0] for d in drawn])
         y = np.concatenate([d[1] for d in drawn])
         y = y[np.isfinite(y)]
-        if self.log_y:
-            y = np.log10(y)
+        xr = (float(np.min(x)), float(np.max(x)))
+        if self.log_y and y.size:
+            # Whole decades, as matplotlib's log axes: inside one decade
+            # pyqtgraph has no tick to label.
+            low = float(np.floor(np.log10(np.min(y))))
+            high = max(float(np.ceil(np.log10(np.max(y)))), low + 1.0)
+            self.set_view(xr, (low, high))
+            return
         yr = (float(np.min(y)), float(np.max(y))) if y.size else (0.0, 1.0)
         pad = 0.05 * ((yr[1] - yr[0]) or 1.0)
-        self.set_view((float(np.min(x)), float(np.max(x))), (yr[0] - pad, yr[1] + pad))
+        self.set_view(xr, (yr[0] - pad, yr[1] + pad))
 
 
 def map_reader(

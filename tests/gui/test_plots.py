@@ -66,9 +66,13 @@ def test_plots_unsigned_colormap_starts_white():
         ("viridis", 0.0, 0.0, "high > 0"),
         ("viridis", 2.0, 1.0, "low < high"),
         ("no-such-map", 0.0, 1.0, "unknown colour map"),
+        ("bwr", 0.0, 1.0, ""),
     ],
 )
 def test_plots_signed_colormap_rejects_bad_levels_and_names(name, low, high, match):
+    if not match:  # a matplotlib map is found too
+        assert signed_colormap(name, low, high) is not None
+        return
     with pytest.raises(ValueError, match=match):
         signed_colormap(name, low, high)
 
@@ -121,6 +125,18 @@ def test_plots_signed_map_recolours_for_negative_levels(qtbot):
     plot.set_levels((-2.0, 6.0))
     cmap = plot.bar.colorMap()
     assert_allclose(cmap.map([0.0], mode=cmap.FLOAT)[0], NEGATIVE_RGBA, atol=1 / 255)
+    plot.set_levels((0.0, 6.0))  # no negatives: back to white at the floor
+    cmap = plot.bar.colorMap()
+    assert_allclose(cmap.map([0.0], mode=cmap.FLOAT)[0], (1, 1, 1, 1), atol=1 / 255)
+
+
+def test_plots_map_starts_white_unless_told_otherwise(qtbot):
+    white = _map(qtbot)
+    cmap = white.bar.colorMap()
+    assert_allclose(cmap.map([0.0], mode=cmap.FLOAT)[0], (1, 1, 1, 1), atol=1 / 255)
+    plain = _map(qtbot, white=False, colours="bwr")
+    cmap = plain.bar.colorMap()
+    assert cmap.map([0.0], mode=cmap.FLOAT)[0][2] > 0.9  # bwr starts blue
 
 
 def test_plots_map_says_a_message_in_place_of_the_image(qtbot):
@@ -221,8 +237,8 @@ def test_plots_log_axis_drops_non_positive_values(qtbot):
     plot.update_curve(0, x, np.array([1.0, 0.0, 1.0, 1.0, 1.0]))
     assert plot.items[0].yData.size == 4
     plot.fit()
-    # log10 of 1 … 1: a flat line gets a unit-wide window around it.
-    assert plot.box.viewRange()[1] == pytest.approx([-0.05, 0.05])
+    # A log axis spans whole decades (at least one), so it always has ticks.
+    assert plot.box.viewRange()[1] == pytest.approx([0.0, 1.0])
 
 
 def test_plots_right_axis_carries_its_own_curves(qtbot):
@@ -244,6 +260,22 @@ def test_plots_right_range_is_ignored_without_a_right_axis(qtbot):
     plot = _shown(qtbot, LinePlot())
     plot.set_right_range(0.0, 1.0)
     assert plot.right_box is None
+
+
+def test_plots_right_label_needs_a_right_axis(qtbot):
+    with_right = _shown(qtbot, LinePlot(right_label="Phase"))
+    with_right.set_right_label("Phase (rad)")
+    assert with_right.item.getAxis("right").labelText == "Phase (rad)"
+    without = _shown(qtbot, LinePlot())
+    without.set_right_label("ignored")  # no right axis: nothing to label
+
+
+def test_plots_curves_can_be_thin_references_drawn_beneath(qtbot):
+    plot = _shown(qtbot, LinePlot())
+    x = np.arange(3.0)
+    plot.set_curves([Curve(x, x), Curve(x, x, width=0.9, under=True)])
+    assert plot.items[1].zValue() < plot.items[0].zValue()
+    assert plot.items[1].opts["pen"].widthF() == pytest.approx(0.9)
 
 
 def test_plots_marks_replace_the_previous_set(qtbot):

@@ -37,8 +37,8 @@ from ..truth_metrics import truth_errors
 from . import settings
 from .base import RunControls, Stage
 from .canvas import check, collapsible, combo, dspin, group, spin
-from .panel_pages import RetrievalPages
 from .readout import DASH, RetrievalReadout
+from .retrieval_views import RetrievalPanels
 from .widgets import SciSpinBox
 from .worker import RetrievalWorker
 
@@ -890,12 +890,11 @@ class StageRetrieve(RunControls, Stage):
         self.controls.addWidget(self.retarget_btn)
         self.controls.addStretch(1)
 
-        # Figure on top (it takes every spare pixel), numeric read-out beneath it
-        # at its natural height — see croak.gui.readout.
-        # Pages of panels on top (they take every spare pixel; see
-        # croak.gui.panel_pages), the numeric read-out beneath at its natural
-        # height, folding away with a click and remembering that.
-        self.pages = RetrievalPages()
+        # The live overview on top (it takes every spare pixel; see
+        # croak.gui.retrieval_views), the numeric read-out beneath at its natural
+        # height, folding away with a click and remembering that. The full pages
+        # of panels are on Analyse.
+        self.pages = RetrievalPanels()
         self.readout = RetrievalReadout()
         self.readout_strip = collapsible(
             "Numeric read-out",

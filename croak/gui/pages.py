@@ -4,7 +4,8 @@
 pages from the shared state. Data is two steps on one page: the entry's own
 loader (a measured trace, a simulated scan or a synthetic pulse) and then the
 marginal check of the loaded trace. Analyse is a rail of pages that read the
-retrieved result.
+retrieved result: its panels (Overview, Traces, Pulse, Diagnostics), then
+Dispersion and Uncertainty.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from ..session.pipeline import (
 )
 from .base import Stage
 from .help import HelpDialog
+from .retrieval_views import ResultPage
 from .sheet import Segments
 from .stage import PageBase
 from .stage_dispersion import StageDispersion
@@ -305,9 +307,19 @@ class AnalysePage(PageBase):
 def default_pages(state: WizardState) -> Mapping[Place, PageBase]:
     """Build a session's Data, Prepare, Retrieve and Analyse pages."""
     retrieve = StageRetrieve(state)
+    results: list[tuple[str, str, PageBase]] = [
+        (key, title, ResultPage(state, key, retrieve.overview))
+        for key, title in (
+            ("overview", "Overview"),
+            ("traces", "Traces"),
+            ("pulse", "Pulse"),
+            ("diagnostics", "Diagnostics"),
+        )
+    ]
     analyse = AnalysePage(
         state,
         [
+            *results,
             ("dispersion", "Dispersion", StageDispersion(state)),
             ("uncertainty", "Uncertainty", StageUncertainty(state)),
         ],
