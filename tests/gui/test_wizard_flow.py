@@ -1084,7 +1084,7 @@ def test_preprocess_interactive_change_recomputes_off_thread(
     stage = w.stages[2]
     assert state.tracedata is not None
     td_before = state.tracedata
-    assert stage._view.attached  # the reusable view was built on the first draw
+    assert stage.views["regridded_lin"].plot.data is not None  # drawn at once
 
     # Narrow the grid-λ range: schedules the 200 ms debounce, which fires the
     # off-thread recompute. Spinning the event loop runs both timer and worker.

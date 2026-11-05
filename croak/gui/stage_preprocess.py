@@ -26,22 +26,22 @@ from typing import TypedDict
 
 import shiboken6
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QPushButton, QWidget
 
-from .. import io, plotting
+from .. import io
+from ..plotting.screen import FILTER_PANELS, filter_views
 from ..preprocess import suggested_tau_exclude
 from ..session import pipeline
 from .base import Stage
 from .canvas import (
-    MplCanvas,
     add_wide_row,
     check,
     combo,
     dspin,
     group,
     spin,
-    with_toolbar,
 )
+from .retrieval_views import ViewPanel
 from .widgets import RangeControl, SciSpinBox
 from .worker import PreprocessWorker
 
@@ -199,7 +199,6 @@ class StagePreprocess(Stage):
         self._seeding = False
         # Off-thread preprocessing: the plotting redraw (not the math) is the
         # bottleneck, but both used to block the UI thread on every change.
-        self._view = plotting.FrogFilterView()
         self._req_id = 0  # bumped per recompute; stale worker results are ignored
         self._workers: list[PreprocessWorker] = []
         self._pending: tuple | None = None  # (params, data) for the exact refine
@@ -409,8 +408,30 @@ class StagePreprocess(Stage):
         self.controls.addWidget(self.reset_btn)
         self.controls.addStretch(1)
 
-        self.canvas = MplCanvas(figsize=(9, 5))
-        self.set_plot_area(with_toolbar(self.canvas))
+        # The filter preview: measured, filtered and regridded traces in dB and
+        # linear. The wavelength-domain maps share their axes, as do all six
+        # delay axes, so a zoom on one follows on the others.
+        self.views = {
+            key: ViewPanel("map", signed=not db)
+            for key, _title, _which, _domain, db in FILTER_PANELS
+        }
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        for index, view in enumerate(self.views.values()):
+            grid.addWidget(view, index // 3, index % 3)
+        first = self.views["measured_db"].plot
+        for key, view in self.views.items():
+            if key == "measured_db":
+                continue
+            view.plot.setYLink(first)
+            if not key.startswith("regridded"):
+                view.plot.setXLink(first)
+        self.views["regridded_lin"].plot.setXLink(self.views["regridded_db"].plot)
+        plots = QWidget()
+        plots.setLayout(grid)
+        self.set_plot_area(plots)
 
         self.apply_help()
 
@@ -651,27 +672,11 @@ class StagePreprocess(Stage):
     def _show_tracedata(self, td):
         """Store and draw a freshly computed trace (main thread)."""
         self.state.set_tracedata(td)
-        if self._view.attached:
-            # Fast path: the artists exist, so push the data and repaint.
-            self._view.update(td)
-            self.canvas.draw_idle()
-        else:
-            self.canvas.render(self._replot_view)
+        for key, view in filter_views(td).items():
+            self.views[key].show_view(view)
         self.set_status(
             f"Regridded to {td.grid.n}×{td.delays.size}. Proceed to Retrieve."
         )
-
-    def _replot_view(self, fig) -> None:
-        """(Re)build the filter view in ``fig`` and fill it from the current trace.
-
-        Handed to :meth:`~croak.gui.canvas.MplCanvas.render`, which re-runs it when
-        a resize changes the text density; the view is rebuilt on the cleared
-        figure and refilled from ``state.tracedata`` (nothing to fill if none yet).
-        """
-        self._view.attach(fig)
-        td = self.state.tracedata
-        if td is not None:
-            self._view.update(td)
 
     def _on_preprocess_done(self, td, req_id, was_fast):
         if req_id != self._req_id:

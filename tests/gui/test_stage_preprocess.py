@@ -135,12 +135,14 @@ def test_stage_preprocess_on_enter_computes_once(loaded):
     assert loaded.status_label.text().startswith("Regridded to")
     loaded.on_enter()  # a trace exists: re-seeds the widgets, no recompute
     assert loaded.state.tracedata is td
-    # a recompute with the view already built updates the artists in place
-    assert loaded._view.attached
-    figure_axes = list(loaded.canvas.figure.axes)
+    # a recompute redraws the same six maps
+    plots = [view.plot for view in loaded.views.values()]
+    assert all(plot.data is not None for plot in plots)
     loaded.apply(block=True)
     assert loaded.state.tracedata is not td
-    assert loaded.canvas.figure.axes == figure_axes
+    assert [view.plot for view in loaded.views.values()] == plots
+    titles = [view.title.text() for view in loaded.views.values()]
+    assert titles[0] == "Measured (dB)" and titles[-1] == "Regridded (lin)"
 
 
 def test_stage_preprocess_reset_restores_defaults(loaded):
@@ -177,12 +179,6 @@ def test_stage_preprocess_fast_result_without_pending_does_not_refine(loaded):
     loaded._on_preprocess_done(td, loaded._req_id, True)
     assert loaded.state.tracedata is td
     assert loaded._workers == []
-
-
-def test_stage_preprocess_replot_without_a_trace_only_attaches(loaded):
-    loaded.canvas.render(loaded._replot_view)
-    assert loaded._view.attached
-    assert loaded.state.tracedata is None
 
 
 def test_stage_preprocess_discard_worker_tolerates_destroyed_workers(loaded):

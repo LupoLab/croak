@@ -209,3 +209,53 @@ def test_screen_pulse_views_tolerate_an_empty_field():
     )
     assert temporal.xrange is None and spectral.xrange is None
     assert gram.yrange is None and gram.values.max() == 0.0
+
+
+def test_screen_filter_views_cover_the_three_traces_in_both_scales(experiment):
+    from croak import preprocess
+
+    td = preprocess.load_and_clean(
+        experiment.trace,
+        experiment.lam_nm * 1e-9,
+        experiment.delay_fs * 1e-15,
+        experiment.interaction,
+        lam_min=experiment.lam_min,
+        lam_max=experiment.lam_max,
+        input_unit="delay",
+    )
+    views = screen.filter_views(td, tracedb=20.0)
+    assert list(views) == [key for key, *_ in screen.FILTER_PANELS]
+    assert views["measured_db"].levels == (-20.0, 0.0)
+    assert views["measured_db"].values.min() >= -20.0
+    shared = plotting.filter_view_vmax(td)
+    assert views["filtered_lin"].levels[1] == shared
+    assert views["regridded_lin"].levels[1] == shared
+    assert views["regridded_db"].xlabel == "Frequency (PHz)"
+    assert views["filtered_lin"].xlabel == "Wavelength (nm)"
+    assert all(v.ylabel == "Delay (fs)" for v in views.values())
+
+
+def test_screen_simulated_views_show_the_file_density_on_a_unit_peak():
+    lam = np.linspace(700e-9, 900e-9, 21)
+    centre = np.exp(-(((lam - 800e-9) / 30e-9) ** 2))
+    trace = np.outer(centre / lam**2, np.hanning(9))  # λ-density, as loaded
+    data = {
+        "lam": lam,
+        "scanaxis": np.linspace(-20e-15, 20e-15, 9),
+        "trace": trace,
+        "lam_spec": lam,
+        "Ilam_spec": centre,
+    }
+    linear, logarithmic, delay, spectral = screen.simulated_trace_views(data)
+    # A unit peak before the even resampling, which on this coarse 21-sample
+    # axis falls between samples: within 5 %.
+    assert linear.levels == (0.0, 1.0)
+    assert linear.values.max() == pytest.approx(1.0, abs=0.05)
+    assert logarithmic.levels == (-screen.SIMULATED_DB, 0.0)
+    assert linear.ylabel == "Frequency (PHz)" and linear.yrange is not None
+    assert [c.name for c in spectral.curves] == ["trace marginal", "input"]
+    assert delay.curves[0].y.max() == pytest.approx(1.0)
+    blank = dict(data, trace=np.zeros_like(trace), Ilam_spec=None)
+    linear, _, _, spectral = screen.simulated_trace_views(blank)
+    assert linear.yrange is not None  # a blank trace shows its full range
+    assert len(spectral.curves) == 1

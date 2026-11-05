@@ -35,6 +35,7 @@ from .pulse import (
     _truth_spectral_phase,
     _truth_spectrum,
 )
+from .traces import _decimate_for_display, filter_view_vmax
 from .units import _TWOPI_PHZ
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "convergence_view",
     "delay_marginal_view",
     "filter_view",
+    "filter_views",
     "frequency_marginal_view",
     "pulse_field_views",
     "raw_trace_map",
@@ -780,3 +782,81 @@ def simulated_trace_views(
         yrange=(0.0, 1.05),
     )
     return linear, logarithmic, delay_marginal, spectral_marginal
+
+
+FILTER_PANELS = (
+    # key, title, which trace, domain, logarithmic
+    ("measured_db", "Measured (dB)", "measured", "wavelength", True),
+    ("filtered_db", "Filtered (dB)", "filtered", "wavelength", True),
+    ("regridded_db", "Regridded (dB)", "regridded", "frequency", True),
+    ("measured_lin", "Measured (lin)", "measured", "wavelength", False),
+    ("filtered_lin", "Filtered (lin)", "filtered", "wavelength", False),
+    ("regridded_lin", "Regridded (lin)", "regridded", "frequency", False),
+)
+"""The preprocessing view's six maps, in reading order (two rows of three)."""
+
+DISPLAY_CAP = 1000
+"""The most samples a preprocessing map keeps per side (screens are narrower)."""
+
+
+def filter_views(td, *, tracedb: float = 30.0) -> dict[str, MapView]:
+    """Return the preprocessing view: measured, filtered and regridded traces.
+
+    Each trace is shown in dB (``tracedb`` below its peak, positive part) and
+    linear (signed), against delay: the measured and filtered traces against
+    wavelength, the regridded one against signal frequency. The linear maps
+    share :func:`~croak.plotting.filter_view_vmax`, so their colours compare.
+    Large traces are thinned to :data:`DISPLAY_CAP` samples per side for
+    drawing only.
+
+    Parameters
+    ----------
+    td : TraceData
+        The preprocessed trace (:func:`croak.preprocess.load_and_clean`).
+    tracedb : float
+        The logarithmic maps' dynamic range, dB.
+
+    Returns
+    -------
+    dict of str to MapView
+        Keyed as :data:`FILTER_PANELS`.
+    """
+    lam_nm = np.asarray(td.lam_frog, dtype=float) / 1e-9
+    freq = (np.asarray(td.omega) + td.omega0_trace) / _TWOPI_PHZ
+    sources = {
+        "measured": (lam_nm, td.tau_meas / 1e-15, td.Ifrog_meas),
+        "filtered": (lam_nm, td.tau_filt / 1e-15, td.Ifrog_filt),
+        "regridded": (freq, td.delays / 1e-15, td.trace),
+    }
+    vmax = filter_view_vmax(td)
+    views = {}
+    for key, title, which, domain, db in FILTER_PANELS:
+        x, delays, trace = sources[which]
+        image, x, delays = _decimate_for_display(
+            np.asarray(trace, dtype=float).T,
+            np.asarray(x, dtype=float),
+            np.asarray(delays, dtype=float),
+            cap=DISPLAY_CAP,
+        )
+        xs, ys, values = uniform_image(x, delays, image)
+        if db:
+            peak = float(np.nanmax(values)) or 1.0
+            with np.errstate(divide="ignore", invalid="ignore"):
+                values = np.clip(
+                    10 * np.log10(np.maximum(values, 0.0) / peak), -tracedb, 0.0
+                )
+            levels, unit = (-tracedb, 0.0), "dB"
+        else:
+            levels, unit = (min(float(np.nanmin(values)), 0.0), vmax), "a.u."
+        views[key] = MapView(
+            values=values,
+            x=xs,
+            y=ys,
+            levels=levels,
+            title=title,
+            xlabel="Frequency (PHz)" if domain == "frequency" else "Wavelength (nm)",
+            ylabel="Delay (fs)",
+            unit=unit,
+            signed=not db,
+        )
+    return views
