@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
@@ -276,7 +277,18 @@ class AnalysePage(PageBase):
         layout.addWidget(rail)
         layout.addWidget(self.stack, stretch=1)
         self.key = ""
+        # Up and Down step through the rail while focus is anywhere on the page.
+        for key, step in ((Qt.Key.Key_Up, -1), (Qt.Key.Key_Down, 1)):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(lambda step=step: self.step(step))
         self.show_page(pages[0][0])
+
+    def step(self, offset: int) -> None:
+        """Show the page ``offset`` places along the rail (clamped at its ends)."""
+        keys = list(self.pages)
+        index = min(max(keys.index(self.key) + offset, 0), len(keys) - 1)
+        self.show_page(keys[index])
 
     def show_page(self, key: str) -> None:
         """Show the rail's page ``key`` and refresh it."""

@@ -112,6 +112,26 @@ def test_window_analyse_rail_switches_pages(qtbot):
         pages.AnalysePage(WizardState(), [])
 
 
+def test_window_analyse_rail_steps_with_the_arrow_keys(qtbot):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeySequence, QShortcut
+
+    d = Driver(qtbot, "synthetic")
+    analyse = d.analyse
+    shortcuts = {s.key().toString(): s for s in analyse.findChildren(QShortcut)}
+    up = shortcuts[QKeySequence(Qt.Key.Key_Up).toString()]
+    down = shortcuts[QKeySequence(Qt.Key.Key_Down).toString()]
+    assert up.context() == Qt.ShortcutContext.WidgetWithChildrenShortcut
+    assert analyse.page_key() == "overview"
+    up.activated.emit()  # at the top: stays
+    assert analyse.page_key() == "overview"
+    down.activated.emit()
+    assert analyse.page_key() == "traces"
+    analyse.show_page("uncertainty")
+    analyse.step(5)  # past the end: the last page
+    assert analyse.page_key() == "uncertainty"
+
+
 def test_window_new_session_asks_before_discarding_a_loaded_trace(
     win, monkeypatch, experiment_h5, experiment
 ):
