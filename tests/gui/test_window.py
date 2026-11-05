@@ -158,8 +158,10 @@ def test_window_home_lists_recent_sessions_that_still_exist(qtbot, tmp_path):
     assert opened == [str(saved)]
     home.open_button.click()
     assert opened[-1] == ""
+    shown = list(home.recent_items)
     home.show_recent([])  # back to the hint
     assert home.recent_items == []
+    assert all(old.isHidden() for old in shown)  # not left drawn until deleted
 
 
 # -- the route ----------------------------------------------------------------------

@@ -76,6 +76,7 @@ def _tile(title: str, text: str) -> _Clickable:
     layout.setSpacing(4)
     layout.addWidget(label(title, "tileTitle"))
     layout.addWidget(label(text, "tileText", wrap=True))
+    layout.addStretch(1)  # tiles in a row share a height; text stays at the top
     return tile
 
 
@@ -157,6 +158,9 @@ class Home(QWidget):
         """List the sessions at ``paths`` that still exist, newest first."""
         for old in self._recent_widgets:
             self.recent.removeWidget(old)
+            # Hidden at once: deleteLater alone leaves it drawn, loose in the
+            # page, until the event loop next runs.
+            old.hide()
             old.deleteLater()
         self._recent_widgets: list[QWidget] = []
         self.recent_items = []
