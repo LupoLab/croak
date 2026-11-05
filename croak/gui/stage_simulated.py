@@ -21,6 +21,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -35,21 +36,17 @@ from ..io import (
     read_simulated_window_keys,
     read_simulated_z_positions,
 )
-from ..maths import wlfreq
-from ..plotting import cmap_white, signed_pcolormesh
+from ..plotting.screen import simulated_trace_views
 from ..session.params import SimulatedLoadParams
 from ..session.pipeline import (
     assemble_simulated_load_data,
     assemble_simulated_tracedata,
 )
 from .base import Stage
-from .canvas import MplCanvas, add_wide_row, check, combo, group, with_toolbar
+from .canvas import add_wide_row, check, combo, group
+from .retrieval_views import ViewPanel
 from .stage_load import seed_preproc_defaults
 from .widgets import RangeControl
-
-# Angular frequency (rad/s) -> ordinary frequency (PHz), matching the
-# marginal-check stage's frequency axis so the two previews read identically.
-_TWO_PI_PHZ = 2.0 * np.pi * 1e15
 
 # TG-FROG keeps the carrier (no doubling), so only the χ³ interactions apply.
 _INTERACTIONS = ["pg", "sd"]
@@ -175,8 +172,8 @@ class StageSimulated(Stage):
                     "preprocess (filtering + regrid) stages. Fully raw: no "
                     "third-order correction; the window/thickness, delay-sign and "
                     "known-spectrum choices still apply. Use it to sanity-check the "
-                    "retrieval free of any preprocessing doubt — Back from Retrieve "
-                    "reaches Preprocess for a regridded comparison.",
+                    "retrieval free of any preprocessing doubt. For a regridded "
+                    "comparison, untick it here and Continue again.",
                 ),
             ],
         ),
@@ -292,12 +289,24 @@ class StageSimulated(Stage):
         form.addRow(self.raw_direct)
         self.controls.addWidget(box)
 
-        # Navigation (Back / "Load & continue →") and Help live in the shared
-        # wizard chrome, via the entry-page hooks below.
+        # Continue (which calls advance) and Help live in the window's top bar.
         self.controls.addStretch(1)
 
-        self.canvas = MplCanvas(figsize=(9, 7))
-        self.set_plot_area(with_toolbar(self.canvas))
+        self.views = {
+            "lin": ViewPanel("map", signed=True),
+            "db": ViewPanel("map"),
+            "delay": ViewPanel("line"),
+            "spectral": ViewPanel("line"),
+        }
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        for index, view in enumerate(self.views.values()):
+            grid.addWidget(view, index // 2, index % 2)
+        plots = QWidget()
+        plots.setLayout(grid)
+        self.set_plot_area(plots)
 
         self.apply_help()
 
@@ -527,80 +536,17 @@ class StageSimulated(Stage):
         if self.thickness.isEnabled():
             self.set_status(
                 f"Loaded the {self.thickness.currentText()} slice — review the "
-                "trace, then Load & continue to filter it."
+                "trace, then Continue to check and filter it."
             )
         else:
-            self.set_status("Review the trace, then Load & continue to filter it.")
+            self.set_status("Review the trace, then Continue to check and filter it.")
 
     def _draw(self, data):
-        # The simulation file stores an ω-density; the loader divides it by λ² so
-        # it can ride the (spectrometer) wavelength pipeline. Here we display the
-        # file-native ω-density on a frequency axis (×λ², ν = ω/2π) so the preview
-        # matches the file, the marginal-check screen and the retrieval — see
-        # stage_marginal_check.py. λ ascends as ν descends, so reorder to ascending ν.
-        lam = data["lam"]  # m, ascending
-        delays = data["scanaxis"] / 1e-15
-        freq = wlfreq(lam) / _TWO_PI_PHZ  # PHz, descending in lam order
-        order = np.argsort(freq)  # -> ascending frequency
-        freq = freq[order]
-        trace = (data["trace"] * lam[:, None] ** 2)[order]  # ω-density
-        # Re-normalise to unit peak: ×λ² rescales the (unit-peak λ-density) trace
-        # to a tiny absolute level, which the dB view (log10 ∈ [−tracedb, 0])
-        # would otherwise clip entirely.
-        peak = float(np.nanmax(np.abs(trace)))
-        if peak > 0:
-            trace = trace / peak
-        # rows with signal set the frequency limits; the peak row always
-        # qualifies, so this is never empty (a blank trace shows its full range)
-        sig = freq[trace.max(axis=1) > 1e-2] if peak > 0 else freq
-
-        def plot(fig):
-            axd = fig.subplot_mosaic("ab\ncd")
-            # linear and dB views with the filtering-stage colour scheme (white→viridis
-            # positive, white→red negative). Simulated traces carry no detector noise,
-            # so the linear vmax is the full-range peak (no trust window needed).
-            cmap_pos = cmap_white("viridis")
-            signed_pcolormesh(
-                axd["a"],
-                delays,
-                freq,
-                trace,
-                db=False,
-                cmap_pos=cmap_pos,
-                vmax=1.0 if peak > 0 else None,
-            )
-            axd["a"].set_title("Simulated FROG trace (lin)")
-            signed_pcolormesh(
-                axd["b"], delays, freq, trace, db=True, tracedb=40.0, cmap_pos=cmap_pos
-            )
-            axd["b"].set_title("Simulated FROG trace (dB)")
-            for key in ("a", "b"):
-                axd[key].set_xlabel("Delay (fs)")
-                axd[key].set_ylabel("Frequency (PHz)")
-                axd[key].set_ylim(sig.min(), sig.max())
-            # delay marginal
-            tmarg = trace.sum(axis=0)
-            tmarg = tmarg / tmarg.max() if tmarg.max() > 0 else tmarg
-            axd["c"].plot(delays, tmarg, c="C0")
-            axd["c"].set_xlabel("Delay (fs)")
-            axd["c"].set_ylabel("Delay marginal")
-            # spectral marginal (ω-density) + the known input spectrum, if provided
-            wmarg = trace.sum(axis=1)
-            wmarg = wmarg / wmarg.max() if wmarg.max() > 0 else wmarg
-            axd["d"].plot(freq, wmarg, c="C0", label="trace marginal")
-            if data["lam_spec"] is not None and data["Ilam_spec"] is not None:
-                lam_s = data["lam_spec"]
-                f_s = wlfreq(lam_s) / _TWO_PI_PHZ
-                os_ = np.argsort(f_s)
-                spec = (data["Ilam_spec"] * lam_s**2)[os_]  # ω-density
-                spec = spec / spec.max() if spec.max() > 0 else spec
-                axd["d"].plot(f_s[os_], spec, c="C1", lw=1, label="input")
-                axd["d"].legend(fontsize="small")
-            axd["d"].set_xlabel("Frequency (PHz)")
-            axd["d"].set_ylabel("Spectral marginal (ω-density)")
-            axd["d"].set_xlim(sig.min(), sig.max())
-
-        self.canvas.render(plot)
+        """Preview the scan: linear and dB maps, delay and spectral marginals."""
+        for view, shown in zip(
+            self.views.values(), simulated_trace_views(data), strict=True
+        ):
+            view.show_view(shown)
 
     # -- load (the entry-page forward action) -------------------------------
 
@@ -643,8 +589,8 @@ class StageSimulated(Stage):
         if params.raw_direct:
             # Build the as-simulated trace on its native grid and go straight to
             # retrieval, skipping the marginal-check + preprocess stages. The
-            # normal load_data above stays set (it carries the truth overlay and
-            # lets Back re-run the regrid path for a comparison).
+            # normal load_data above stays set (it carries the truth overlay, and
+            # unticking the option re-runs the regridded path for a comparison).
             try:
                 td = assemble_simulated_tracedata(params)
             except Exception as exc:

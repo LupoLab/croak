@@ -52,10 +52,17 @@ def test_screen_uniform_image_reverses_and_resamples():
     x, y, values = screen.uniform_image(
         [0.0, 1.0, 3.0], [1.0, 0.0], [[0.0, 1.0, 3.0], [0.0, 2.0, 6.0]]
     )
-    assert_allclose(x, [0.0, 1.5, 3.0])
+    # Resampled at the finest spacing (1), so no sample is lost.
+    assert_allclose(x, [0.0, 1.0, 2.0, 3.0])
     assert_allclose(y, [0.0, 1.0])
     # Linear in x along each row: resampling moves no feature.
-    assert_allclose(values, [[0.0, 3.0, 6.0], [0.0, 1.5, 3.0]])
+    assert_allclose(values, [[0.0, 2.0, 4.0, 6.0], [0.0, 1.0, 2.0, 3.0]])
+
+
+def test_screen_uniform_image_caps_its_samples():
+    x = np.concatenate([[0.0, 1e-6], np.linspace(1.0, 2.0, 5)])
+    xe, _, values = screen.uniform_image(x, [0.0, 1.0], np.ones((2, x.size)))
+    assert xe.size == screen.MAX_SAMPLES and values.shape == (2, screen.MAX_SAMPLES)
 
 
 @pytest.mark.parametrize(
@@ -175,3 +182,30 @@ def test_screen_raw_trace_scales_by_the_trusted_band_and_crops_to_signal():
     assert view.y[0] < view.y[-1]
     quiet = screen.raw_trace_map(delay, lam, np.zeros((11, 5)), (190.0, 1000.0))
     assert quiet.levels == (0.0, 1.0) and quiet.yrange is None
+
+
+def test_screen_pulse_views_zoom_to_the_pulse_and_blank_its_wings():
+    g = Grid(128, dt=0.5e-15)
+    ew = gaussian_pulse(g, 7e-15, phases=[20e-30])
+    temporal, spectral, gram = screen.pulse_field_views(g, ew, float(wlfreq(800e-9)))
+    assert [c.role for c in temporal.curves] == ["retrieved", "phase"]
+    lo, hi = temporal.xrange
+    assert -40 < lo < 0 < hi < 40  # zoomed to a 7 fs pulse, not the whole window
+    phase = temporal.curves[1].y
+    assert np.isnan(phase[0]) and np.isfinite(phase[np.argmax(temporal.curves[0].y)])
+    assert spectral.xlabel == "Wavelength (nm)"
+    full = spectral.curves[0].x
+    assert full.min() < spectral.xrange[0] < 800 < spectral.xrange[1] < full.max()
+    # The even resampling of the uneven wavelength axis keeps the peak to 1 %.
+    assert gram.levels == (0.0, 1.0)
+    assert gram.values.max() == pytest.approx(1.0, abs=1e-2)
+    assert gram.yrange is not None
+
+
+def test_screen_pulse_views_tolerate_an_empty_field():
+    g = Grid(64, dt=1e-15)
+    temporal, spectral, gram = screen.pulse_field_views(
+        g, np.zeros(g.n, dtype=complex), 2.35e15
+    )
+    assert temporal.xrange is None and spectral.xrange is None
+    assert gram.yrange is None and gram.values.max() == 0.0

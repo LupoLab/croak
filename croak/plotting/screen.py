@@ -45,8 +45,10 @@ __all__ = [
     "delay_marginal_view",
     "filter_view",
     "frequency_marginal_view",
+    "pulse_field_views",
     "raw_trace_map",
     "residual_map",
+    "simulated_trace_views",
     "spectral_view",
     "spectrogram_map",
     "temporal_view",
@@ -153,12 +155,23 @@ class LineView:
     marks: tuple[tuple[float, str], ...] = field(default_factory=tuple)
 
 
+MAX_SAMPLES = 2048
+"""The most samples an evenly resampled image axis gets."""
+
+
 def _evenly(axis: NDArray[np.float64]) -> NDArray[np.float64]:
-    """``axis`` if its steps are equal (to 0.1 %), else an evenly spaced copy."""
+    """``axis`` if its steps are equal (to 0.1 %), else an evenly spaced copy.
+
+    The copy keeps the finest spacing of ``axis`` (up to :data:`MAX_SAMPLES`
+    points), so resampling loses no detail where the samples are densest — a
+    wavelength axis from an even frequency grid is far denser at short
+    wavelengths than at long ones.
+    """
     steps = np.diff(axis)
     if axis.size < 3 or np.allclose(steps, steps[0], rtol=1e-3, atol=0.0):
         return axis
-    return np.linspace(axis[0], axis[-1], axis.size)
+    count = int(np.ceil((axis[-1] - axis[0]) / steps.min())) + 1
+    return np.linspace(axis[0], axis[-1], int(np.clip(count, axis.size, MAX_SAMPLES)))
 
 
 def uniform_image(
@@ -549,3 +562,221 @@ def raw_trace_map(
         signed=True,
         yrange=(float(rows.min()), float(rows.max())) if rows.size else None,
     )
+
+
+# A field sample is part of the pulse above this fraction of the peak intensity;
+# the views zoom to those samples and blank the phase elsewhere, where it is noise.
+PULSE_FRACTION = 1e-3
+# Each side of the pulse gets this fraction of its extent as margin.
+PULSE_MARGIN = 0.2
+SPECTROGRAM_COLUMNS = 160
+"""Gate positions of the generator's spectrogram."""
+
+
+def _masked_phase(intensity: NDArray[np.float64], field: NDArray[np.complex128]):
+    """Unwrapped phase, zero at the peak and NaN where the pulse is absent."""
+    phase = np.unwrap(np.angle(field))
+    phase = phase - phase[int(np.argmax(intensity))]
+    phase[intensity < intensity.max() * PULSE_FRACTION] = np.nan
+    return phase
+
+
+def _unit(values: NDArray[np.float64]) -> NDArray[np.float64]:
+    peak = float(values.max()) if values.size else 0.0
+    return values / peak if peak > 0 else values
+
+
+def _zoom(x: NDArray[np.float64], keep: NDArray[np.bool_]):
+    """``x``'s extent where ``keep``, widened by :data:`PULSE_MARGIN` (or None)."""
+    sig = x[keep]
+    if not sig.size:
+        return None
+    pad = PULSE_MARGIN * (sig.max() - sig.min() + 1e-9)
+    return float(sig.min() - pad), float(sig.max() + pad)
+
+
+def pulse_field_views(
+    grid, ew: ArrayLike, omega0: float
+) -> tuple[LineView, LineView, MapView]:
+    """Return a known pulse as the generator shows it: time, spectrum, spectrogram.
+
+    The time and spectral views carry the phase (zero at the peak, blank where
+    the intensity is below :data:`PULSE_FRACTION` of it) on a right axis, and
+    zoom to the pulse. The spectrogram gates the field with a Gaussian a
+    thirtieth of the pulse's span wide (at least four samples), at
+    :data:`SPECTROGRAM_COLUMNS` positions over the pulse and a 30 % margin, and
+    is a wavelength density, peak-normalised.
+
+    Parameters
+    ----------
+    grid : Grid
+        The field's grid.
+    ew : array_like
+        The spectral field on ``grid``.
+    omega0 : float
+        The carrier angular frequency (rad/s).
+    """
+    ew = np.asarray(ew, dtype=complex)
+    et = grid.ifft(ew)
+    it = _unit(np.abs(et) ** 2)
+    t = grid.t / 1e-15
+    temporal = LineView(
+        curves=(
+            CurveView(t, it, "retrieved", "intensity"),
+            CurveView(t, _masked_phase(it, et), "phase", "phase", True),
+        ),
+        title="Temporal",
+        xlabel="Time (fs)",
+        ylabel="Intensity",
+        right_label="Phase (rad)",
+        xrange=_zoom(t, it > PULSE_FRACTION),
+        yrange=(0.0, 1.05),
+    )
+    iw = _unit(np.abs(ew) ** 2)
+    omega_abs = grid.omega + omega0
+    pos = omega_abs > 0
+    lam = wlfreq(omega_abs[pos]) / 1e-9
+    order = np.argsort(lam)
+    lam, ip = lam[order], iw[pos][order]
+    spectral = LineView(
+        curves=(
+            CurveView(lam, ip, "retrieved", "intensity"),
+            CurveView(lam, _masked_phase(iw, ew)[pos][order], "phase", "phase", True),
+        ),
+        title="Spectral",
+        xlabel="Wavelength (nm)",
+        ylabel="Intensity",
+        right_label="Phase (rad)",
+        xrange=_zoom(lam, ip > PULSE_FRACTION),
+        yrange=(0.0, 1.05),
+    )
+    return temporal, spectral, _gabor(grid, et, omega0)
+
+
+def _gabor(grid, et: NDArray[np.complex128], omega0: float) -> MapView:
+    """Return the generator's spectrogram of the temporal field ``et``."""
+    t = grid.t
+    inten = np.abs(et) ** 2
+    sig = t[inten > inten.max() * PULSE_FRACTION] if inten.max() > 0 else t
+    span = sig.max() - sig.min() + 1e-15
+    centres = np.linspace(
+        sig.min() - 0.3 * span, sig.max() + 0.3 * span, SPECTROGRAM_COLUMNS
+    )
+    width = max((centres[-1] - centres[0]) / 30.0, grid.dt * 4)
+    s = np.empty((grid.n, centres.size))
+    for i, centre in enumerate(centres):
+        gate = np.exp(-0.5 * ((t - centre) / width) ** 2)
+        s[:, i] = np.abs(np.fft.fftshift(np.fft.fft(np.fft.ifftshift(et * gate)))) ** 2
+    omega_abs = grid.omega + omega0
+    pos = omega_abs > 0
+    # |E(ω)|² dω = |E(λ)|² dλ: a wavelength density carries the ω² Jacobian.
+    s = s[pos] * (omega_abs[pos] ** 2)[:, None]
+    lam = wlfreq(omega_abs[pos]) / 1e-9
+    s = _unit(s)
+    has_signal = s.max(axis=1) > SIGNAL_FRACTION
+    rows = lam[has_signal]
+    if rows.size:
+        # Draw only the band that holds the pulse (and a margin): positive
+        # frequencies reach far into the infrared, where nothing is.
+        pad = PULSE_MARGIN * (rows.max() - rows.min() + 1e-9)
+        keep = (lam >= rows.min() - pad) & (lam <= rows.max() + pad)
+        lam, s = lam[keep], s[keep]
+    x, y, values = uniform_image(centres / 1e-15, lam, s)
+    return MapView(
+        values=values,
+        x=x,
+        y=y,
+        levels=(0.0, 1.0),
+        title="Spectrogram",
+        xlabel="Time (fs)",
+        ylabel="Wavelength (nm)",
+        unit="a.u.",
+        yrange=(float(rows.min()), float(rows.max())) if rows.size else None,
+    )
+
+
+SIMULATED_DB = 40.0
+"""Dynamic range of a simulated trace's logarithmic view, dB (no detector noise)."""
+
+
+def simulated_trace_views(
+    data: dict,
+) -> tuple[MapView, MapView, LineView, LineView]:
+    """Return a loaded simulated scan as its loader previews it.
+
+    The simulation stores an ω-density, which the loader divides by λ² to ride
+    the wavelength pipeline; the preview undoes that (×λ², ν = ω/2π) so it shows
+    the file's own density against frequency, as the marginal check and the
+    retrieval do. It is then put on a unit peak (×λ² leaves a tiny absolute
+    level, which the logarithmic view would clip), shown linear and over
+    :data:`SIMULATED_DB`, with its delay and spectral marginals (the latter with
+    the known input spectrum, when the file has one). The view is cropped to the
+    rows that hold signal.
+
+    Parameters
+    ----------
+    data : dict
+        The loader's ``load_data``: ``lam`` (m, ascending), ``scanaxis`` (s),
+        ``trace`` (λ-density) and optionally ``lam_spec``/``Ilam_spec``.
+
+    Returns
+    -------
+    tuple
+        The linear map, the logarithmic map, the delay marginal and the
+        spectral marginal.
+    """
+    lam = np.asarray(data["lam"], dtype=float)
+    delays = np.asarray(data["scanaxis"], dtype=float) / 1e-15
+    freq = wlfreq(lam) / _TWOPI_PHZ
+    order = np.argsort(freq)
+    freq = freq[order]
+    trace = (np.asarray(data["trace"], dtype=float) * lam[:, None] ** 2)[order]
+    peak = float(np.nanmax(np.abs(trace)))
+    if peak > 0:
+        trace = trace / peak
+    rows = freq[trace.max(axis=1) > SIGNAL_FRACTION] if peak > 0 else freq
+    window = (float(rows.min()), float(rows.max()))
+    x, y, lin = uniform_image(delays, freq, trace)
+    with np.errstate(divide="ignore"):
+        db = np.clip(10 * np.log10(np.maximum(lin, 0.0)), -SIMULATED_DB, 0.0)
+    common = {"x": x, "y": y, "xlabel": "Delay (fs)", "ylabel": "Frequency (PHz)"}
+    linear = MapView(
+        values=lin,
+        levels=(min(float(lin.min()), 0.0), 1.0),
+        title="Simulated FROG trace (lin)",
+        unit="a.u.",
+        signed=True,
+        yrange=window,
+        **common,
+    )
+    logarithmic = MapView(
+        values=db,
+        levels=(-SIMULATED_DB, 0.0),
+        title="Simulated FROG trace (dB)",
+        unit="dB",
+        yrange=window,
+        **common,
+    )
+    delay_marginal = LineView(
+        curves=(CurveView(delays, _unit(trace.sum(axis=0)), "retrieved", "delay"),),
+        title="Delay marginal",
+        xlabel="Delay (fs)",
+        ylabel="Marginal (a.u.)",
+        yrange=(0.0, 1.05),
+    )
+    curves = [CurveView(freq, _unit(trace.sum(axis=1)), "retrieved", "trace marginal")]
+    if data.get("lam_spec") is not None and data.get("Ilam_spec") is not None:
+        lam_s = np.asarray(data["lam_spec"], dtype=float)
+        f_s = wlfreq(lam_s) / _TWOPI_PHZ
+        order_s = np.argsort(f_s)
+        spectrum = (np.asarray(data["Ilam_spec"], dtype=float) * lam_s**2)[order_s]
+        curves.append(CurveView(f_s[order_s], _unit(spectrum), "measured", "input"))
+    spectral_marginal = LineView(
+        curves=tuple(curves),
+        title="Spectral marginal (ω-density)",
+        xlabel="Frequency (PHz)",
+        ylabel="Marginal (a.u.)",
+        xrange=window,
+        yrange=(0.0, 1.05),
+    )
+    return linear, logarithmic, delay_marginal, spectral_marginal

@@ -18,6 +18,7 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QGridLayout, QWidget
 
 from .. import dispersion
 from ..constants import C
@@ -25,19 +26,19 @@ from ..forward import maketrace
 from ..grid import Grid
 from ..interactions import INTERACTIONS, get_interaction
 from ..materials import MATERIALS
+from ..plotting.screen import pulse_field_views, raw_trace_map
 from ..processing import TruthPulse
 from ..pulses import gaussian_pulse, sech_pulse
 from .base import Stage
 from .canvas import (
-    MplCanvas,
     add_wide_row,
     check,
     combo,
     dspin,
     group,
     spin,
-    with_toolbar,
 )
+from .retrieval_views import ViewPanel
 from .stage_load import seed_preproc_defaults
 from .widgets import RangeControl, ValueControl
 
@@ -176,8 +177,21 @@ class StageSynthetic(Stage):
 
         self._seed_sampling()
 
-        self.canvas = MplCanvas(figsize=(9, 7))
-        self.set_plot_area(with_toolbar(self.canvas))
+        self.views = {
+            "temporal": ViewPanel("line", right=True),
+            "spectral": ViewPanel("line", right=True),
+            "spectrogram": ViewPanel("map"),
+            "trace": ViewPanel("map", signed=True),
+        }
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        for index, view in enumerate(self.views.values()):
+            grid.addWidget(view, index // 2, index % 2)
+        plots = QWidget()
+        plots.setLayout(grid)
+        self.set_plot_area(plots)
 
     # -- lifecycle ----------------------------------------------------------
     def on_enter(self):
@@ -432,105 +446,24 @@ class StageSynthetic(Stage):
         self._last = (grid, ew, omega0)
         # show the trace as it will be handed on (with any noise applied)
         self._draw(grid, ew, omega0, lam_sig, delays, self._add_noise(trace))
-        self.set_status("Adjust parameters, then Generate to run retrieval.")
+        self.set_status("Adjust the pulse and the trace, then Continue to check it.")
 
     def _draw(self, grid, ew, omega0, lam_sig, delays, trace):
-        def plot(fig):
-            axd = fig.subplot_mosaic("ab\ncd")
-            self._plot_temporal(axd["a"], grid, ew)
-            self._plot_spectral(axd["b"], grid, ew, omega0)
-            self._plot_spectrogram(axd["c"], grid, ew, omega0)
-            self._plot_frog(axd["d"], lam_sig, delays, trace)
-
-        self.canvas.render(plot)
-
-    @staticmethod
-    def _masked_phase(intensity, field, frac=1e-3):
-        phase = np.unwrap(np.angle(field))
-        mask = intensity < intensity.max() * frac
-        phase = phase - phase[int(np.argmax(intensity))]
-        phase[mask] = np.nan
-        return phase
-
-    def _plot_temporal(self, ax, grid, ew):
-        Et = grid.ifft(ew)
-        inten = np.abs(Et) ** 2
-        inten = inten / inten.max() if inten.max() > 0 else inten
-        t = grid.t / 1e-15
-        ax.plot(t, inten, c="C0")
-        axp = ax.twinx()
-        axp.plot(t, self._masked_phase(inten, Et), c="C1", lw=1)
-        axp.set_ylabel("Phase (rad)", color="C1")
-        # zoom to the pulse
-        sig = t[inten > 1e-3]
-        if sig.size:
-            pad = 0.2 * (sig.max() - sig.min() + 1e-9)
-            ax.set_xlim(sig.min() - pad, sig.max() + pad)
-        ax.set_xlabel("Time (fs)")
-        ax.set_ylabel("Intensity")
-        ax.set_title("Temporal")
-
-    def _plot_spectral(self, ax, grid, ew, omega0):
-        inten = np.abs(ew) ** 2
-        inten = inten / inten.max() if inten.max() > 0 else inten
-        omega_abs = grid.omega + omega0
-        pos = omega_abs > 0
-        lam = 2 * math.pi * C / omega_abs[pos] / 1e-9
-        order = np.argsort(lam)
-        lam = lam[order]
-        Ip = inten[pos][order]
-        phase = self._masked_phase(inten, ew)[pos][order]
-        ax.plot(lam, Ip, c="C0")
-        axp = ax.twinx()
-        axp.plot(lam, phase, c="C1", lw=1)
-        axp.set_ylabel("Phase (rad)", color="C1")
-        sig = lam[Ip > 1e-3]
-        if sig.size:
-            pad = 0.2 * (sig.max() - sig.min() + 1e-9)
-            ax.set_xlim(sig.min() - pad, sig.max() + pad)
-        ax.set_xlabel("Wavelength (nm)")
-        ax.set_ylabel("Intensity")
-        ax.set_title("Spectral")
-
-    def _plot_spectrogram(self, ax, grid, ew, omega0, n_t=160):
-        """A Gabor spectrogram of the field (time × wavelength)."""
-        Et = grid.ifft(ew)
-        t = grid.t
-        inten = np.abs(Et) ** 2
-        sig = t[inten > inten.max() * 1e-3] if inten.max() > 0 else t
-        tmin = sig.min() - 0.3 * (sig.max() - sig.min() + 1e-15)
-        tmax = sig.max() + 0.3 * (sig.max() - sig.min() + 1e-15)
-        tcs = np.linspace(tmin, tmax, n_t)
-        fw = max((tmax - tmin) / 30.0, grid.dt * 4)
-        S = np.empty((grid.n, n_t))
-        for i, tc in enumerate(tcs):
-            gate = np.exp(-0.5 * ((t - tc) / fw) ** 2)
-            sp = np.fft.fftshift(np.fft.fft(np.fft.ifftshift(Et * gate)))
-            S[:, i] = np.abs(sp) ** 2
-        omega_abs = grid.omega + omega0
-        pos = omega_abs > 0
-        S = S[pos] * (omega_abs[pos] ** 2)[:, None]
-        lam = 2 * math.pi * C / omega_abs[pos] / 1e-9
-        order = np.argsort(lam)
-        S = S[order]
-        lam = lam[order]
-        S = S / S.max() if S.max() > 0 else S
-        ax.pcolormesh(tcs / 1e-15, lam, S, shading="auto")
-        lam_sig = lam[(S.max(axis=1) > 1e-2)]
-        if lam_sig.size:
-            ax.set_ylim(lam_sig.min(), lam_sig.max())
-        ax.set_xlabel("Time (fs)")
-        ax.set_ylabel("Wavelength (nm)")
-        ax.set_title("Spectrogram")
-
-    def _plot_frog(self, ax, lam_sig, delays, trace):
-        ax.pcolormesh(delays / 1e-15, lam_sig / 1e-9, trace, shading="auto")
-        sig = lam_sig[(trace.max(axis=1) > 1e-2)] / 1e-9
-        if sig.size:
-            ax.set_ylim(sig.min(), sig.max())
-        ax.set_xlabel("Delay (fs)")
-        ax.set_ylabel("Wavelength (nm)")
-        ax.set_title("Synthetic FROG trace")
+        """Show the pulse, its spectrum and spectrogram, and its trace."""
+        temporal, spectral, gram = pulse_field_views(grid, ew, omega0)
+        self.views["temporal"].show_view(temporal)
+        self.views["spectral"].show_view(spectral)
+        self.views["spectrogram"].show_view(gram)
+        self.views["trace"].show_view(
+            raw_trace_map(
+                delays / 1e-15,
+                lam_sig / 1e-9,
+                trace,
+                # a synthetic trace has no out-of-band noise: trust all of it
+                (0.0, float("inf")),
+                title="Synthetic FROG trace",
+            )
+        )
 
     # -- generate (the entry-page forward action) ---------------------------
 
