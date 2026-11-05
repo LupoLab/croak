@@ -52,9 +52,13 @@ __all__ = [
     "residual_map",
     "simulated_trace_views",
     "spectral_view",
+    "spectral_view_of",
     "spectrogram_map",
+    "spectrogram_map_of",
     "temporal_view",
+    "temporal_view_of",
     "trace_map",
+    "uncertainty_views",
     "uniform_image",
 ]
 
@@ -68,6 +72,8 @@ ROLES = (
     "fit",
     "truth-phase",
     "error",
+    "estimate",
+    "prior",
     "predicted",
     "corrected",
     "faint",
@@ -113,13 +119,50 @@ class MapView:
 
 @dataclass(frozen=True)
 class CurveView:
-    """One curve of a :class:`LineView`; ``role`` decides its colour and style."""
+    """One curve of a :class:`LineView`; ``role`` decides its colour and style.
+
+    ``points`` draws the samples as dots (a scatter) instead of a line.
+    """
 
     x: NDArray[np.float64]
     y: NDArray[np.float64]
     role: str
     name: str = ""
     right: bool = False
+    points: bool = False
+
+
+@dataclass(frozen=True)
+class BandView:
+    """A shaded band between two curves over ``x`` (e.g. a confidence band)."""
+
+    x: NDArray[np.float64]
+    low: NDArray[np.float64]
+    high: NDArray[np.float64]
+    role: str
+    name: str = ""
+    opacity: float = 0.25
+
+
+@dataclass(frozen=True)
+class SpanView:
+    """A shaded interval across the plot: of x (``vertical``) or of y."""
+
+    low: float
+    high: float
+    role: str
+    name: str = ""
+    vertical: bool = True
+    opacity: float = 0.15
+
+
+@dataclass(frozen=True)
+class BarsView:
+    """A histogram: bin ``edges`` and the ``counts`` in each bin."""
+
+    edges: NDArray[np.float64]
+    counts: NDArray[np.float64]
+    role: str
 
 
 @dataclass(frozen=True)
@@ -142,6 +185,12 @@ class LineView:
         Short annotations, each with whether it is a warning.
     marks : tuple of (float, str)
         Vertical rules: x position and role (the role sets colour and style).
+    levels : tuple of (float, str)
+        Horizontal rules: y position and role.
+    bands, spans : tuple
+        Shaded bands between curves and shaded intervals across the plot.
+    bars : BarsView or None
+        A histogram drawn beneath the curves.
     """
 
     curves: tuple[CurveView, ...]
@@ -155,6 +204,10 @@ class LineView:
     log_y: bool = False
     notes: tuple[tuple[str, bool], ...] = field(default_factory=tuple)
     marks: tuple[tuple[float, str], ...] = field(default_factory=tuple)
+    levels: tuple[tuple[float, str], ...] = field(default_factory=tuple)
+    bands: tuple[BandView, ...] = field(default_factory=tuple)
+    spans: tuple[SpanView, ...] = field(default_factory=tuple)
+    bars: BarsView | None = None
 
 
 MAX_SAMPLES = 2048
@@ -321,7 +374,30 @@ def residual_map(data: RetrievalPlotData) -> MapView | None:
 def spectrogram_map(data: RetrievalPlotData) -> MapView:
     """Return the retrieved pulse's Gabor spectrogram, time against wavelength."""
     t_centres, wavelength, s = data.spectrogram
-    x, y, values = uniform_image(t_centres / 1e-15, wavelength / 1e-9, s)
+    return spectrogram_map_of(
+        t_centres,
+        wavelength,
+        s,
+        window=_delay_window(data),
+        band=(data.lam_min, data.lam_max),
+    )
+
+
+def spectrogram_map_of(
+    t_centres: ArrayLike,
+    wavelength: ArrayLike,
+    s: ArrayLike,
+    *,
+    window: tuple[float, float] | None = None,
+    band: tuple[float, float] | None = None,
+) -> MapView:
+    """Return a spectrogram ``(t, λ, S)`` (s, m) as a map, time against wavelength.
+
+    ``window`` is the time window shown (fs) and ``band`` the wavelength band (m).
+    """
+    x, y, values = uniform_image(
+        np.asarray(t_centres) / 1e-15, np.asarray(wavelength) / 1e-9, s
+    )
     return MapView(
         values=values,
         x=x,
@@ -331,23 +407,48 @@ def spectrogram_map(data: RetrievalPlotData) -> MapView:
         xlabel="Time (fs)",
         ylabel="Wavelength (nm)",
         unit="a.u.",
-        xrange=_delay_window(data),
-        yrange=(data.lam_min / 1e-9, data.lam_max / 1e-9),
+        xrange=window,
+        yrange=None if band is None else (band[0] / 1e-9, band[1] / 1e-9),
     )
 
 
 def temporal_view(data: RetrievalPlotData) -> LineView:
     """Return the retrieved pulse: intensity or power, transform limit, phase."""
-    pr = data.processed
-    retr, tl, r_label, tl_label, ylabel, power_scale = _temporal_curves(
-        pr, data.power_scale
+    return temporal_view_of(
+        data.processed,
+        power_scale=data.power_scale,
+        truth=data.truth,
+        window=_delay_window(data),
     )
+
+
+def temporal_view_of(
+    pr,
+    *,
+    power_scale: tuple[float, str] | None = None,
+    truth=None,
+    window: tuple[float, float] | None = None,
+) -> LineView:
+    """Return a processed pulse in time: intensity or power, transform limit, phase.
+
+    Parameters
+    ----------
+    pr : ProcessedResult
+        The pulse (:func:`croak.processing.process_result`).
+    power_scale : tuple of (float, str), optional
+        The SI ``(scale, unit)`` of an absolute power axis (derived when the
+        pulse energy is known and this is None).
+    truth : TruthPulse, optional
+        A known pulse to draw beneath it.
+    window : tuple of float, optional
+        The time window shown (fs).
+    """
+    retr, tl, r_label, tl_label, ylabel, power_scale = _temporal_curves(pr, power_scale)
     curves = [
         CurveView(pr.t_over / 1e-15, retr, "retrieved", r_label),
         CurveView(pr.t_tl / 1e-15, tl, "transform-limited", tl_label),
     ]
     truth_curve = None
-    truth = data.truth
     if truth is not None:
         truth_curve = _truth_intensity(truth, pr.energy, power_scale)
         curves.append(
@@ -379,7 +480,7 @@ def temporal_view(data: RetrievalPlotData) -> LineView:
         xlabel="Time (fs)",
         ylabel=ylabel,
         right_label="Phase (rad)",
-        xrange=_delay_window(data),
+        xrange=window,
         yrange=_intensity_ylim(retr, tl, truth_curve),
         right_range=_phase_ylim(pr.phi_t[pr.mask_t], truth_phase),
     )
@@ -391,31 +492,58 @@ def spectral_view(data: RetrievalPlotData) -> LineView:
     Its notes are the GDD/TOD of the phase fit and the energy at the grid's
     edge, a warning above :data:`~croak.plotting.EDGE_ENERGY_WARN`.
     """
-    pr = data.processed
-    axis = data.spectral_axis
+    return spectral_view_of(
+        data.processed,
+        axis=data.spectral_axis,
+        band=(data.lam_min, data.lam_max),
+        truth=data.truth,
+    )
+
+
+def spectral_view_of(
+    pr,
+    *,
+    axis: str = "frequency",
+    band: tuple[float, float] | None = None,
+    truth=None,
+) -> LineView:
+    """Return a processed pulse's spectrum on ``axis``, with its phase and fit.
+
+    Parameters
+    ----------
+    pr : ProcessedResult
+        The pulse.
+    axis : {"frequency", "wavelength"}
+        The abscissa.
+    band : tuple of float, optional
+        The wavelength band shown (m), on either axis.
+    truth : TruthPulse, optional
+        A known pulse to draw beneath it.
+    """
     x, retrieved, measured, xlabel = _spectral_curves(pr, axis)
     curves = [CurveView(x, retrieved, "retrieved", "R")]
     if measured is not None:
         curves.append(CurveView(x, measured, "measured", "M"))
-    truth = None if data.truth is None else _truth_spectrum(data.truth, axis)
-    if truth is not None:
-        curves.append(CurveView(truth[0], truth[1], "truth", "truth"))
+    known = None if truth is None else _truth_spectrum(truth, axis)
+    if known is not None:
+        curves.append(CurveView(known[0], known[1], "truth", "truth"))
     mask = pr.mask_w
     curves.append(CurveView(x[mask], pr.phi_w[mask], "phase", "phase", True))
     curves.append(CurveView(x[mask], pr.phi_w_fit[mask], "fit", "phase fit", True))
-    truth_phase = _truth_spectral_phase(pr.wavelength, data.truth)
+    truth_phase = _truth_spectral_phase(pr.wavelength, truth)
     if truth_phase is not None:
         curves.append(
             CurveView(x[mask], truth_phase[mask], "truth-phase", "truth phase", True)
         )
     edge = pr.edge_energy
+    lam_min, lam_max = band if band is not None else (None, None)
     return LineView(
         curves=tuple(curves),
         title="Spectrum",
         xlabel=xlabel,
         ylabel="Power (a.u.)",
         right_label="Phase (rad)",
-        xrange=_spectral_xlim(data.lam_min, data.lam_max, axis),
+        xrange=_spectral_xlim(lam_min, lam_max, axis),
         yrange=(0.0, 1.05),
         right_range=_phase_ylim(
             pr.phi_w[mask], None if truth_phase is None else truth_phase[mask]
@@ -859,4 +987,128 @@ def filter_views(td, *, tracedb: float = 30.0) -> dict[str, MapView]:
             unit=unit,
             signed=not db,
         )
+    return views
+
+
+def _histogram_bins(count: int) -> int:
+    """Return the bin count: a fifth of the samples, from 12 to 40."""
+    return int(np.clip(count // 5, 12, 40))
+
+
+def _fwhm_distribution_view(uresult, truth: float | None) -> LineView:
+    samples = np.asarray(uresult.samples, dtype=float) / 1e-15
+    counts, edges = np.histogram(samples, bins=_histogram_bins(samples.size))
+    lo95, hi95 = (v / 1e-15 for v in uresult.interval_95)
+    lo68, hi68 = (v / 1e-15 for v in uresult.interval_68)
+    marks = [(uresult.point_estimate / 1e-15, "estimate")]
+    if truth is not None:
+        marks.append((truth / 1e-15, "truth-phase"))
+    return LineView(
+        curves=(),
+        title=(
+            f"{uresult.point_estimate / 1e-15:.2f} ± "
+            f"{uresult.plus_minus / 1e-15:.2f} fs  (B={uresult.n_converged})"
+        ),
+        xlabel="FWHM (fs)",
+        ylabel="Replicates",
+        spans=(
+            SpanView(lo95, hi95, "retrieved", "95 %", opacity=0.10),
+            SpanView(lo68, hi68, "retrieved", "68 %", opacity=0.20),
+        ),
+        bars=BarsView(edges, counts.astype(float), "retrieved"),
+        marks=tuple(marks),
+        yrange=(0.0, 1.05 * float(counts.max())),
+    )
+
+
+def _intensity_band_view(uresult) -> LineView:
+    t = np.asarray(uresult.t_profile, dtype=float) / 1e-15
+    profiles = np.asarray(uresult.profiles, dtype=float)
+    median = np.median(profiles, axis=0)
+    lo68, hi68 = np.percentile(profiles, [16.0, 84.0], axis=0)
+    lo95, hi95 = np.percentile(profiles, [2.5, 97.5], axis=0)
+    support = t[median > 0.01 * median.max()]
+    window = None
+    if support.size:
+        pad = PULSE_MARGIN * (support.max() - support.min() + 1.0)
+        window = (float(support.min() - pad), float(support.max() + pad))
+    return LineView(
+        curves=(CurveView(t, median, "retrieved", "median"),),
+        title="Temporal intensity",
+        xlabel="Time (fs)",
+        ylabel="Intensity (a.u.)",
+        bands=(
+            BandView(t, lo95, hi95, "retrieved", "95 %", opacity=0.15),
+            BandView(t, lo68, hi68, "retrieved", "68 %", opacity=0.30),
+        ),
+        xrange=window,
+        yrange=(0.0, 1.05 * float(np.max(hi95))),
+    )
+
+
+def _thickness_prior(uresult) -> tuple[SpanView, ...]:
+    if uresult.thickness_central is None or uresult.thickness_sigma is None:
+        return ()
+    central = uresult.thickness_central / 1e-6
+    sigma = uresult.thickness_sigma / 1e-6
+    return (SpanView(central - sigma, central + sigma, "prior", "L₀ ± σ_L"),)
+
+
+def _fwhm_vs_thickness_view(uresult, truth: float | None) -> LineView:
+    thick = np.asarray(uresult.thicknesses, dtype=float) / 1e-6
+    fwhm = np.asarray(uresult.samples, dtype=float) / 1e-15
+    lo68, hi68 = (v / 1e-15 for v in uresult.interval_68)
+    levels = [(uresult.point_estimate / 1e-15, "estimate")]
+    if truth is not None:
+        levels.append((truth / 1e-15, "truth-phase"))
+    return LineView(
+        curves=(CurveView(thick, fwhm, "retrieved", "draws", points=True),),
+        title="FWHM vs thickness",
+        xlabel="Substrate thickness (µm)",
+        ylabel="FWHM (fs)",
+        spans=(
+            *_thickness_prior(uresult),
+            SpanView(lo68, hi68, "estimate", "68 %", vertical=False),
+        ),
+        levels=tuple(levels),
+    )
+
+
+def _error_vs_thickness_view(uresult) -> LineView:
+    thick = np.asarray(uresult.thicknesses, dtype=float) / 1e-6
+    errors = np.asarray(uresult.frog_errors, dtype=float)
+    return LineView(
+        curves=(CurveView(thick, errors, "measured", "draws", points=True),),
+        title="Trace misfit vs thickness",
+        xlabel="Substrate thickness (µm)",
+        ylabel="FROG error R",
+        spans=_thickness_prior(uresult),
+    )
+
+
+def uncertainty_views(uresult, *, truth: float | None = None) -> list[LineView]:
+    """Return an uncertainty estimate's views, as the composite figure lays them out.
+
+    A resampling estimate gives the FWHM histogram with its 68 % and 95 %
+    intervals; a substrate-thickness estimate gives FWHM and FROG error against
+    the drawn thickness, with the thickness prior. Either is followed by the
+    temporal intensity's pointwise confidence band when profiles were
+    collected (see :func:`croak.plotting.plot_uncertainty`).
+
+    Parameters
+    ----------
+    uresult : UncertaintyResult
+        The estimate.
+    truth : float, optional
+        A known true FWHM (s) to mark.
+    """
+    if getattr(uresult, "thicknesses", None) is not None:
+        views = [
+            _fwhm_vs_thickness_view(uresult, truth),
+            _error_vs_thickness_view(uresult),
+        ]
+    else:
+        views = [_fwhm_distribution_view(uresult, truth)]
+    if uresult.profiles is not None and uresult.t_profile is not None:
+        views.append(_intensity_band_view(uresult))
     return views

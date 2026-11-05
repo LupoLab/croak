@@ -78,6 +78,8 @@ ROLE_STYLE: Mapping[str, tuple[str, bool, bool]] = {
     "corrected": (COLOURS[0], True, False),
     "faint": ("#9cbfdd", False, False),
     "boundary": (PALETTE.muted, True, False),
+    "estimate": (COLOURS[4], False, False),
+    "prior": ("#9aa3ad", False, False),
 }
 REFERENCE_WIDTH = 0.9
 """The width of a reference curve (the known pulse), logical px."""
@@ -134,12 +136,31 @@ def draw_line_view(plot: LinePlot, view: sc.LineView) -> None:
     for c in view.curves:
         colour, dashed, under = ROLE_STYLE[c.role]
         width = REFERENCE_WIDTH if under else PEN_WIDTH
-        curves.append(Curve(c.x, c.y, c.name, colour, dashed, c.right, width, under))
+        curves.append(
+            Curve(c.x, c.y, c.name, colour, dashed, c.right, width, under, c.points)
+        )
     plot.set_labels(view.xlabel, view.ylabel)
     if view.right_label is not None:
         plot.set_right_label(view.right_label)
     plot.set_curves(curves, log_y=view.log_y)
+    plot.clear_extras()
+    for span in view.spans:
+        colour = ROLE_STYLE[span.role][0]
+        plot.add_span(span.low, span.high, colour, span.opacity, vertical=span.vertical)
+    for band in view.bands:
+        plot.add_band(
+            band.x, band.low, band.high, ROLE_STYLE[band.role][0], band.opacity
+        )
+    for y, role in view.levels:
+        plot.add_level(y, ROLE_STYLE[role][0])
     plot.fit()
+    if view.bars is not None:
+        bars = view.bars
+        plot.add_bars(bars.edges, bars.counts, ROLE_STYLE[bars.role][0])
+        plot.set_view(
+            (float(bars.edges[0]), float(bars.edges[-1])),
+            (0.0, 1.05 * float(np.max(bars.counts)) or 1.0),
+        )
     if view.xrange is not None or view.yrange is not None:
         (x0, x1), (y0, y1) = plot.box.viewRange()
         xr = view.xrange or (x0, x1)

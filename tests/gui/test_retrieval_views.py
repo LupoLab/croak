@@ -171,3 +171,30 @@ def test_result_page_exports_its_figure(qtbot, data, tmp_path, monkeypatch):
     qtbot.addWidget(nothing)
     assert nothing.export_figure() == ""
     assert "Run a retrieval first" in messages[-1]
+
+
+def test_view_panel_draws_bars_bands_spans_points_and_levels(qtbot):
+    from test_plotting_screen import _estimate
+
+    from croak.gui.retrieval_views import ViewPanel
+    from croak.plotting.screen import uncertainty_views
+
+    panels = [ViewPanel("line") for _ in range(3)]
+    for panel in panels:
+        qtbot.addWidget(panel)
+    hist, band = uncertainty_views(_estimate())
+    panels[0].show_view(hist)
+    panels[1].show_view(band)
+    plot = panels[0].plot
+    kinds = {type(item).__name__ for item in plot.extras}
+    assert kinds == {"BarGraphItem", "LinearRegionItem"}
+    assert plot.box.viewRange()[0] == pytest.approx(
+        [hist.bars.edges[0], hist.bars.edges[-1]]
+    )
+    assert any(type(i).__name__ == "FillBetweenItem" for i in panels[1].plot.extras)
+    fwhm, error, _ = uncertainty_views(_estimate("thickness", thickness=True))
+    panels[0].show_view(fwhm)  # redrawn: the histogram's extras go
+    kinds = {type(item).__name__ for item in plot.extras}
+    assert "BarGraphItem" not in kinds and "InfiniteLine" in kinds
+    assert plot.items[0].opts["symbol"] == "o"
+    panels[2].show_view(error)

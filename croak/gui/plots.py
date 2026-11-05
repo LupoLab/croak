@@ -20,7 +20,7 @@ from typing import cast
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QFont, QMouseEvent, QPainter
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter
 
 from .theme import FONT_FAMILY, PALETTE, PLOT_PX
 
@@ -422,6 +422,8 @@ class Curve:
         Line width, logical px.
     under : bool
         Draw beneath the other curves (a reference such as a known pulse).
+    points : bool
+        Draw the samples as dots (a scatter) instead of a line.
     """
 
     x: np.ndarray
@@ -432,6 +434,7 @@ class Curve:
     right: bool = False
     width: float = PEN_WIDTH
     under: bool = False
+    points: bool = False
 
 
 class LinePlot(Plot):
@@ -455,6 +458,7 @@ class LinePlot(Plot):
         self.legend: pg.LegendItem | None = None
         self.right_box: pg.ViewBox | None = None
         self.marks: list[pg.InfiniteLine] = []
+        self.extras: list[pg.GraphicsObject | pg.FillBetweenItem] = []
         if right_label is not None:
             right = pg.ViewBox()
             self.right_box = right
@@ -512,7 +516,18 @@ class LinePlot(Plot):
             style = Qt.PenStyle.DashLine if curve.dashed else Qt.PenStyle.SolidLine
             pen = pg.mkPen(colour, width=curve.width, style=style)
             x, y = self._points(curve, curve.x, curve.y)
-            item = pg.PlotDataItem(x, y, pen=pen)
+            if curve.points:
+                item = pg.PlotDataItem(
+                    x,
+                    y,
+                    pen=None,
+                    symbol="o",
+                    symbolSize=5,
+                    symbolPen=None,
+                    symbolBrush=pg.mkColor(colour),
+                )
+            else:
+                item = pg.PlotDataItem(x, y, pen=pen)
             item.setZValue(-1 if curve.under else 0)
             if curve.right and self.right_box is not None:
                 self.right_box.addItem(item)
@@ -551,6 +566,78 @@ class LinePlot(Plot):
             line = pg.InfiniteLine(pos=position, angle=90, pen=pen)
             self.addItem(line, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
             self.marks.append(line)
+
+    def _shade(self, colour: str, opacity: float) -> QColor:
+        shade = pg.mkColor(colour)
+        shade.setAlphaF(opacity)
+        return shade
+
+    def _extra(self, item: pg.GraphicsObject | pg.FillBetweenItem, z: float) -> None:
+        item.setZValue(z)
+        self.addItem(item, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
+        self.extras.append(item)
+
+    def clear_extras(self) -> None:
+        """Remove the bars, bands, spans and levels drawn with the curves."""
+        for item in self.extras:
+            self.item.removeItem(item)
+        self.extras = []
+
+    def add_bars(
+        self, edges: np.ndarray, counts: np.ndarray, colour: str
+    ) -> pg.BarGraphItem:
+        """Draw a histogram: ``counts`` over the bins between ``edges``."""
+        edges = np.asarray(edges, dtype=float)
+        bars = pg.BarGraphItem(
+            x0=edges[:-1],
+            x1=edges[1:],
+            height=np.asarray(counts, dtype=float),
+            brush=self._shade(colour, 0.7),
+            pen=pg.mkPen("w", width=0.6),
+        )
+        self._extra(bars, -2)
+        return bars
+
+    def add_band(
+        self,
+        x: np.ndarray,
+        low: np.ndarray,
+        high: np.ndarray,
+        colour: str,
+        opacity: float,
+    ) -> pg.FillBetweenItem:
+        """Shade between the curves ``low`` and ``high`` over ``x``."""
+        lower = pg.PlotDataItem(x, low, pen=None)
+        upper = pg.PlotDataItem(x, high, pen=None)
+        band = pg.FillBetweenItem(lower, upper, brush=self._shade(colour, opacity))
+        self._extra(band, -3)
+        return band
+
+    def add_span(
+        self,
+        low: float,
+        high: float,
+        colour: str,
+        opacity: float,
+        *,
+        vertical: bool = True,
+    ) -> pg.LinearRegionItem:
+        """Shade the interval ``[low, high]`` of x (``vertical``) or of y."""
+        span = pg.LinearRegionItem(
+            values=(low, high),
+            orientation="vertical" if vertical else "horizontal",
+            movable=False,
+            brush=self._shade(colour, opacity),
+            pen=pg.mkPen(None),
+        )
+        self._extra(span, -4)
+        return span
+
+    def add_level(self, y: float, colour: str) -> pg.InfiniteLine:
+        """Draw a horizontal rule at ``y``."""
+        line = pg.InfiniteLine(pos=y, angle=0, pen=pg.mkPen(colour, width=1.4))
+        self._extra(line, -1)
+        return line
 
     def fit(self) -> None:
         """Fit the view to the left-axis curves, and make that the home view."""

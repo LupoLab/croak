@@ -112,7 +112,8 @@ def test_on_enter_lists_and_draws_the_current_estimate(stage, retrieval):
     stage.state.set_uncertainty_result(_uresult("parametric", 0.05e-15))
     stage.on_enter()
     assert stage.est_list.count() == 1
-    assert stage.canvas.rendered
+    shown = [view.title.text() for view in stage.views if not view.isHidden()]
+    assert shown[1] == "Temporal intensity" and len(shown) == 2
     assert stage.status_label.text() == stage.state.uncertainty_result.summary()
 
 

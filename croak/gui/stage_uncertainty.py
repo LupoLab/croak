@@ -24,10 +24,12 @@ from PySide6.QtWidgets import (
 )
 
 from .. import plotting, save
+from ..plotting.screen import uncertainty_views
 from ..processing import TruthPulse
-from ..uncertainty import combine_uncertainties
+from ..uncertainty import UncertaintyResult, combine_uncertainties
 from .base import RunControls, Stage
-from .canvas import MplCanvas, check, combo, dspin, group, spin, with_toolbar
+from .canvas import check, combo, dspin, group, spin
+from .retrieval_views import ViewPanel
 
 _METHODS = ["parametric", "delay", "frequency", "thickness", "covariance"]
 _NOISE_SOURCES = ["residual", "manual"]
@@ -164,8 +166,19 @@ class StageUncertainty(RunControls, Stage):
         self.controls.addStretch(1)
         self._sync_enabled()
 
-        self.canvas = MplCanvas(figsize=(11, 4.5))
-        self.set_plot_area(with_toolbar(self.canvas))
+        # Up to three panels side by side: a histogram (or FWHM and error against
+        # thickness) and the temporal confidence band; unused ones are hidden.
+        self.views = [ViewPanel("line") for _ in range(3)]
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(14)
+        for view in self.views:
+            row.addWidget(view)
+            view.hide()
+        plots = QWidget()
+        plots.setLayout(row)
+        self.set_plot_area(plots)
+        self._shown: UncertaintyResult | None = None
         self.apply_help()
 
     # -- control bindings ---------------------------------------------------
@@ -294,8 +307,11 @@ class StageUncertainty(RunControls, Stage):
         saved = "result.h5 (+uncertainty), options.toml"
         # Estimates restored from a saved session may not have been plotted yet;
         # the PDF documents the figure on screen, so there is nothing to export.
-        if self.canvas.rendered:
-            self.canvas.save_figure(os.path.join(folder, "uncertainty.pdf"), dpi=300)
+        if self._shown is not None:
+            figure = plotting.plot_uncertainty(
+                self._shown, truth=_truth_fwhm(self.state.truth)
+            )
+            figure.savefig(os.path.join(folder, "uncertainty.pdf"), dpi=300)
             saved += ", uncertainty.pdf"
         self.set_status(f"Saved {saved} to {folder}")
 
@@ -368,7 +384,10 @@ class StageUncertainty(RunControls, Stage):
             self.set_status(f"Uncertainty estimation failed: {message}")
 
     def _draw(self, uresult):
-        truth = _truth_fwhm(self.state.truth)
-        self.canvas.render(
-            lambda fig: plotting.plot_uncertainty(uresult, truth=truth, fig=fig)
-        )
+        views = uncertainty_views(uresult, truth=_truth_fwhm(self.state.truth))
+        for panel, view in zip(self.views, views, strict=False):
+            panel.show_view(view)
+            panel.show()
+        for panel in self.views[len(views) :]:
+            panel.hide()
+        self._shown = uresult

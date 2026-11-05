@@ -90,7 +90,7 @@ def test_without_a_result_everything_is_inert(qtbot):
         lambda: stage._auto_row(stage.mirror_stack.add_row()),
     ):
         action()
-    assert not stage.canvas.rendered
+    assert stage.views["spectrogram"].plot.data is None  # nothing drawn
     with pytest.raises(RuntimeError, match="no retrieval result"):
         stage._modified()
     with pytest.raises(RuntimeError, match="no retrieval result"):
@@ -113,7 +113,11 @@ def test_base_without_a_result_is_inert_for_the_tuners(qtbot, chirped_result):
 
 
 def test_entering_shows_the_pulse_and_power_labels(stage):
-    assert stage.canvas.rendered
+    titles = [view.title.text() for view in stage.views.values()]
+    assert titles == ["Spectrum", "Retrieved pulse", "Applied phase", "Spectrogram"]
+    assert stage.views["spectral"].plot.item.getAxis("bottom").labelText == (
+        "Wavelength (nm)"
+    )
     assert stage.fwhm_label.text().endswith(" fs")
     assert stage.peak_label.text() == "–"
     stage.energy.setValue(1e-6)

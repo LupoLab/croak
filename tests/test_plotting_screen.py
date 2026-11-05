@@ -259,3 +259,71 @@ def test_screen_simulated_views_show_the_file_density_on_a_unit_peak():
     linear, _, _, spectral = screen.simulated_trace_views(blank)
     assert linear.yrange is not None  # a blank trace shows its full range
     assert len(spectral.curves) == 1
+
+
+def _estimate(method="parametric", *, profiles=True, thickness=False):
+    from croak.uncertainty import UncertaintyResult
+
+    rng = np.random.default_rng(1)
+    t = np.linspace(-15e-15, 15e-15, 30)
+    extra = {}
+    if thickness:
+        extra = {
+            "thicknesses": rng.normal(10e-6, 1e-6, 40),
+            "thickness_central": 10e-6,
+            "thickness_sigma": 1e-6,
+        }
+    return UncertaintyResult(
+        statistic="fwhm",
+        point_estimate=5e-15,
+        samples=5e-15 + 0.1e-15 * rng.standard_normal(40),
+        interval_68=(4.9e-15, 5.1e-15),
+        interval_95=(4.8e-15, 5.2e-15),
+        interval_method="percentile",
+        method=method,
+        n_resamples=40,
+        n_converged=40,
+        frog_errors=rng.uniform(0.01, 0.02, 40),
+        base_error=0.01,
+        profiles=(
+            np.exp(-((t / 3e-15) ** 2)) * rng.uniform(0.9, 1.1, (40, 1))
+            if profiles
+            else None
+        ),
+        t_profile=t if profiles else None,
+        **extra,
+    )
+
+
+def test_screen_uncertainty_views_follow_the_composite_figure():
+    hist, band = screen.uncertainty_views(_estimate(), truth=5.05e-15)
+    assert hist.bars is not None and hist.bars.counts.sum() == 40
+    assert len(hist.bars.edges) == 12 + 1  # a fifth of 40, at least 12 bins
+    assert [s.name for s in hist.spans] == ["95 %", "68 %"]
+    assert [role for _, role in hist.marks] == ["estimate", "truth-phase"]
+    assert hist.title.startswith("5.00 ± ")
+    assert [b.name for b in band.bands] == ["95 %", "68 %"]
+    assert band.xrange is not None and band.xrange[0] < 0 < band.xrange[1]
+    (only,) = screen.uncertainty_views(_estimate(profiles=False))
+    assert only.marks == ((5.0, "estimate"),)
+
+
+def test_screen_uncertainty_views_for_the_thickness_systematic():
+    fwhm, error, band = screen.uncertainty_views(
+        _estimate("thickness", thickness=True), truth=5e-15
+    )
+    assert fwhm.curves[0].points and error.curves[0].points
+    assert [s.name for s in fwhm.spans] == ["L₀ ± σ_L", "68 %"]
+    assert not fwhm.spans[1].vertical
+    assert [role for _, role in fwhm.levels] == ["estimate", "truth-phase"]
+    assert [s.name for s in error.spans] == ["L₀ ± σ_L"]
+    assert band.title == "Temporal intensity"
+    no_prior = replace(_estimate("thickness", thickness=True), thickness_sigma=None)
+    fwhm, error, _ = screen.uncertainty_views(no_prior)
+    assert [s.name for s in fwhm.spans] == ["68 %"] and error.spans == ()
+
+
+def test_screen_uncertainty_band_of_nothing_has_no_window():
+    flat = replace(_estimate(), profiles=np.zeros((40, 30)))
+    _, band = screen.uncertainty_views(flat)
+    assert band.xrange is None

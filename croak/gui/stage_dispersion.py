@@ -12,8 +12,10 @@ import os
 from dataclasses import replace
 
 import numpy as np
+from matplotlib.figure import Figure
 from PySide6.QtWidgets import (
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -21,10 +23,18 @@ from PySide6.QtWidgets import (
 )
 
 from .. import dispersion, gases, materials, plotting, save
+from ..plotting.screen import (
+    CurveView,
+    LineView,
+    spectral_view_of,
+    spectrogram_map_of,
+    temporal_view_of,
+)
 from ..processing import process_result, spectrogram
 from .base import Stage
-from .canvas import MplCanvas, combo, group, with_toolbar
+from .canvas import combo, group
 from .mirror_stack import MirrorStack
+from .retrieval_views import ViewPanel
 from .widgets import SciSpinBox, ValueControl
 
 _GAS_NONE = "(none)"
@@ -258,8 +268,21 @@ class StageDispersion(Stage):
         self.controls.addWidget(btns)
         self.controls.addStretch(1)
 
-        self.canvas = MplCanvas(figsize=(9, 7))
-        self.set_plot_area(with_toolbar(self.canvas))
+        self.views = {
+            "spectral": ViewPanel("line", right=True),
+            "temporal": ViewPanel("line", right=True),
+            "applied": ViewPanel("line"),
+            "spectrogram": ViewPanel("map"),
+        }
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        for index, view in enumerate(self.views.values()):
+            grid.addWidget(view, index // 2, index % 2)
+        plots = QWidget()
+        plots.setLayout(grid)
+        self.set_plot_area(plots)
 
         self.apply_help()
 
@@ -540,20 +563,37 @@ class StageDispersion(Stage):
         )
 
     def _draw(self, mod, pr):
-        self.canvas.render(lambda fig: self._plot(fig, mod, pr))
+        """Show the dispersed pulse: spectrum, time, applied phase, spectrogram."""
+        # Wavelength, to match the applied-phase panel beneath it.
+        self.views["spectral"].show_view(spectral_view_of(pr, axis="wavelength"))
+        self.views["temporal"].show_view(temporal_view_of(pr))
+        lam_nm, phase = self._applied_curve(pr)
+        self.views["applied"].show_view(
+            LineView(
+                curves=(CurveView(lam_nm, phase, "retrieved", "applied"),),
+                title="Applied phase",
+                xlabel="Wavelength (nm)",
+                ylabel="Phase (rad)",
+            )
+        )
+        tc, lam, s = spectrogram(mod)
+        self.views["spectrogram"].show_view(spectrogram_map_of(tc, lam, s))
+
+    def _applied_curve(self, pr):
+        """The applied phase on the pulse's spectrum, zero at its peak."""
+        phi = self._applied_phase()
+        phi = phi - phi[pr.mask_w][int(np.argmax(pr.Iw[pr.mask_w]))]
+        return pr.wavelength[pr.mask_w] / 1e-9, phi[pr.mask_w]
 
     def _plot(self, fig, mod, pr) -> None:
-        """Draw the four dispersion panels into ``fig``."""
+        """Draw the four dispersion panels into ``fig`` (the saved PDF)."""
         axd = fig.subplot_mosaic("ab\ncd")
         # Wavelength, to match the applied-phase panel beneath it.
         plotting.plot_spectral(axd["a"], pr, axis="wavelength")  # phase + fit
         plotting.plot_temporal(axd["b"], pr)
         # bottom-left: only the *applied* dispersion phase
-        phi_applied = self._applied_phase()
-        phi_applied = (
-            phi_applied - phi_applied[pr.mask_w][int(np.argmax(pr.Iw[pr.mask_w]))]
-        )
-        axd["c"].plot(pr.wavelength[pr.mask_w] / 1e-9, phi_applied[pr.mask_w], c="C0")
+        lam_nm, phase = self._applied_curve(pr)
+        axd["c"].plot(lam_nm, phase, c="C0")
         axd["c"].set_xlabel("Wavelength (nm)")
         axd["c"].set_ylabel("Phase (rad)")
         axd["c"].set_title("Applied phase")
@@ -674,5 +714,7 @@ class StageDispersion(Stage):
             force=True,
         )
         save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        self.canvas.save_figure(os.path.join(folder, "dispersion.pdf"), dpi=600)
+        figure = Figure(figsize=(9, 7), layout="constrained")
+        self._plot(figure, mod, pr)
+        figure.savefig(os.path.join(folder, "dispersion.pdf"), dpi=600)
         self.set_status(f"Saved to {folder}")
