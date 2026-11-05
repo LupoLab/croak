@@ -2,7 +2,7 @@
 
 Keeps the window-system-facing identity — the name the desktop shows, the icon in
 the macOS Dock / Windows taskbar / Linux dock — in one place, out of
-:func:`~croak.gui.run_wizard`.
+:func:`~croak.gui.run_gui`.
 
 This module imports Qt, so it must only be imported from *inside* the functions
 that already need Qt: importing :mod:`croak.gui` deliberately does not pull PySide6
@@ -68,7 +68,7 @@ def apply_identity() -> None:
     but a ``QApplication`` must already exist.
 
     Note the macOS *menu bar* title is not set from here — Qt takes it from
-    ``argv[0]``, which :func:`~croak.gui.run_wizard` overrides when it constructs
+    ``argv[0]``, which :func:`~croak.gui.run_gui` overrides when it constructs
     the ``QApplication``.
     """
     from .. import __version__

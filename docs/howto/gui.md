@@ -20,16 +20,16 @@ croak-gui
 ```
 
 Within a uv project or source checkout, use `uv run croak-gui` or
-`uv run python -m croak.gui`. From Python, call {func}`croak.gui.run_wizard`:
+`uv run python -m croak.gui`. From Python, call {func}`croak.gui.run_gui`:
 
 ```python
 import croak.gui
 
-croak.gui.run_wizard()
+croak.gui.run_gui()
 ```
 
 {func}`croak.gui.main` is the console-script entry point;
-{func}`~croak.gui.run_wizard` creates the `QApplication` and shows the window
+{func}`~croak.gui.run_gui` creates the `QApplication` and shows the window
 **maximised**, because the plot pages need the room. Un-maximising gives the
 window the size you last left it (remembered between launches and clamped to the
 screen it opens on), or on a first run a window filling 90 % of the screen.

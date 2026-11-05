@@ -37,7 +37,6 @@ def test_stage_help_dialog_is_reused(qtbot):
 def test_stage_default_hooks(qtbot):
     stage = Stage(WizardState())
     qtbot.addWidget(stage)
-    assert stage.next_label() == "Next →"
     assert stage.can_advance() is True
     assert stage.advance() is None
     assert stage.on_enter() is None

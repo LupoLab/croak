@@ -55,6 +55,12 @@ class StubPage(StagePage):
         self.acted.append(kind)
         if self.stage is Stage.DATA and kind == "continue":
             self.state.set_load_data({"trace": "loaded"})
+        return kind == "continue"
+
+    def restore(self):
+        """Data's session replay: the stub has no trace to reload."""
+        self.acted.append("restore")
+        return False
 
 
 def stub_pages(state):
@@ -187,6 +193,7 @@ def test_window_raw_simulated_scan_continues_straight_to_retrieve(window):
     def raw_continue(kind):
         window.state.set_load_data({"trace": "raw"})
         window.state.set_tracedata("native grid")
+        return True
 
     data.act = raw_continue
     window.do_primary()
@@ -280,6 +287,7 @@ def test_window_opens_a_saved_session_and_remembers_it(window, tmp_path, monkeyp
     assert window.open_session("")
     assert window.state.entry == "simulated"
     assert window.stage is Stage.DATA
+    assert window.pages[Stage.DATA].acted == ["restore"]  # replay was asked
     assert window.context.text() == "Simulated scan  ·  run"
     assert settings.recent_sessions() == [str(path)]
     window.go_home()

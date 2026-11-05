@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
@@ -36,10 +37,11 @@ from PySide6.QtWidgets import (
 from .. import save
 from ..scripting import generate_script
 from ..session import files as session_files
+from ..session import retarget
 from . import settings
 from .branding import app_icon
 from .home import ENTRY_TILES, Home
-from .stage import StagePage
+from .stage import PageBase
 from .state import WizardState
 from .theme import button, frame, label, load_fonts, set_flag, stylesheet
 from .workflow import (
@@ -52,9 +54,14 @@ from .workflow import (
     primary_action,
 )
 
+if TYPE_CHECKING:
+    from .pages import DataPage
+    from .stage_preprocess import StagePreprocess
+    from .stage_retrieve import StageRetrieve
+
 __all__ = ["DRAWER_WIDTH", "MainWindow", "PageFactory"]
 
-PageFactory = Callable[[WizardState], Mapping[Stage, StagePage]]
+PageFactory = Callable[[WizardState], Mapping[Stage, PageBase]]
 """Builds a session's four stage pages from the shared state."""
 
 DRAWER_WIDTH = 440
@@ -72,21 +79,28 @@ class MainWindow(QMainWindow):
 
     Parameters
     ----------
-    make_pages : PageFactory
-        Builds the Data, Prepare, Retrieve and Analyse pages for a session.
+    make_pages : PageFactory, optional
+        Builds the Data, Prepare, Retrieve and Analyse pages for a session
+        (:func:`croak.gui.pages.default_pages` by default).
     state : WizardState, optional
         The shared session state (a fresh one by default).
     """
 
-    def __init__(self, make_pages: PageFactory, state: WizardState | None = None):
+    def __init__(
+        self, make_pages: PageFactory | None = None, state: WizardState | None = None
+    ):
         super().__init__()
         load_fonts()
         self.setWindowTitle("croak")
         self.setWindowIcon(app_icon())
         settings.restore_window(self)
         self.state = state or WizardState()
+        if make_pages is None:
+            from .pages import default_pages
+
+            make_pages = default_pages
         self.make_pages = make_pages
-        self.pages: dict[Stage, StagePage] = {}
+        self.pages: dict[Stage, PageBase] = {}
         self.stage = Stage.HOME
         self.session_path = ""
 
@@ -113,6 +127,7 @@ class MainWindow(QMainWindow):
         status.hide()
         status.messageChanged.connect(lambda text: status.setVisible(bool(text)))
         self.setStyleSheet(stylesheet())
+        self.state.retarget_requested.connect(self.retarget)
         for signal in (
             self.state.load_data_changed,
             self.state.tracedata_changed,
@@ -327,8 +342,7 @@ class MainWindow(QMainWindow):
             self.save_session()
             return
         page = self.pages[self.stage]
-        page.act(action.kind)
-        if action.kind == "continue":
+        if page.act(action.kind) and action.kind == "continue":
             self.go(next_stage(self.stage, self.progress()))
         self.refresh()
 
@@ -378,10 +392,91 @@ class MainWindow(QMainWindow):
         self.session_path = path
         settings.remember_session(path)
         self._build_pages()
-        # TODO(gui-redesign): replay the data, preparation and retrieval (or
-        # rehydrate result.h5) once the new stage pages expose them.
         self.go(Stage.DATA)
+        result = Path(path).with_name(session_files.RESULT_FILE)
+        self.replay(str(result) if result.is_file() else "")
         return True
+
+    def replay(self, result_path: str = "") -> None:
+        """Bring a reopened session back: its trace, preparation and retrieval.
+
+        The trace is reloaded with the saved options and prepared with the saved
+        settings. The retrieval is then taken from ``result_path`` (a sibling
+        ``result.h5``) when it was fitted to exactly this trace
+        (:func:`croak.session.files.result_mismatch`), and re-run otherwise. A
+        synthetic session cannot be replayed: its generator's settings are not
+        part of the saved options.
+        """
+        state = self.state
+        data = cast("DataPage", self.pages[Stage.DATA])
+        if state.entry == "synthetic":
+            data.entry_page.set_status(
+                "Options loaded, but the synthetic generator's settings are not "
+                "saved with a session — regenerate the trace to replay the rest.",
+                "warn",
+            )
+            return
+        if not data.restore():
+            return
+        prepare = cast("StagePreprocess", self.pages[Stage.PREPARE])
+        if state.tracedata is None:
+            prepare._seed_all()
+            prepare.apply(block=True)
+        if state.tracedata is None:
+            self.go(Stage.PREPARE)
+            prepare.set_status(
+                "Options loaded and data restored; preprocess did not complete.",
+                "warn",
+            )
+            return
+        retrieve = cast("StageRetrieve", self.pages[Stage.RETRIEVE])
+        # Adopt the saved result before Retrieve is shown: entering it draws
+        # (and processes) whatever result the session holds.
+        note = self._rehydrate(result_path) if result_path else "no saved result"
+        self.go(Stage.RETRIEVE)
+        if not note:
+            retrieve.set_status(
+                "Options and saved retrieval loaded — no re-run needed."
+            )
+            return
+        if result_path:
+            retrieve.set_status(f"Options loaded; re-running because {note}.")
+        retrieve._run()
+
+    def _rehydrate(self, result_path: str) -> str:
+        """Adopt the saved result at ``result_path``; return why not, or ``""``."""
+        tracedata = self.state.tracedata
+        try:
+            saved = save.load_result(result_path)
+            result = save.result_from_saved(saved, grid=tracedata.grid)  # pyright: ignore[reportOptionalMemberAccess]
+        except (KeyError, ValueError, OSError) as exc:
+            return f"the saved result could not be read ({exc})"
+        reason = session_files.result_mismatch(
+            saved,
+            tracedata,  # pyright: ignore[reportArgumentType]
+            self.state.retrieve,
+        )
+        if not reason:
+            self.state.set_result(result)
+        return reason
+
+    def retarget(self, folder: str) -> None:
+        """Point the session at the dataset in ``folder`` and replay it.
+
+        The dataset-folder paths are rewritten (the shared calibration files
+        stay) by :func:`croak.session.retarget`; only a measured session has
+        such a folder, and for the others the reason is shown instead.
+        """
+        try:
+            moved = retarget(self.state.session_options(), folder)
+        except ValueError as exc:
+            self.notify(str(exc))
+            return
+        for field in self.state.load.dataset_path_fields():
+            setattr(self.state.load, field, getattr(moved.load, field))
+        self._build_pages()
+        self.go(Stage.DATA)
+        self.replay()
 
     def save_session(self) -> list[str]:
         """Ask for a folder and save the session there; return the files written."""
@@ -398,6 +493,7 @@ class MainWindow(QMainWindow):
             processed=self.state.processed,
             truth=self.state.truth,
             uncertainty=self.state.uncertainty_results,
+            overview=self.pages[Stage.RETRIEVE].overview(),
         )
         self.session_path = str(Path(folder) / session_files.OPTIONS_FILE)
         settings.remember_session(self.session_path)

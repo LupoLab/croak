@@ -51,9 +51,8 @@ _SHAPES = ["Gaussian", "Sech²"]
 class StageSynthetic(Stage):
     """Synthetic-pulse / synthetic-FROG generator (reached from the menu)."""
 
-    def __init__(self, state, wizard):
+    def __init__(self, state):
         super().__init__(state)
-        self.wizard = wizard
         self._last = None  # cache of the last computed (grid, ew, omega0)
 
         # debounce rapid slider changes into one recompute
@@ -172,8 +171,7 @@ class StageSynthetic(Stage):
         add_wide_row(form, "Poisson counts", self.noise_pois)
         self.controls.addWidget(box)
 
-        # Navigation (Back / "Generate →") lives in the shared wizard footer, via
-        # the entry-page hooks below.
+        # Continue lives in the window's top bar; the Data page calls advance.
         self.controls.addStretch(1)
 
         self._seed_sampling()
@@ -535,16 +533,14 @@ class StageSynthetic(Stage):
         ax.set_title("Synthetic FROG trace")
 
     # -- generate (the entry-page forward action) ---------------------------
-    def next_label(self) -> str:
-        return "Generate →"
 
     def advance(self):
         """Build the synthetic trace from the current settings and move on.
 
-        Wired to the wizard footer's forward button. On success the trace (and the
-        generating field, as the known ground truth) is put on the shared state and
-        the wizard advances to the marginal-check stage; on failure the reason is
-        shown in the status label and the page stays put.
+        The Data page's Continue calls it. On success the trace (and the
+        generating field, as the known ground truth) is put on the shared state
+        and :attr:`advanced` sends the session to the marginal check; on failure
+        the reason is shown in the status label and the page stays put.
         """
         try:
             grid, ew, omega0 = self._pulse()
@@ -582,4 +578,4 @@ class StageSynthetic(Stage):
         self.state.load.interaction = interaction
         self.state.set_load_data(data)
         seed_preproc_defaults(self.state)
-        self.wizard.enter_marginal_from_synthetic()
+        self.advanced.emit("check")

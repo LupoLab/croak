@@ -182,15 +182,17 @@ class StageSimulated(Stage):
         ),
     ]
 
-    def __init__(self, state, wizard):
+    def __init__(self, state, adopt_geometry):
         super().__init__(state)
-        self.wizard = wizard
+        # Retrieve's StageRetrieve.apply_simulated_geometry: adopt the file's
+        # slab thickness and mask on an interactive load (see advance).
+        self.adopt_geometry = adopt_geometry
         self._defaults = SimulatedLoadParams()
         # the path the file-driven selectors (trace window + thickness) were last
         # populated for, so re-entering the stage keeps the user's choices
         self._options_path: str | None = None
         # Nothing can be loaded until a file previews successfully; drives the
-        # wizard footer's forward button (see can_advance).
+        # Data page's Continue (see can_advance).
         self._can_load = False
 
         # debounce rapid control changes into one reload/preview
@@ -459,13 +461,13 @@ class StageSimulated(Stage):
 
     def _on_raw_direct(self, _checked: bool) -> None:
         # Only changes what Load does (not the preview), so just relabel the
-        # wizard's forward button (see next_label).
-        self.wizard.refresh_nav()
+        # forward action.
+        self.changed.emit()
 
     def _set_can_load(self, can: bool) -> None:
         """Record whether a trace previewed, and refresh the wizard's Next button."""
         self._can_load = can
-        self.wizard.refresh_nav()
+        self.changed.emit()
 
     def _pick_file(self):
         fn, _ = QFileDialog.getOpenFileName(
@@ -601,13 +603,6 @@ class StageSimulated(Stage):
         self.canvas.render(plot)
 
     # -- load (the entry-page forward action) -------------------------------
-    def next_label(self) -> str:
-        # "Skip filtering & regrid" changes where Load lands, so say so. The "&&"
-        # is Qt's escape for a literal ampersand in a button label (a single "&"
-        # is swallowed as a mnemonic marker, rendering "Load  continue →").
-        if self.raw_direct.isChecked():
-            return "Load raw → Retrieve →"
-        return "Load && continue →"
 
     def can_advance(self) -> bool:
         return self._can_load
@@ -615,11 +610,11 @@ class StageSimulated(Stage):
     def advance(self):
         """Load the chosen simulated scan and hand it to the next stage.
 
-        Wired to the wizard footer's forward button. Normally the trace goes into
+        The Data page's Continue calls it. Normally the trace goes into
         the marginal-check stage; with "Skip filtering & regrid" ticked the
-        as-simulated trace is built on its native grid and the wizard jumps
-        straight to Retrieve. On failure the reason is shown in the status label
-        and the page stays put.
+        as-simulated trace is built on its native grid and the session goes
+        straight to Retrieve (:attr:`advanced` says which). On failure the reason
+        is shown in the status label and the page stays put.
         """
         params = self._params()
         try:
@@ -642,7 +637,7 @@ class StageSimulated(Stage):
         # chosen slice, mask hole diameter and spacing). Only on this
         # interactive path: a restored session keeps its own saved retrieval
         # settings, which the user may have chosen deliberately.
-        note = self.wizard.stages[3].apply_simulated_geometry(self.state.geometry)
+        note = self.adopt_geometry(self.state.geometry)
         if note:
             self.set_status(note)
         if params.raw_direct:
@@ -656,6 +651,6 @@ class StageSimulated(Stage):
                 self.set_status(f"Raw load failed: {exc}")
                 return
             self.state.set_tracedata(td)
-            self.wizard.enter_retrieve_from_simulated()
+            self.advanced.emit("retrieve")
         else:
-            self.wizard.enter_marginal_from_simulated()
+            self.advanced.emit("check")

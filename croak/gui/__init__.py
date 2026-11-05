@@ -1,11 +1,11 @@
-"""PySide6 Qt-Widgets wizard GUI for croak (matplotlib plots).
+"""croak's desktop GUI (PySide6, pyqtgraph plots).
 
-The GUI is a thin orchestration layer over the croak library: it loads, cleans,
-retrieves, post-processes, tunes dispersion, plots and saves — all via the
-library functions and the shared :mod:`croak.plotting` code.
+The GUI is a thin layer over the croak library: it loads, cleans, retrieves,
+post-processes, tunes dispersion, estimates uncertainty, plots and saves — all
+through the library's functions and the Qt-free :mod:`croak.session`. Its window
+takes a session from Home through Data, Prepare, Retrieve and Analyse.
 
-Launch with the ``croak-gui`` console script, :func:`run_wizard`, or
-``python -m croak.gui``.
+Launch with the ``croak-gui`` command, :func:`run_gui`, or ``python -m croak.gui``.
 """
 
 from __future__ import annotations
@@ -17,16 +17,16 @@ if TYPE_CHECKING:
     # Make the lazy __getattr__ re-exports visible to the type checker without
     # importing Qt at module import time (the runtime path is __getattr__ below).
     from .state import WizardState
-    from .wizard import Wizard
+    from .window import MainWindow
 
-__all__ = ["main", "run_wizard", "Wizard", "WizardState"]
+__all__ = ["MainWindow", "WizardState", "main", "run_gui"]
 
 
-def run_wizard(argv=None) -> int:
-    """Create a ``QApplication`` (if needed) and run the wizard event loop.
+def run_gui(argv=None) -> int:
+    """Create a ``QApplication`` (if needed) and run the window's event loop.
 
-    The window opens maximised — the plot pages want the room. Un-maximising
-    gives the size the user last left it (remembered between launches by
+    The window opens maximised — the plots want the room. Un-maximising gives
+    the size the user last left it (remembered between launches by
     :mod:`croak.gui.settings`, clamped to the current screen), or on a first run
     a default fitted to 90 % of the screen.
 
@@ -43,30 +43,30 @@ def run_wizard(argv=None) -> int:
             "croak's GUI needs the optional Qt dependencies, which are not "
             "installed. Install them with `pip install 'croak[gui]'` (or, in "
             "a uv checkout, `uv sync` — the dev group carries them). "
-            "Everything except the wizard runs without Qt."
+            "Everything except the GUI runs without Qt."
         ) from exc
 
     from .branding import APP_NAME, apply_identity
-    from .wizard import Wizard
+    from .window import MainWindow
 
     args = list(argv if argv is not None else sys.argv)
     app = QApplication.instance() or QApplication([APP_NAME, *args[1:]])
     apply_identity()
-    window = Wizard()
+    window = MainWindow()
     window.showMaximized()
     return app.exec()
 
 
 def main() -> int:
-    """Console-script entry point (``croak-gui``); runs the wizard."""
-    return run_wizard()
+    """Console-script entry point (``croak-gui``); runs the GUI."""
+    return run_gui()
 
 
 def __getattr__(name):  # lazy re-exports (avoid importing Qt at module import)
-    if name == "Wizard":
-        from .wizard import Wizard
+    if name == "MainWindow":
+        from .window import MainWindow
 
-        return Wizard
+        return MainWindow
     if name == "WizardState":
         from .state import WizardState
 

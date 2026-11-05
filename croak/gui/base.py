@@ -3,18 +3,19 @@
 :class:`Stage` is a :class:`~croak.gui.stage.StagePage` (form of folding
 sections beside the plots) that keeps the calls the stage modules were written
 against: ``controls`` to add sections to, :meth:`set_plot_area`,
-:meth:`set_status` and the entry-page hooks the old wizard's footer reads.
+:meth:`set_status` and the entry pages' :meth:`advance`.
 """
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Signal, SignalInstance
+from PySide6.QtWidgets import QPushButton, QWidget
 
 from .help import apply_tooltips, flatten
 from .stage import StagePage
 from .state import WizardState
 
-__all__ = ["Stage"]
+__all__ = ["RunControls", "Stage"]
 
 
 class Stage(StagePage):
@@ -23,7 +24,16 @@ class Stage(StagePage):
     Subclasses add their sections (:func:`croak.gui.canvas.group`) to
     ``self.controls``, hand their plots to :meth:`set_plot_area`, call
     :meth:`apply_help` at the end of ``__init__`` and implement :meth:`on_enter`.
+
+    Attributes
+    ----------
+    advanced : Signal(str)
+        An entry page finished its forward action and says where the session
+        goes next: ``"check"`` (the marginal check) or ``"retrieve"`` (a raw
+        simulated scan, straight to Retrieve).
     """
+
+    advanced = Signal(str)
 
     def __init__(self, state: WizardState, *, find: bool = False):
         super().__init__(state, find=find)
@@ -49,15 +59,29 @@ class Stage(StagePage):
         """
         return apply_tooltips(self, flatten(self.HELP))
 
-    # -- entry-page hooks ---------------------------------------------------
-    # The entry pages (the synthetic generator and the simulated-scan loader)
-    # are reached from the welcome menu rather than by walking the linear stage
-    # sequence, so the old wizard cannot decide from ``state.stage`` what its
-    # footer's "Next" button should say or do. They override these hooks.
-
-    def next_label(self) -> str:
-        """Text for the wizard footer's forward button on this page."""
-        return "Next →"
-
     def advance(self) -> None:
-        """Do this page's forward action (generate/load, then move on)."""
+        """Do an entry page's forward action (generate or load), then emit
+        :attr:`advanced`; the Data page calls it on Continue."""
+
+
+class RunControls:
+    """Run and Stop buttons that follow a worker, for a page that runs one.
+
+    The page creates :attr:`run_btn` and :attr:`stop_btn`; :meth:`set_running`
+    toggles them and tells the window (``changed``) so its primary action
+    becomes Stop while the work runs. Mix in before :class:`Stage`.
+    """
+
+    run_btn: QPushButton
+    stop_btn: QPushButton
+    changed: SignalInstance
+
+    def set_running(self, running: bool) -> None:
+        """Show the work as running (Stop on) or idle (Run on)."""
+        self.run_btn.setEnabled(not running)
+        self.stop_btn.setEnabled(running)
+        self.changed.emit()
+
+    def busy(self) -> bool:
+        """Whether the work is running."""
+        return self.stop_btn.isEnabled()

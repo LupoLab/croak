@@ -147,9 +147,8 @@ class StageMarginalCheck(Stage):
         ),
     ]
 
-    def __init__(self, state, wizard):
+    def __init__(self, state):
         super().__init__(state)
-        self.wizard = wizard
         # Measured default; re-seeded per trace in on_enter (full range for the
         # noise-free simulated/synthetic traces, 190–1000 nm for measured).
         self._trust_nm = (190.0, 1000.0)

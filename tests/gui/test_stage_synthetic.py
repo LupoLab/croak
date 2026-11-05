@@ -14,20 +14,13 @@ from croak.gui.stage_synthetic import StageSynthetic
 from croak.gui.state import WizardState
 
 
-class _Wizard:
-    """The one wizard hook the generator calls on success."""
-
-    def __init__(self):
-        self.entered = 0
-
-    def enter_marginal_from_synthetic(self):
-        self.entered += 1
-
-
 @pytest.fixture
 def stage(qtbot):
-    widget = StageSynthetic(WizardState(), _Wizard())
+    widget = StageSynthetic(WizardState())
     qtbot.addWidget(widget)
+    # Count where the generator says the session goes on success.
+    widget.went = []
+    widget.advanced.connect(widget.went.append)
     # Small, fast settings: a coarse trace is plenty to exercise the logic.
     widget.ndelay.setValue(32)
     widget.nwl.setValue(64)
@@ -142,7 +135,7 @@ def test_generate_failure_stays_on_the_page(stage, monkeypatch):
     monkeypatch.setattr(stage, "_pulse", fail)
     stage.advance()
     assert stage.status_label.text() == "Generation failed: bad grid"
-    assert stage.wizard.entered == 0
+    assert stage.went == []
 
 
 def test_generate_with_an_empty_window_asks_to_widen_it(stage):
@@ -150,14 +143,13 @@ def test_generate_with_an_empty_window_asks_to_widen_it(stage):
     stage._wl = (100.0, 150.0)  # below every wavelength the grid represents
     stage.advance()
     assert "widen the range" in stage.status_label.text()
-    assert stage.wizard.entered == 0
+    assert stage.went == []
     assert stage.state.load_data is None
 
 
 def test_generate_hands_the_trace_and_truth_on(stage):
-    assert stage.next_label() == "Generate →"
     stage.advance()
-    assert stage.wizard.entered == 1
+    assert stage.went == ["check"]
     data = stage.state.load_data
     assert data["trace"].shape == (64, 32)
     assert data["trace"].max() == pytest.approx(1.0)

@@ -47,7 +47,6 @@ __all__ = [
 class WizardState(QObject):
     """Holds wizard parameters and pipeline outputs, with change signals."""
 
-    stage_changed = Signal(int)
     load_data_changed = Signal()
     tracedata_changed = Signal()
     result_changed = Signal()
@@ -55,7 +54,7 @@ class WizardState(QObject):
     status = Signal(str)
     # Request the wizard to point the current session at a new dataset folder
     # (its argument) and replay load → preprocess → retrieve. Emitted by the
-    # Retrieve stage's "Retarget…" button; handled in croak.gui.wizard.Wizard.
+    # Retrieve stage's "Retarget…" button; handled in croak.gui.window.MainWindow.
     retarget_requested = Signal(str)
 
     def __init__(self):
@@ -75,7 +74,6 @@ class WizardState(QObject):
         self.dispersion = DispersionParams()
         self.uncertainty = UncertaintyParams()
 
-        self._stage = 1
         self.file_datasets: FileDatasets | None = None  # FROG file datasets
         self.load_data: dict | None = None  # lam, tau, trace, lam_spec, Ilam_spec
         self.tracedata: TraceData | None = None
@@ -118,34 +116,6 @@ class WizardState(QObject):
         if isinstance(self.load_data, dict):
             return self.load_data.get("geometry")
         return None
-
-    # -- navigation ---------------------------------------------------------
-    @property
-    def stage(self) -> int:
-        return self._stage
-
-    @stage.setter
-    def stage(self, value: int) -> None:
-        value = max(1, min(6, value))
-        if value != self._stage:
-            self._stage = value
-            self.stage_changed.emit(value)
-
-    def ready(self, stage: int) -> bool:
-        """Whether the Next button should be enabled for ``stage``.
-
-        Stage order: Load(1) → Marginal check(2) → Preprocess(3) → Retrieve(4) →
-        Dispersion(5) → Uncertainty(6). The marginal-check and preprocess stages
-        only need a loaded trace; the later stages need a completed retrieval.
-        """
-        return {
-            1: self.load_data is not None,
-            2: self.load_data is not None,
-            3: self.load_data is not None,
-            4: self.result is not None,
-            5: self.result is not None,
-            6: True,
-        }.get(stage, False)
 
     # -- outputs with cascading invalidation --------------------------------
     @property
@@ -213,7 +183,6 @@ class WizardState(QObject):
         self.uncertainty_results = {}
         self.preproc_defaults = None
         self.trace_sig = None
-        self._stage = 1
         self.load_data_changed.emit()
         self.tracedata_changed.emit()
         self.result_changed.emit()

@@ -35,7 +35,7 @@ from ..session.params import reg_defaults, reg_family
 from ..session.pipeline import extra_param_centres, smearing_kernel
 from ..truth_metrics import truth_errors
 from . import settings
-from .base import Stage
+from .base import RunControls, Stage
 from .canvas import check, collapsible, combo, dspin, group, spin
 from .panel_pages import RetrievalPages
 from .readout import DASH, RetrievalReadout
@@ -59,7 +59,7 @@ _INITIAL_GUESSES = {
 }
 
 
-class StageRetrieve(Stage):
+class StageRetrieve(RunControls, Stage):
     HELP_TITLE = "Retrieve"
     HELP_INTRO = (
         "Run the phase-retrieval algorithm on the preprocessed trace. The result "
@@ -1460,8 +1460,7 @@ class StageRetrieve(Stage):
                 self.set_status(
                     "No compatible previous result to reuse; using the default guess."
                 )
-        self.run_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
+        self.set_running(True)
         self.save_btn.setEnabled(False)
         self.retarget_btn.setEnabled(False)
         self._live_full = False
@@ -1496,6 +1495,16 @@ class StageRetrieve(Stage):
     def _stop(self):
         if self._worker is not None:
             self._worker.request_stop()
+
+    def act(self, kind: str) -> bool:
+        """Retrieve or stop from the window's primary action (never moves on)."""
+        if kind == "retrieve":
+            self._run()
+            return False
+        if kind == "stop":
+            self._stop()
+            return False
+        return super().act(kind)
 
     def _on_progress(self, iteration, R, best_R):
         self._errors.append(R)
@@ -1571,8 +1580,7 @@ class StageRetrieve(Stage):
         # The worker timed the run itself; prefer its value over the ticking clock.
         self._elapsed = float(elapsed)
         self._elapsed_timer.stop()
-        self.run_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.set_running(False)
         self.save_btn.setEnabled(True)
         self.retarget_btn.setEnabled(True)
         self.pf_lam.setEnabled(True)
@@ -1588,6 +1596,12 @@ class StageRetrieve(Stage):
         """Remember the spectrum panel's abscissa and re-present the stored result."""
         settings.set_text("retrieve/spectrum_axis", axis)
         self._update_view()
+
+    def overview(self) -> plotting.RetrievalPlotData | None:
+        """The current retrieval as the overview's plot data (``None`` before one)."""
+        if self.state.result is None:
+            return None
+        return self._plot_data(self.state.result, self.state.processed)
 
     def _plot_data(self, result, pr) -> plotting.RetrievalPlotData:
         """Bundle ``result`` and its processed form for the panels.
@@ -1863,8 +1877,7 @@ class StageRetrieve(Stage):
         )
 
     def _on_failed(self, message):
-        self.run_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.set_running(False)
         self._elapsed_timer.stop()
         self._conv_timer.stop()
         # Keep the last true iteration/error/elapsed; blank the curve table, whose

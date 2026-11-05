@@ -7,7 +7,7 @@ folded — so a small-screen user sets things up once. Values live in a
 by the organisation and application names from :mod:`.branding`; passing those
 explicitly means the store is the same whether or not
 :func:`~croak.gui.branding.apply_identity` has run (the tests build a
-:class:`~croak.gui.wizard.Wizard` without it).
+:class:`~croak.gui.window.MainWindow` without it).
 
 Every function opens a short-lived ``QSettings``, reads or writes one value and
 syncs, so the side effects stay at the edges and the module keeps no state. Only

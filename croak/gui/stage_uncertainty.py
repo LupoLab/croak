@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from .. import plotting, save
 from ..processing import TruthPulse
 from ..uncertainty import combine_uncertainties
-from .base import Stage
+from .base import RunControls, Stage
 from .canvas import MplCanvas, check, combo, dspin, group, spin, with_toolbar
 
 _METHODS = ["parametric", "delay", "frequency", "thickness", "covariance"]
@@ -39,7 +39,7 @@ def _truth_fwhm(truth: TruthPulse | None) -> float | None:
     return None if truth is None else truth.fwhm
 
 
-class StageUncertainty(Stage):
+class StageUncertainty(RunControls, Stage):
     """Estimate and display the statistical uncertainty of the retrieved FWHM."""
 
     HELP_TITLE = "Uncertainty"
@@ -322,8 +322,7 @@ class StageUncertainty(Stage):
         # the worker lazily; the worker pulls in the (heavier) solver stack.
         from .worker import UncertaintyWorker
 
-        self.run_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
+        self.set_running(True)
         self.set_status("Estimating…")
         self._worker = UncertaintyWorker(
             self.state.result,
@@ -341,20 +340,28 @@ class StageUncertainty(Stage):
         if self._worker is not None:
             self._worker.request_stop()
 
+    def act(self, kind: str) -> bool:
+        """Estimate or stop from the window's primary action (never moves on)."""
+        if kind == "estimate":
+            self._run()
+            return False
+        if kind == "stop-estimate":
+            self._stop()
+            return False
+        return super().act(kind)
+
     def _on_progress(self, done, total, error):
         self.set_status(f"replicate {done}/{total}:  R = {error:.4%}")
 
     def _on_finished(self, uresult):
-        self.run_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.set_running(False)
         self.state.set_uncertainty_result(uresult)
         self._refresh_estimates()
         self._draw(uresult)
         self.set_status(uresult.summary())
 
     def _on_failed(self, message):
-        self.run_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.set_running(False)
         if message == "stopped":
             self.set_status("Stopped.")
         else:

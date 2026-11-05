@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -117,3 +118,52 @@ def test_format_options_matches_the_saved_file(tmp_path, session):
     save_session(tmp_path, options)
     text = (tmp_path / OPTIONS_FILE).read_text(encoding="utf-8")
     assert text == save.format_options(options.to_dict())
+
+
+# -- result_mismatch on minimal stand-ins ----------------------------------------
+def _td(trace, omega):
+    return SimpleNamespace(trace=trace, grid=SimpleNamespace(omega=omega))
+
+
+@pytest.mark.parametrize(
+    ("saved", "reason"),
+    [
+        ({}, "the saved result does not store the trace it was fitted to"),
+        (
+            {"trace_meas": np.ones((2, 2))},
+            "the saved result is on a 2x2 grid but this trace regrids to 2x3",
+        ),
+        (
+            {"trace_meas": np.full((2, 3), 2.0)},
+            "preprocessing no longer reproduces the trace the result was fitted to",
+        ),
+        (
+            {"trace_meas": np.ones((2, 3)), "omega": np.arange(3.0)},
+            "the saved result is on a different frequency grid",
+        ),
+        (
+            {"trace_meas": np.ones((2, 3)), "omega": np.array([1.0, 2.5])},
+            "the saved result is on a different frequency grid",
+        ),
+        (
+            {
+                "trace_meas": np.ones((2, 3)),
+                "omega": np.array([1.0, 2.0]),
+                "algorithm": "lm",
+            },
+            "the saved result came from lm but the loaded settings select copra",
+        ),
+        ({"trace_meas": np.ones((2, 3)), "omega": np.array([1.0, 2.0])}, ""),
+        ({"trace_meas": np.ones((2, 3)), "algorithm": "copra"}, ""),
+    ],
+)
+def test_session_files_mismatch_explains_why_a_result_is_refused(saved, reason):
+    td = _td(np.ones((2, 3)), np.array([1.0, 2.0]))
+    assert result_mismatch(saved, td, SimpleNamespace(solver="copra")) == reason
+
+
+def test_session_files_mismatch_handles_an_all_zero_trace():
+    # a zero peak/span falls back to an absolute tolerance of 1e-9
+    td = _td(np.zeros((1, 2)), np.zeros(2))
+    saved = {"trace_meas": np.zeros((1, 2)), "omega": np.zeros(2)}
+    assert result_mismatch(saved, td, SimpleNamespace(solver="copra")) == ""

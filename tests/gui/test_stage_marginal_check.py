@@ -41,7 +41,7 @@ def _data(interaction="pg", *, spectrum=True, trace=None, input_unit="delay"):
 
 @pytest.fixture
 def stage(qtbot):
-    s = StageMarginalCheck(WizardState(), None)
+    s = StageMarginalCheck(WizardState())
     qtbot.addWidget(s)
     return s
 
