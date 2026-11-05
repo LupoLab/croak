@@ -45,6 +45,7 @@ __all__ = [
     "delay_marginal_view",
     "filter_view",
     "frequency_marginal_view",
+    "raw_trace_map",
     "residual_map",
     "spectral_view",
     "spectrogram_map",
@@ -63,6 +64,10 @@ ROLES = (
     "fit",
     "truth-phase",
     "error",
+    "predicted",
+    "corrected",
+    "faint",
+    "boundary",
 )
 
 
@@ -131,8 +136,8 @@ class LineView:
         A logarithmic left axis.
     notes : tuple of (str, bool)
         Short annotations, each with whether it is a warning.
-    marks : tuple of float
-        x positions of dashed vertical rules.
+    marks : tuple of (float, str)
+        Vertical rules: x position and role (the role sets colour and style).
     """
 
     curves: tuple[CurveView, ...]
@@ -145,7 +150,7 @@ class LineView:
     right_range: tuple[float, float] | None = None
     log_y: bool = False
     notes: tuple[tuple[str, bool], ...] = field(default_factory=tuple)
-    marks: tuple[float, ...] = field(default_factory=tuple)
+    marks: tuple[tuple[float, str], ...] = field(default_factory=tuple)
 
 
 def _evenly(axis: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -417,7 +422,11 @@ def convergence_view(errors: ArrayLike, boundaries: Sequence[int] = ()) -> LineV
         xlabel="Iteration",
         ylabel="Error",
         log_y=True,
-        marks=tuple(float(edge) + 0.5 for edge in boundaries if 0 < edge < errors.size),
+        marks=tuple(
+            (float(edge) + 0.5, "boundary")
+            for edge in boundaries
+            if 0 < edge < errors.size
+        ),
     )
 
 
@@ -488,4 +497,55 @@ def filter_view(data: RetrievalPlotData) -> LineView:
         xlabel="Wavelength (nm)",
         ylabel="Filter factor",
         xrange=(data.lam_min / 1e-9, data.lam_max / 1e-9),
+    )
+
+
+SIGNAL_FRACTION = 1e-2
+"""A wavelength row holds signal if its peak exceeds this fraction of the scale."""
+
+
+def raw_trace_map(
+    delay_fs: ArrayLike,
+    wavelength_nm: ArrayLike,
+    trace: ArrayLike,
+    trust_nm: tuple[float, float],
+    *,
+    title: str = "Measured trace",
+) -> MapView:
+    """Return a loaded trace (wavelength × delay) as a signed linear map.
+
+    The colour scale is set by the signal inside ``trust_nm`` alone, so noise far
+    outside it (strongly amplified by a ``(λ/µm)^exp`` correction) cannot wash
+    the image out, and the view is cropped to the trusted rows that hold signal.
+
+    Parameters
+    ----------
+    delay_fs, wavelength_nm : array_like
+        The trace's axes (any order, any spacing).
+    trace : array_like, shape (len(wavelength_nm), len(delay_fs))
+        The trace; negative after background subtraction is allowed.
+    trust_nm : tuple of float
+        The band whose signal sets the scale.
+    title : str
+        The view's title.
+    """
+    lam = np.asarray(wavelength_nm, dtype=float)
+    trace = np.asarray(trace, dtype=float)
+    in_band = (lam >= trust_nm[0]) & (lam <= trust_nm[1])
+    band = trace[in_band] if np.any(in_band) else trace
+    vmax = float(np.nanmax(np.abs(band))) or 1.0
+    rows = lam[in_band & (trace.max(axis=1) > SIGNAL_FRACTION * vmax)]
+    x, y, values = uniform_image(delay_fs, lam, trace)
+    low = min(float(np.nanmin(values)), 0.0)
+    return MapView(
+        values=values,
+        x=x,
+        y=y,
+        levels=(low, vmax),
+        title=title,
+        xlabel="Delay (fs)",
+        ylabel="Wavelength (nm)",
+        unit="a.u.",
+        signed=True,
+        yrange=(float(rows.min()), float(rows.max())) if rows.size else None,
     )

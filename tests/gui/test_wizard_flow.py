@@ -2273,32 +2273,6 @@ def test_solver_switch_rescales_regularisation(qtbot):
 
 
 # -- responsive canvas ---------------------------------------------------------
-@pytest.mark.parametrize(
-    ("size", "small"), [((1366, 768), True), ((1920, 1080), False)]
-)
-def test_canvas_density_follows_the_window_size(qtbot, size, small):
-    """Plot text shrinks in a small window and stays at full size in a large one."""
-    w = Driver(qtbot)
-    w.start("synthetic")
-    w.synthetic.advance()  # marginal check: two stacked (5, 4)-inch canvases
-    canvas = w.stages[1].marg_canvas
-    w.resize(*size)
-    w.show()
-    qtbot.waitExposed(w)
-    if small:
-        qtbot.waitUntil(lambda: canvas.scale.font < 0.8)
-    else:
-        qtbot.waitUntil(lambda: canvas.scale.font == 1.0)
-    # once the debounced re-plot has run, the title carries the scaled size
-    qtbot.waitUntil(
-        lambda: (
-            bool(canvas.figure.axes)
-            and canvas.figure.axes[0].title.get_fontsize()
-            == pytest.approx(12.0 * canvas.scale.font)
-        )
-    )
-
-
 def test_canvas_replots_when_a_resize_changes_the_density(qtbot):
     canvas = MplCanvas(figsize=(12, 7))
     qtbot.addWidget(canvas)
@@ -2438,7 +2412,7 @@ def test_stage_plots_move_below_the_form_on_a_narrow_window(qtbot):
     assert not stage.sheet.narrow
     assert (
         stage.form.geometry().right()
-        < stage.marg_canvas.mapTo(stage, stage.marg_canvas.rect().topLeft()).x()
+        < stage.marg_view.mapTo(stage, stage.marg_view.rect().topLeft()).x()
     )
     w.resize(900, 768)
     qtbot.waitUntil(lambda: stage.sheet.narrow)

@@ -538,13 +538,16 @@ class LinePlot(Plot):
         if self.right_box is not None:
             self.right_box.setYRange(low, high, padding=0)
 
-    def set_marks(self, positions: Sequence[float], colour: str = "") -> None:
-        """Draw dashed vertical lines at ``positions`` (replacing the last set)."""
+    def set_marks(
+        self, marks: Sequence[tuple[float, str]], *, dashed: bool = True
+    ) -> None:
+        """Draw vertical rules, each ``(x, colour)`` (replacing the last set)."""
         for mark in self.marks:
             self.item.removeItem(mark)
-        pen = pg.mkPen(colour or PALETTE.accent, width=1.2, style=Qt.PenStyle.DashLine)
+        style = Qt.PenStyle.DashLine if dashed else Qt.PenStyle.DotLine
         self.marks = []
-        for position in positions:
+        for position, colour in marks:
+            pen = pg.mkPen(colour or PALETTE.accent, width=1.2, style=style)
             line = pg.InfiniteLine(pos=position, angle=90, pen=pen)
             self.addItem(line, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
             self.marks.append(line)

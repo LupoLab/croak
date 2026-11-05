@@ -145,7 +145,7 @@ def test_screen_spectral_view_without_measurement_or_truth(data):
 
 def test_screen_convergence_view_marks_inner_handovers_only():
     view = screen.convergence_view([1.0, 0.5, 0.2, 0.1], boundaries=[0, 2, 4])
-    assert view.log_y and view.marks == (2.5,)
+    assert view.log_y and view.marks == ((2.5, "boundary"),)
     assert_allclose(view.curves[0].x, [1, 2, 3, 4])
 
 
@@ -160,3 +160,18 @@ def test_screen_marginals_and_filter(data):
     x = filt.curves[0].x
     assert np.all(np.diff(x) > 0)  # sorted by wavelength
     assert filt.xrange == pytest.approx((700.0, 950.0))
+
+
+def test_screen_raw_trace_scales_by_the_trusted_band_and_crops_to_signal():
+    lam = np.linspace(1100.0, 100.0, 11)  # descending, as some files store it
+    delay = np.linspace(-20.0, 20.0, 5)
+    trace = np.zeros((11, 5))
+    trace[lam == 500.0] = 2.0  # the signal, in the trusted band
+    trace[lam == 100.0] = 50.0  # amplified noise outside it
+    trace[lam == 300.0, 0] = -0.5  # a negative left by background subtraction
+    view = screen.raw_trace_map(delay, lam, trace, (190.0, 1000.0))
+    assert view.levels == (-0.5, 2.0) and view.signed
+    assert view.yrange == (500.0, 500.0)
+    assert view.y[0] < view.y[-1]
+    quiet = screen.raw_trace_map(delay, lam, np.zeros((11, 5)), (190.0, 1000.0))
+    assert quiet.levels == (0.0, 1.0) and quiet.yrange is None

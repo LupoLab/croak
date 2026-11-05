@@ -50,6 +50,7 @@ from .theme import PALETTE, label, set_flag
 
 __all__ = [
     "OVERVIEW",
+    "ViewPanel",
     "PANELS",
     "Panel",
     "ResultPage",
@@ -73,6 +74,10 @@ ROLE_STYLE: Mapping[str, tuple[str, bool, bool]] = {
     "fit": (COLOURS[3], True, False),
     "truth-phase": (PALETTE.muted, True, True),
     "error": (COLOURS[0], False, False),
+    "predicted": (COLOURS[4], True, False),
+    "corrected": (COLOURS[0], True, False),
+    "faint": ("#9cbfdd", False, False),
+    "boundary": (PALETTE.muted, True, False),
 }
 REFERENCE_WIDTH = 0.9
 """The width of a reference curve (the known pulse), logical px."""
@@ -138,11 +143,13 @@ def draw_line_view(plot: LinePlot, view: sc.LineView) -> None:
     if view.xrange is not None or view.yrange is not None:
         (x0, x1), (y0, y1) = plot.box.viewRange()
         xr = view.xrange or (x0, x1)
-        yr = view.yrange if view.yrange is not None and not view.log_y else (y0, y1)
+        yr = view.yrange or (y0, y1)
+        if view.log_y and view.yrange is not None:  # a log axis works in decades
+            yr = (float(np.log10(yr[0])), float(np.log10(yr[1])))
         plot.set_view(xr, yr)
     if view.right_range is not None:
         plot.set_right_range(*view.right_range)
-    plot.set_marks(view.marks, PALETTE.muted)
+    plot.set_marks([(x, ROLE_STYLE[role][0]) for x, role in view.marks])
 
 
 def draw_map_view(plot: MapPlot, view: sc.MapView) -> None:
@@ -153,13 +160,36 @@ def draw_map_view(plot: MapPlot, view: sc.MapView) -> None:
     plot.set_view(view.xrange or (x0, x1), view.yrange or (y0, y1))
 
 
-class PanelBox(QWidget):
-    """A titled panel: its plot, with a line of notes under the title."""
+def _name(axis_label: str) -> str:
+    """Return an axis label's quantity for the readout: "Delay (fs)" → "Delay"."""
+    return axis_label.split(" (")[0]
 
-    def __init__(self, key: str) -> None:
+
+class ViewPanel(QWidget):
+    """A titled plot that shows a screen view (:mod:`croak.plotting.screen`).
+
+    Parameters
+    ----------
+    kind : {"map", "line"}
+        The plot it holds.
+    colours : str
+        A map's colour map.
+    signed, white : bool
+        A map's colour scale (see :class:`~croak.gui.plots.MapPlot`).
+    right : bool
+        A line plot with a right-hand axis.
+    """
+
+    def __init__(
+        self,
+        kind: str,
+        *,
+        colours: str = "viridis",
+        signed: bool = False,
+        white: bool = True,
+        right: bool = False,
+    ) -> None:
         super().__init__()
-        self.key = key
-        self.spec = PANELS[key]
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -172,39 +202,58 @@ class PanelBox(QWidget):
         head.addWidget(self.notes)
         layout.addLayout(head)
         self.plot: MapPlot | LinePlot
-        if self.spec.kind == "map":
-            plot = MapPlot(
-                colours=self.spec.colours,
-                signed=self.spec.signed,
-                white=self.spec.white,
-            )
-            plot.reader = map_reader(plot, "x", "y")
-            self.plot = plot
+        if kind == "map":
+            self.plot = MapPlot(colours=colours, signed=signed, white=white)
         else:
-            line = LinePlot(right_label="" if self.spec.right else None)
-            line.reader = curve_reader(line, "x")
-            self.plot = line
+            self.plot = LinePlot(right_label="" if right else None)
         layout.addWidget(self.plot, stretch=1)
 
-    def show_data(self, data: RetrievalPlotData) -> None:
-        """Draw this panel's view of ``data``."""
-        view = self.spec.view(data)
-        if view is None:  # only the residual can be missing
-            self.title.setText("Residuals")
-            cast(MapPlot, self.plot).say("No residual for this result.")
-            self.notes.setText("")
-            return
+    def show_view(self, view: sc.MapView | sc.LineView, notes: str = "") -> None:
+        """Draw ``view``; ``notes`` (or a line view's own) go beside the title."""
         self.title.setText(view.title)
         if isinstance(view, sc.MapView):
-            draw_map_view(cast(MapPlot, self.plot), view)
-            notes = self.spec.note(data) if self.spec.note is not None else ""
+            plot = cast(MapPlot, self.plot)
+            draw_map_view(plot, view)
+            plot.reader = map_reader(plot, _name(view.xlabel), _name(view.ylabel))
             self.notes.setText(notes)
             set_flag(self.notes, "warn", False)
             return
         line = cast(LinePlot, self.plot)
         draw_line_view(line, view)
-        self.notes.setText("   ".join(text for text, _ in view.notes))
+        line.reader = curve_reader(line, _name(view.xlabel))
+        self.notes.setText(notes or "   ".join(text for text, _ in view.notes))
         set_flag(self.notes, "warn", any(warn for _, warn in view.notes))
+
+    def say(self, title: str, text: str) -> None:
+        """Show ``text`` in place of a map (there is nothing to draw)."""
+        self.title.setText(title)
+        cast(MapPlot, self.plot).say(text)
+        self.notes.setText("")
+
+
+class PanelBox(ViewPanel):
+    """One of the retrieval's panels (:data:`PANELS`)."""
+
+    def __init__(self, key: str) -> None:
+        spec = PANELS[key]
+        super().__init__(
+            spec.kind,
+            colours=spec.colours,
+            signed=spec.signed,
+            white=spec.white,
+            right=spec.right,
+        )
+        self.key = key
+        self.spec = spec
+
+    def show_data(self, data: RetrievalPlotData) -> None:
+        """Draw this panel's view of ``data``."""
+        view = self.spec.view(data)
+        if view is None:  # only the residual can be missing
+            self.say("Residuals", "No residual for this result.")
+            return
+        note = self.spec.note(data) if self.spec.note is not None else ""
+        self.show_view(view, note)
 
 
 class RetrievalPanels(QWidget):

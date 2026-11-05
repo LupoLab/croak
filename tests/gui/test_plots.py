@@ -280,8 +280,8 @@ def test_plots_curves_can_be_thin_references_drawn_beneath(qtbot):
 
 def test_plots_marks_replace_the_previous_set(qtbot):
     plot = _shown(qtbot, LinePlot())
-    plot.set_marks([1.0, 2.0])
-    plot.set_marks([3.0], colour="#ff0000")
+    plot.set_marks([(1.0, ""), (2.0, "")])
+    plot.set_marks([(3.0, "#ff0000")], dashed=False)
     assert [m.value() for m in plot.marks] == [3.0]
 
 
