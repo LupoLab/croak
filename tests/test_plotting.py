@@ -179,7 +179,7 @@ def test_si_power_prefixes():
 def test_resample_uniform_x_leaves_uniform_axis_unchanged():
     x = np.linspace(200.0, 800.0, 64)
     C = np.random.default_rng(0).random((10, 64))
-    xu, Cu = plotting._resample_uniform_x(x, C)
+    xu, Cu = plotting.traces._resample_uniform_x(x, C)
     np.testing.assert_allclose(xu, x)
     np.testing.assert_allclose(Cu, C)
 
@@ -199,7 +199,7 @@ def test_resample_uniform_x_places_feature_at_true_wavelength():
     row = np.exp(-0.5 * ((lam_nm - peak_nm) / 5.0) ** 2)  # narrow feature at 260 nm
     C = np.tile(row, (8, 1))  # (ndelay, nlam)
 
-    xu, Cu = plotting._resample_uniform_x(lam_nm, C)
+    xu, Cu = plotting.traces._resample_uniform_x(lam_nm, C)
     # on the uniform display axis the peak column maps linearly to its wavelength
     j = int(np.argmax(Cu.sum(axis=0)))
     wl = xu[0] + j / (xu.size - 1) * (xu[-1] - xu[0])
@@ -307,7 +307,7 @@ def test_sig3_formats_three_significant_digits():
         "1234",
     ]
     # _fs is the femtosecond wrapper the legends use; it must not drift from sig3
-    assert plotting._fs(9.512e-15) == plotting.sig3(9.512)
+    assert plotting.units._fs(9.512e-15) == plotting.sig3(9.512)
     assert plotting.sig3(float("nan")) == "nan"
 
 
@@ -317,13 +317,13 @@ def test_plot_retrieval_reuses_a_precomputed_processed_result(result_and_trace):
     pr = processing.process_result(res, measured=trace)
 
     calls = []
-    real = plotting.process_result
+    real = plotting.panels.process_result
 
     def counting(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
 
-    plotting.process_result = counting
+    plotting.panels.process_result = counting
     try:
         fig = plotting.plot_retrieval(
             res, measured=trace, lam_min=700e-9, lam_max=950e-9, processed=pr
@@ -338,7 +338,7 @@ def test_plot_retrieval_reuses_a_precomputed_processed_result(result_and_trace):
         assert len(calls) == 1
         fig.clf()
     finally:
-        plotting.process_result = real
+        plotting.panels.process_result = real
 
 
 def test_plot_retrieval_rejects_a_processed_result_from_another_retrieval(
@@ -676,13 +676,13 @@ def test_spectrogram_is_lazy_and_cached(result_and_trace, monkeypatch):
     """The Gabor transform runs only for a page that shows it, and only once."""
     res, trace = result_and_trace
     calls = []
-    real = plotting.spectrogram
+    real = plotting.panels.spectrogram
 
     def counted(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(plotting, "spectrogram", counted)
+    monkeypatch.setattr(plotting.panels, "spectrogram", counted)
     data = _plot_data(res, trace)
     assert calls == []
     plotting.plot_retrieval_page(data, plotting.RETRIEVAL_PAGES["traces"])
@@ -856,8 +856,8 @@ def test_update_temporal_legend_follows_the_fwhm(update_results):
     artists = plotting.draw_temporal(Figure().add_subplot(), _plot_data(r1, trace))
     plotting.update_temporal(artists, _plot_data(r2, trace))
     pr2 = processing.process_result(r2, measured=trace)
-    assert plotting._fs(pr2.fwhm_retr) in artists.legend_retr.get_text()
-    assert plotting._fs(pr2.fwhm_tl) in artists.legend_tl.get_text()
+    assert plotting.units._fs(pr2.fwhm_retr) in artists.legend_retr.get_text()
+    assert plotting.units._fs(pr2.fwhm_tl) in artists.legend_tl.get_text()
 
 
 def test_update_convergence_curve_grows_and_rescales():
@@ -899,11 +899,15 @@ def test_update_signature_separates_shapes_from_values(update_results):
     d1 = _plot_data(r1, trace)
     d2 = _plot_data(r2, trace)
     d3 = _plot_data(r3, trace3)
-    assert plotting._update_signature(d1) == plotting._update_signature(d2)
-    assert plotting._update_signature(d1) != plotting._update_signature(d3)
+    assert plotting.updates._update_signature(d1) == plotting.updates._update_signature(
+        d2
+    )
+    assert plotting.updates._update_signature(d1) != plotting.updates._update_signature(
+        d3
+    )
     g = Grid(96, dt=0.5e-15)
     truth = TruthPulse.from_spectrum(g, gaussian_pulse(g, 7e-15), float(wlfreq(800e-9)))
-    assert plotting._update_signature(d1) != plotting._update_signature(
+    assert plotting.updates._update_signature(d1) != plotting.updates._update_signature(
         _plot_data(r1, trace, truth=truth)
     )
 
@@ -1019,9 +1023,9 @@ def test_retrieval_plot_data_carries_the_spectral_axis(result_and_trace):
     plotting.draw_spectral(ax, by_wavelength)
     assert ax.get_xlabel() == "Wavelength (nm)"
     # a different abscissa is a different set of artists: no in-place update
-    assert plotting._update_signature(default) != plotting._update_signature(
-        by_wavelength
-    )
+    assert plotting.updates._update_signature(
+        default
+    ) != plotting.updates._update_signature(by_wavelength)
     fig = plotting.plot_retrieval(res, measured=trace, spectral_axis="wavelength")
     spectrum = next(a for a in fig.axes if a.get_title() == "Spectrum")
     assert spectrum.get_xlabel() == "Wavelength (nm)"
@@ -1229,11 +1233,11 @@ def test_cmap_negwhite_without_a_negative_part_is_cmap_white():
 
 def test_si_power_below_the_smallest_prefix_uses_it():
     scale, unit = plotting.si_power(1e-30)
-    assert (scale, unit) == plotting._POWER_PREFIXES[-1]
+    assert (scale, unit) == plotting.units._POWER_PREFIXES[-1]
 
 
 def test_phase_ylim_of_nothing_finite_is_none():
-    assert plotting._phase_ylim(None, np.array([np.nan]), np.array([])) is None
+    assert plotting.pulse._phase_ylim(None, np.array([np.nan]), np.array([])) is None
 
 
 def test_plot_residual_and_spectrogram_defaults(result_and_trace):
@@ -1296,7 +1300,7 @@ def test_axes_of_an_unplaced_artist_raises():
     from matplotlib.lines import Line2D
 
     with pytest.raises(RuntimeError, match="not on any axes"):
-        plotting._axes_of(Line2D([0], [0]))
+        plotting.updates._axes_of(Line2D([0], [0]))
 
 
 def test_trace_update_with_negative_samples_and_no_label(result_and_trace):
@@ -1343,7 +1347,9 @@ def test_update_spectrogram_refuses_a_new_shape(update_results):
 def test_mappables_of_a_curve_panel_are_empty():
     from matplotlib.lines import Line2D
 
-    assert plotting._mappables(plotting.LineArtists(line=Line2D([0], [0]))) == (
+    assert plotting.retrieval._mappables(
+        plotting.LineArtists(line=Line2D([0], [0]))
+    ) == (
         None,
         None,
     )
@@ -1405,14 +1411,16 @@ def test_filter_view_vmax_ignores_a_window_outside_the_axis():
 
 def test_decimate_for_display_strides_large_images():
     C = np.arange(2500.0 * 3).reshape(2500, 3)
-    out, x, y = plotting._decimate_for_display(C, np.arange(3.0), np.arange(2500.0))
+    out, x, y = plotting.traces._decimate_for_display(
+        C, np.arange(3.0), np.arange(2500.0)
+    )
     assert out.shape == (1250, 3) and y.size == 1250 and x.size == 3
 
 
 def test_resample_uniform_x_passes_short_axes_through():
     x = np.array([1.0, 3.0])
     C = np.ones((2, 2))
-    xu, Cu = plotting._resample_uniform_x(x, C)
+    xu, Cu = plotting.traces._resample_uniform_x(x, C)
     assert xu is not None and Cu is C
 
 
