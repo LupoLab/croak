@@ -1,17 +1,17 @@
 """Regenerate the images used by the README and the documentation.
 
-Two images, both derived from a synthetic retrieval so they are reproducible and
-carry no measured data:
+All derive from a synthetic retrieval, so they are reproducible and carry no
+measured data:
 
 ``docs/_static/hero.png``
     The 12-panel :func:`croak.plot_retrieval` summary — the landing-page figure.
 
-``docs/_static/gui_retrieve.png``
-    A screenshot of the wizard's Retrieve stage just after a run, showing the
-    plot and the numeric read-out strip.
+``docs/_static/gui_home.png``, ``gui_retrieve.png``, ``gui_analyse.png``
+    Screenshots of the GUI window: Home, the Retrieve stage just after a run
+    (the live overview and the numeric read-out), and Analyse's Pulse page.
 
 Run it after any change that alters the plot layout, the read-out columns or the
-wizard's controls::
+window's controls::
 
     uv run python tools/make_docs_images.py
 
@@ -42,10 +42,9 @@ import croak
 
 STATIC = Path(__file__).resolve().parent.parent / "docs" / "_static"
 
-#: Size of the grabbed wizard window (px). Wide enough that the left-hand control
-#: column and the 12-panel canvas both stay legible when the image is scaled down
-#: to README width.
-GUI_SIZE = (1600, 1000)
+#: Size of the grabbed window (px): a common laptop display, so the screenshots
+#: show what most users see and stay legible scaled down to README width.
+GUI_SIZE = (1440, 900)
 
 #: Pulse energy (J) handed to the GUI run. Without it the read-out's "Peak power"
 #: column is all dashes, so the screenshot would show a half-empty table.
@@ -150,7 +149,7 @@ def _wait_for(signal, timeout_ms: int = 120_000) -> None:
     it the way the application does rather than by sleeping. This is the
     no-pytest-qt equivalent of ``qtbot.waitSignal``.
     """
-    from PyQt6.QtCore import QEventLoop, QTimer
+    from PySide6.QtCore import QEventLoop, QTimer
 
     loop = QEventLoop()
     signal.connect(loop.quit)
@@ -164,41 +163,55 @@ def _wait_for(signal, timeout_ms: int = 120_000) -> None:
     timer.stop()
 
 
-def make_gui_screenshot(path: Path) -> Path:
-    """Drive the wizard through a synthetic retrieval and grab the Retrieve stage.
+def _grab(window, path: Path) -> Path:
+    """Save ``window`` as a PNG at ``path``."""
+    from PySide6.QtWidgets import QApplication
 
-    Follows the same route a user takes from the Welcome page: generate a
-    synthetic trace, accept the seeded preprocessing, then retrieve. A synthetic
-    session is used deliberately — it carries the known ground truth, so the
-    read-out's ``truth`` row is populated and the plot gains its truth overlay.
+    QApplication.processEvents()
+    pixmap = window.grab()
+    if pixmap.isNull():
+        raise RuntimeError("QWidget.grab() returned a null pixmap")
+    if not pixmap.save(str(path), "PNG"):
+        raise RuntimeError(f"failed to write {path}")
+    print(f"wrote {path}  ({pixmap.width()}×{pixmap.height()})")
+    return path
+
+
+def make_gui_screenshots(folder: Path) -> list[Path]:
+    """Drive the window through a synthetic retrieval and grab three views.
+
+    Follows the route a user takes: Home, a synthetic trace (Continue generates
+    it and opens Check, Continue again prepares it), then Retrieve. A
+    synthetic session is used deliberately — it carries the known ground truth,
+    so the truth errors beneath the plots are filled and the plots gain the
+    truth overlay.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
-    from croak.gui.wizard import Wizard
+    from croak.gui.window import MainWindow
+    from croak.gui.workflow import Stage
 
     app = QApplication.instance() or QApplication(sys.argv)
-    wizard = Wizard()
-    wizard.resize(*GUI_SIZE)
+    window = MainWindow()
+    window.resize(*GUI_SIZE)
+    window.show()
+    paths = [_grab(window, folder / "gui_home.png")]
 
-    # Welcome -> synthetic generator -> build the trace and advance to the
-    # marginal-check stage (see croak/gui/stage_synthetic.py:advance).
-    wizard.show_synthetic()
-    wizard.synthetic.advance()
-
-    # Preprocess runs synchronously from the seeded defaults, so stepping onto it
-    # is enough to produce the cleaned TraceData the retrieve stage consumes.
-    # Widen the spectral window and lengthen the time range before preprocessing.
+    window.new_session("synthetic")
+    window.do_primary()  # generate the trace -> Check
+    # Widen the spectral window and lengthen the time range before preparing.
     # The seeded defaults regrid onto only 24 frequency points (dt = 10.5 fs),
     # which is too coarse to represent a 10 fs pulse: the retrieval still reaches
     # R < 1% but the recovered FWHM comes out ~18% long. These settings give 98
     # points and bring it within ~3% of the known truth.
-    preproc = wizard.state.preproc
+    preproc = window.state.preproc
     preproc.lam_min_nm, preproc.lam_max_nm = 650.0, 1000.0
     preproc.trange_fs = 600.0
+    window.do_primary()  # -> Prepare, which regrids with these settings
+    window.do_primary()  # -> Retrieve
 
-    wizard.state.stage = 3
-    retrieve_stage = wizard.stages[3]
-    params = retrieve_stage.state.retrieve
+    retrieve = window.pages[Stage.RETRIEVE]
+    params = window.state.retrieve
     # lbfgs-ad: the autodiff solver, and the most feature-complete one — the
     # right thing to show given how the docs now frame the gradient story.
     params.solver = "lbfgs-ad"
@@ -208,25 +221,19 @@ def make_gui_screenshot(path: Path) -> Path:
     # recovered FWHM matches the known truth.
     params.reltol = 1e-12
     params.abstol = 1e-14
-    retrieve_stage.state.load.energy_j = GUI_ENERGY_J
-    # _run() reads the state, but the controls are only repainted from it here —
+    window.state.load.energy_j = GUI_ENERGY_J
+    # The run reads the state, but the controls are only repainted from it here —
     # without this the screenshot would advertise settings the run did not use.
-    retrieve_stage._seed_widgets()
+    retrieve._seed_widgets()  # pyright: ignore[reportAttributeAccessIssue]
+    window.do_primary()  # Retrieve
+    _wait_for(window.state.result_changed)
+    paths.append(_grab(window, folder / "gui_retrieve.png"))
 
-    wizard.state.stage = 4
-    retrieve_stage._run()
-    _wait_for(wizard.state.result_changed)
-
-    # Let the canvas repaint and the read-out cells update before grabbing.
-    app.processEvents()
-
-    pixmap = wizard.grab()
-    if pixmap.isNull():
-        raise RuntimeError("QWidget.grab() returned a null pixmap")
-    if not pixmap.save(str(path), "PNG"):
-        raise RuntimeError(f"failed to write {path}")
-    print(f"wrote {path}  ({pixmap.width()}×{pixmap.height()})")
-    return path
+    window.go(Stage.ANALYSE)
+    window.pages[Stage.ANALYSE].show_page("pulse")  # pyright: ignore[reportAttributeAccessIssue]
+    paths.append(_grab(window, folder / "gui_analyse.png"))
+    del app
+    return paths
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -247,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.which in ("all", "hero"):
         make_hero(STATIC / "hero.png")
     if args.which in ("all", "gui"):
-        make_gui_screenshot(STATIC / "gui_retrieve.png")
+        make_gui_screenshots(STATIC)
     return 0
 
 

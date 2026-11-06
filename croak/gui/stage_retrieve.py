@@ -1,4 +1,4 @@
-"""Stage 3 — run the retrieval (threaded) and show the result on pages of panels.
+"""Retrieve — run the retrieval (threaded) and show it live on the overview.
 
 Post-retrieval λ/τ filtering can be toggled on the result pane and re-plots the
 stored result without re-running the retrieval.
@@ -7,46 +7,47 @@ stored result without re-running the retrieval.
 from __future__ import annotations
 
 import math
-import os
 import time
 
 import numpy as np
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QPushButton,
     QWidget,
 )
 
-from .. import materials, plotting, save, smearing
+from .. import materials, plotting, smearing
 from ..constants import C
+from ..plotting.screen import convergence_view
 from ..processing import (
     ProcessedResult,
-    TruthPulse,
     peak_wavelength,
     post_filter,
     process_result,
     resolve_time_direction,
-    spectral_fwhm,
 )
 from ..retrieve import ALGORITHMS, algorithm_params
 from ..session.params import reg_defaults, reg_family
 from ..session.pipeline import extra_param_centres, smearing_kernel
 from ..truth_metrics import truth_errors
-from . import settings
-from .base import Stage
-from .canvas import check, collapsible, combo, dspin, group, spin
-from .panel_pages import RetrievalPages
+from .base import RunControls, Stage
+from .controls import check, combo, dspin, group, spin
+from .display import current as current_display
 from .readout import DASH, RetrievalReadout
+from .retrieval_views import RetrievalPanels
+from .view_panel import ViewPanel
 from .widgets import SciSpinBox
 from .worker import RetrievalWorker
 
+#: The height of the numbers and convergence strip under the plots (logical px).
+_STRIP_HEIGHT = 150
 #: How often the elapsed-time read-out ticks during a run (ms).
 _ELAPSED_TICK_MS = 500
-#: Shortest interval (ms) between redraws of the convergence curve before the first
-#: full preview: a fast solver can report thousands of iterations a second, and
-#: ten frames a second is all the eye needs.
+#: Shortest interval (ms) between redraws of the convergence curve during a run: a
+#: fast solver can report thousands of iterations a second, and ten frames a
+#: second is all the eye needs.
 _CONVERGENCE_REDRAW_MS = 100
 
 _INITIAL_GUESSES = {
@@ -59,14 +60,15 @@ _INITIAL_GUESSES = {
 }
 
 
-class StageRetrieve(Stage):
+class StageRetrieve(RunControls, Stage):
     HELP_TITLE = "Retrieve"
     HELP_INTRO = (
-        "Run the phase-retrieval algorithm on the preprocessed trace. The result "
-        "is shown on three pages of panels — Traces, Pulse and Diagnostics — each "
-        "of which can be popped out into its own window; Save… writes the full "
-        "twelve-panel overview. Post-retrieval λ/τ filtering re-plots the stored "
-        "result without re-running the retrieval."
+        "Run the phase-retrieval algorithm on the preprocessed trace. The live "
+        "overview shows the traces, the pulse and its spectrum as it converges; "
+        "the full pages of panels (Traces, Pulse, Diagnostics) are under Analyse, "
+        "where each can be exported or popped out. Save… writes the twelve-panel "
+        "overview. Post-retrieval λ/τ filtering re-plots the stored result "
+        "without re-running the retrieval."
     )
     HELP = [
         (
@@ -132,12 +134,12 @@ class StageRetrieve(Stage):
                 ),
                 (
                     "Live full-plot preview",
-                    "Redraw the visible result page (retrieved trace, pulse, "
-                    "spectrum, marginals… — the other pages redraw when selected) "
-                    "as the retrieval converges, throttled to about once a "
-                    "second, instead of only the convergence curve. Useful for "
-                    "long LM runs. Pressing Stop keeps the latest full plot on "
-                    "screen. Turn off for the cheaper convergence-only curve.",
+                    "Redraw the overview (traces, pulse and spectrum) as the "
+                    "retrieval converges, up to four times a second and less "
+                    "often when drawing is slow, instead of only the convergence "
+                    "curve. Useful for long LM runs. Pressing Stop keeps the "
+                    "latest full plot on screen. Turn off for the cheaper "
+                    "convergence-only curve.",
                 ),
             ],
         ),
@@ -322,31 +324,18 @@ class StageRetrieve(Stage):
                 ),
             ],
         ),
-        (
-            "Display",
-            [
-                (
-                    "Spectrum axis",
-                    "Draw the spectrum panel against frequency (PHz — the space "
-                    "the retrieval works in, where |E(ω)|² of a symmetric pulse is "
-                    "symmetric) or wavelength (nm — the spectrometer's axis, with "
-                    "the λ² Jacobian applied). Both are unit-peak densities in "
-                    "their own variable. Remembered between launches; the "
-                    "exported twelve-panel PDF follows it.",
-                ),
-            ],
-        ),
     ]
 
     def __init__(self, state):
-        super().__init__(state)
+        # The longest form: offer "Find a setting" over it.
+        super().__init__(state, find=True)
+        # The numbers beneath the plots say how a run goes, so the form has no
+        # ready line; what else the page has to say is a notice (set_status).
+        self.status_label.hide()
         p = state.retrieve
         self._worker = None
         self._base_result = None  # unfiltered retrieval, for post-filter toggles
         self._elapsed = None  # wall-clock time of the last retrieval (s)
-        # Whether a live full-plot preview has taken over the canvas this run; until
-        # the first preview arrives we draw the cheap convergence curve.
-        self._live_full = False
         # Last regularisation weights used with each solver family, so switching
         # solver to compare and back does not throw away hand-tuned values. The
         # families are kept apart because the same number does not mean the same
@@ -594,7 +583,11 @@ class StageRetrieve(Stage):
         form.addRow("Quadrature nodes", self.smear_nodes_spin)
         self.controls.addWidget(box)
 
-        self.focal_box, form = group("Chromatic focal mixture (advanced)")
+        self.focal_box, form = group(
+            "Chromatic focal mixture (advanced)",
+            folded=True,
+            settings_key="retrieve/open_focal",
+        )
         box = self.focal_box
         self.focal_check = check(
             "Enable focal mixture",
@@ -706,7 +699,9 @@ class StageRetrieve(Stage):
         self.collection_diam_spin.setEnabled(p.collection == "manual")
         self.controls.addWidget(box)
 
-        self.extra_box, form = group("Extra fit parameters")
+        self.extra_box, form = group(
+            "Extra fit parameters", folded=True, settings_key="retrieve/open_extra"
+        )
         box = self.extra_box
         self.fit_thickness_check = check(
             "Fit medium thickness",
@@ -762,7 +757,9 @@ class StageRetrieve(Stage):
         form.addRow("Delay origin", self.delay_origin_combo)
         self.controls.addWidget(box)
 
-        self.reg_box, form = group("Regularisation")
+        self.reg_box, form = group(
+            "Regularisation", folded=True, settings_key="retrieve/open_regularisation"
+        )
         box = self.reg_box
         # Scientific-notation spin boxes (decade-aware stepping) so weights well
         # below 0.001 — common with LM — can be entered, e.g. 5e-4.
@@ -802,7 +799,9 @@ class StageRetrieve(Stage):
         form.addRow("τ window hi (fs)", self.reg_time_hi_spin)
         self.controls.addWidget(box)
 
-        self.global_box, form = group("Global search (cma-es)")
+        self.global_box, form = group(
+            "Global search (cma-es)", folded=True, settings_key="retrieve/open_global"
+        )
         box = self.global_box
         self.strategy_combo = combo(
             ["cma", "sep-cma", "de"],
@@ -839,34 +838,12 @@ class StageRetrieve(Stage):
         form.addRow(self.pf_tau)
         self.controls.addWidget(box)
 
-        box, form = group("Display")
-        self.spectrum_axis_combo = combo(
-            plotting.SPECTRAL_AXES,
-            settings.text("retrieve/spectrum_axis", "frequency"),
-            self._on_spectrum_axis,
-        )
-        form.addRow("Spectrum axis", self.spectrum_axis_combo)
-        self.controls.addWidget(box)
-
-        btns = QWidget()
-        bl = QHBoxLayout(btns)
-        bl.setContentsMargins(0, 0, 0, 0)
-        self.run_btn = QPushButton("Run")
-        self.run_btn.clicked.connect(self._run)
-        self.stop_btn = QPushButton("Stop")
-        self.stop_btn.clicked.connect(self._stop)
-        self.stop_btn.setEnabled(False)
-        self.save_btn = QPushButton("Save…")
-        self.save_btn.clicked.connect(self._save)
-        self.save_btn.setEnabled(False)
+        # Retrieve, Stop and Save are the top bar's primary action and Save
+        # session; only what has no place there stays in the form.
         self.reset_btn = QPushButton("Reset")
         self.reset_btn.setToolTip("Restore the default retrieval settings.")
         self.reset_btn.clicked.connect(self._reset_defaults)
-        bl.addWidget(self.run_btn)
-        bl.addWidget(self.stop_btn)
-        bl.addWidget(self.save_btn)
-        bl.addWidget(self.reset_btn)
-        self.controls.addWidget(btns)
+        self.controls.addWidget(self.reset_btn)
 
         # Retarget: rerun this exact session on a different dataset folder (same
         # file names, calibration kept fixed). On its own row so the label fits.
@@ -878,22 +855,23 @@ class StageRetrieve(Stage):
         self.retarget_btn.clicked.connect(self._retarget)
         self.retarget_btn.setEnabled(False)
         self.controls.addWidget(self.retarget_btn)
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
-        # Figure on top (it takes every spare pixel), numeric read-out beneath it
-        # at its natural height — see croak.gui.readout.
-        # Pages of panels on top (they take every spare pixel; see
-        # croak.gui.panel_pages), the numeric read-out beneath at its natural
-        # height, folding away with a click and remembering that.
-        self.pages = RetrievalPages()
+        # The live overview on top (it takes every spare pixel; see
+        # croak.gui.retrieval_views); beneath it, the run's numbers beside its
+        # convergence, which on a slow retrieval says whether to wait. The full
+        # pages of panels are on Analyse.
+        self.pages = RetrievalPanels()
         self.readout = RetrievalReadout()
-        self.readout_strip = collapsible(
-            "Numeric read-out",
-            self.readout,
-            settings_key="retrieve/readout_expanded",
-        )
-        self.set_plot_area(self.pages, self.readout_strip)
+        self.convergence = ViewPanel("line")
+        strip = QWidget()
+        strip.setFixedHeight(_STRIP_HEIGHT)
+        row = QHBoxLayout(strip)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(24)
+        row.addWidget(self.readout, stretch=3)
+        row.addWidget(self.convergence, stretch=2)
+        self.set_plot_area(self.pages, strip)
         self._update_extras_readout(None)
 
         self.apply_help()
@@ -1396,7 +1374,6 @@ class StageRetrieve(Stage):
         # clear the retrieval is still valid — no re-run needed to proceed.
         if self.state.result is not None and self._base_result is None:
             self._base_result = self.state.result
-            self.save_btn.setEnabled(True)
             self.retarget_btn.setEnabled(True)
             self.pf_lam.setEnabled(True)
             self.pf_tau.setEnabled(True)
@@ -1451,13 +1428,12 @@ class StageRetrieve(Stage):
                 self.set_status(
                     "No compatible previous result to reuse; using the default guess."
                 )
-        self.run_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.save_btn.setEnabled(False)
+        self.set_running(True)
         self.retarget_btn.setEnabled(False)
-        self._live_full = False
         self._conv_timer.stop()
+        self.advice.clear()
         self.pages.clear()
+        self.convergence.show_view(convergence_view([]))
         self._worker = RetrievalWorker(
             td,
             p,
@@ -1488,23 +1464,29 @@ class StageRetrieve(Stage):
         if self._worker is not None:
             self._worker.request_stop()
 
+    def act(self, kind: str) -> bool:
+        """Retrieve or stop from the window's primary action (never moves on)."""
+        if kind == "retrieve":
+            self._run()
+            return False
+        if kind == "stop":
+            self._stop()
+            return False
+        return super().act(kind)
+
     def _on_progress(self, iteration, R, best_R):
         self._errors.append(R)
-        self.set_status(f"iter {iteration}: R = {R:.4%} (best {best_R:.4%})")
         # Cheap: this fires every iteration and has no processed result to draw on.
         self.readout.set_scalars({"iteration": str(iteration), "error": f"{R:.4%}"})
-        # Until the first full-plot preview arrives (or for convergence-only
-        # solvers), animate the convergence curve on the visible page — at most
-        # every _CONVERGENCE_REDRAW_MS, however fast the iterations come. Once a
-        # live full plot has taken over, leave it to :meth:`_on_preview`.
-        if not self._live_full and not self._conv_timer.isActive():
+        # Animate the convergence curve at most every _CONVERGENCE_REDRAW_MS,
+        # however fast the iterations come.
+        if not self._conv_timer.isActive():
             self._conv_timer.start()
 
     def _draw_convergence(self) -> None:
         """Show the run's error history so far (debounced by ``_conv_timer``)."""
-        if self._live_full or not self._errors:
-            return
-        self.pages.show_progress(self._errors)
+        if self._errors:
+            self.convergence.show_view(convergence_view(self._errors))
 
     def _on_preview(self, result):
         """Show a throttled in-progress result on the pages.
@@ -1519,8 +1501,6 @@ class StageRetrieve(Stage):
         td = self.state.tracedata
         if td is None:
             return
-        self._conv_timer.stop()
-        self._live_full = True
         energy = self.state.load.energy_j or None
         started = time.perf_counter()
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -1533,9 +1513,6 @@ class StageRetrieve(Stage):
             # Processing and presenting ran on the GUI thread (holding the GIL):
             # tell the worker what it cost so the cadence keeps within its duty.
             self._worker.report_preview_cost(time.perf_counter() - started)
-        self.set_status(
-            f"iter {len(result.errors)}: R = {result.error:.4%}  (live preview)"
-        )
 
     def _on_finished(self, result, elapsed):
         self._finalise(result, elapsed)
@@ -1545,11 +1522,12 @@ class StageRetrieve(Stage):
 
         The retrieval was aborted mid-run, so the snapshot is a legitimate (if
         non-converged) result: store it, enable Save/post-filters, and keep its
-        full plot on screen — labelled "Stopped" rather than "Done".
+        full plot on screen, saying that it is a stopped run's.
         """
-        self._finalise(result, elapsed, done_label="Stopped")
+        self._finalise(result, elapsed)
+        self.set_status("Stopped: the run's latest result is kept.")
 
-    def _finalise(self, result, elapsed, *, done_label="Done"):
+    def _finalise(self, result, elapsed):
         """Shared completion path for a finished or stopped retrieval."""
         # An SHG trace is invariant under E(t) -> E*(-t), so the solver returns
         # whichever of the two branches it landed in. When the session carries a
@@ -1562,33 +1540,35 @@ class StageRetrieve(Stage):
         # The worker timed the run itself; prefer its value over the ticking clock.
         self._elapsed = float(elapsed)
         self._elapsed_timer.stop()
-        self.run_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.save_btn.setEnabled(True)
+        self.set_running(False)
         self.retarget_btn.setEnabled(True)
         self.pf_lam.setEnabled(True)
         self.pf_tau.setEnabled(True)
-        self._update_view(done_label=done_label)
+        self._update_view()
 
     def _on_post_filter(self, _=None):
         self.state.retrieve.post_filter_lam = self.pf_lam.isChecked()
         self.state.retrieve.post_filter_tau = self.pf_tau.isChecked()
         self._update_view()
 
-    def _on_spectrum_axis(self, axis: str) -> None:
-        """Remember the spectrum panel's abscissa and re-present the stored result."""
-        settings.set_text("retrieve/spectrum_axis", axis)
-        self._update_view()
+    def overview(self) -> plotting.RetrievalPlotData | None:
+        """The current retrieval as the overview's plot data (``None`` before one)."""
+        if self.state.result is None:
+            return None
+        return self._plot_data(self.state.result, self.state.processed)
 
     def _plot_data(self, result, pr) -> plotting.RetrievalPlotData:
         """Bundle ``result`` and its processed form for the panels.
 
         Draws against the session's trace data (measured trace, independent
-        spectrum, wavelength window), the known truth if any, and the pulse energy.
+        spectrum, wavelength window), the known truth if any, and the pulse energy,
+        with the display settings' spectral axis and logarithmic range, which the
+        figures drawn from it (Analyse's pages, the saved ``retrieval.pdf``) follow.
         """
         td = self.state.tracedata
         if td is None:
             raise RuntimeError("no trace data to plot the retrieval against")
+        display = current_display()
         return plotting.retrieval_plot_data(
             result,
             measured=td.trace,
@@ -1598,22 +1578,19 @@ class StageRetrieve(Stage):
             truth=self.state.truth,
             energy=self.state.load.energy_j or None,
             processed=pr,
-            spectral_axis=self.spectrum_axis_combo.currentText(),
+            spectral_axis="wavelength" if display.axis == "wavelength" else "frequency",
+            tracedb=display.db_range,
         )
 
     def _show(self, result, pr) -> None:
         """Show ``result`` on the pages and refresh the numeric read-out from ``pr``."""
         self.pages.set_data(self._plot_data(result, pr))
-        self._update_curve_readout(pr, self.state.truth)
+        self._update_pulse_readout(pr)
         self._update_extras_readout(result)
         self._update_truth_error_readout(result, self.state.truth)
 
-    def _update_view(self, *, done_label="Done"):
-        """(Re)apply the post-filters to the stored result and redraw — no re-run.
-
-        ``done_label`` heads the status summary ("Done" on completion, "Stopped"
-        when the user aborted the run).
-        """
+    def _update_view(self):
+        """(Re)apply the post-filters to the stored result and redraw — no re-run."""
         if self._base_result is None:
             return
         td = self.state.tracedata
@@ -1634,6 +1611,11 @@ class StageRetrieve(Stage):
         )
         self.state.set_result(result, pr)
         self._show(result, pr)
+        # The whole history, with the hand-overs between a solver's stages; a
+        # result read back from a file has none.
+        self.convergence.show_view(
+            convergence_view(result.errors, result.stage_boundaries)
+        )
         # A result rehydrated from file carries no error history, so there is no
         # honest iteration count to show.
         self.readout.set_scalars(
@@ -1643,49 +1625,13 @@ class StageRetrieve(Stage):
                 "elapsed": DASH if self._elapsed is None else f"{self._elapsed:.2f} s",
             }
         )
-        # Mirror the terminal summary report: error, retrieved & transform-
-        # limited FWHM, iteration count and wall-clock time.
-        parts = [
-            f"{done_label}. R = {result.error:.4%}",
-            f"retrieved FWHM {pr.fwhm_retr / 1e-15:.2f} fs",
-            f"transform-limited {pr.fwhm_tl / 1e-15:.2f} fs",
-            f"{len(result.errors)} iters",
-        ]
-        # Report any fitted extra parameters (thickness / delay-zero offset /
-        # geometric-smearing width).
-        if result.thickness is not None:
-            parts.append(f"thickness {result.thickness / 1e-6:.2f} µm")
-        if result.tau0:
-            parts.append(f"τ₀ {result.tau0 / 1e-15:.2f} fs")
-        if result.smear_scale is not None:
-            parts.append(self._smear_summary(result.smear_scale, td))
-        if self._elapsed is not None:
-            parts.append(f"{self._elapsed:.2f} s")
-        self.set_status("   |   ".join(parts))
-
-    def _smear_summary(self, smear_scale: float, td) -> str:
-        """Summarise a fitted smearing strength as a delay width plus its factor.
-
-        The fit optimises one dimensionless multiplier on the kernel widths, which
-        scale linearly with it (:meth:`croak.smearing.SmearingKernel.scaled`), so
-        the physical delay width is ``smear_scale × sigma_delta`` of the kernel
-        the run actually used. The nominal mask geometry is deliberately left
-        alone — it is the stored truth, not a readout to be overwritten.
-        """
-        sigma_fs = self._smear_width_fs(smear_scale, td)
-        if sigma_fs is None:
-            # The kernel was switched off after the run (this view is re-rendered
-            # by the post-filter toggles), so there is no width to convert to.
-            return f"smearing ×{smear_scale:.3f}"
-        return f"smearing σ {sigma_fs:.2f} fs (×{smear_scale:.3f})"
 
     def _smear_width_fs(self, smear_scale: float, td) -> float | None:
         """The modelled smearing delay width (fs) at ``smear_scale``, or ``None``.
 
         ``None`` when there is no kernel to measure — smearing switched off, or an
         SHG trace, which has no three-arm form and so no smearing model at all — so
-        callers can fall back to reporting the bare multiplier or nothing. Shared by
-        the status line and the read-out so the two cannot drift apart.
+        the read-out can fall back to reporting the bare multiplier or nothing.
         """
         try:
             kernel = smearing_kernel(self.state.retrieve, td)
@@ -1715,68 +1661,19 @@ class StageRetrieve(Stage):
             return DASH
         return plotting.sig3(value_s / 1e-15)
 
-    @staticmethod
-    def _power(value_w: float | None, scale: float) -> str:
-        """Format a power against the column's shared SI prefix."""
-        if value_w is None or not np.isfinite(value_w):
-            return DASH
-        return plotting.sig3(value_w / scale)
-
-    def _update_curve_readout(self, pr: ProcessedResult, truth: TruthPulse | None):
-        """Fill the per-curve table from a processed result (+ optional truth).
-
-        Row/column coverage follows what is physically defined: the measured
-        spectrum carries no phase, so it has no temporal envelope; the
-        transform-limited pulse is the retrieved ``|E(ω)|`` with the phase removed,
-        so its spectrum *is* the retrieved one and is left blank rather than
-        duplicated. Peak powers need a measured pulse energy.
-        """
-        truth_power = truth.peak_power(pr.energy) if truth is not None else None
-        powers = [
-            p
-            for p in (pr.peak_power, pr.peak_power_tl, truth_power)
-            if p is not None and np.isfinite(p)
-        ]
-        # One SI prefix for the whole column, so the numbers stay comparable.
-        scale, unit = plotting.si_power(max(powers)) if powers else (1.0, None)
-        self.readout.set_power_unit(unit)
-
+    def _update_pulse_readout(self, pr: ProcessedResult) -> None:
+        """Show the retrieved spectrum's peak wavelength and the pulse's FWHM."""
         # The wavelength axis is descending and can hold a zero crossing; the
-        # spectral helpers mask that off (see croak.processing.peak_wavelength).
+        # spectral helper masks that off (see croak.processing.peak_wavelength).
         with np.errstate(divide="ignore", invalid="ignore"):
-            self.readout.set_cells(
-                "R",
-                {
-                    "lam_peak": self._nm(peak_wavelength(pr.wavelength, pr.Ilam)),
-                    "lam_fwhm": self._nm(spectral_fwhm(pr.wavelength, pr.Ilam)),
-                    "fwhm": self._fs(pr.fwhm_retr),
-                    "peak_power": self._power(pr.peak_power, scale),
-                },
-            )
-            meas = {}
-            if pr.Iw_meas is not None:
-                meas = {
-                    "lam_peak": self._nm(peak_wavelength(pr.wavelength, pr.Iw_meas)),
-                    "lam_fwhm": self._nm(spectral_fwhm(pr.wavelength, pr.Iw_meas)),
-                }
-            self.readout.set_cells("M", meas)
-        self.readout.set_cells(
-            "TL",
+            lam_peak = self._nm(peak_wavelength(pr.wavelength, pr.Ilam))
+        fwhm = self._fs(pr.fwhm_retr)
+        self.readout.set_scalars(
             {
-                "fwhm": self._fs(pr.fwhm_tl),
-                "peak_power": self._power(pr.peak_power_tl, scale),
-            },
-        )
-        truth_cells = {}
-        if truth is not None:
-            truth_cells = {
-                "fwhm": self._fs(truth.fwhm),
-                "peak_power": self._power(truth_power, scale),
+                "lam_peak": lam_peak if lam_peak == DASH else f"{lam_peak} nm",
+                "fwhm": fwhm if fwhm == DASH else f"{fwhm} fs",
             }
-            if truth.lam is not None and truth.Iw is not None:
-                truth_cells["lam_peak"] = self._nm(peak_wavelength(truth.lam, truth.Iw))
-                truth_cells["lam_fwhm"] = self._nm(spectral_fwhm(truth.lam, truth.Iw))
-        self.readout.set_cells("truth", truth_cells)
+        )
 
     def _update_truth_error_readout(self, result, truth) -> None:
         """Show the known-truth errors, or dashes when there is no known pulse.
@@ -1810,7 +1707,7 @@ class StageRetrieve(Stage):
         self.readout.set_scalars(values)
 
     def _update_extras_readout(self, result):
-        """Show τ₀ / thickness / smearing, each marked ``(fit)`` or ``(fixed)``.
+        """Show τ₀ / thickness / smearing, each named ``fit`` or ``fixed``.
 
         ``result`` is the retrieval to report (``None`` before any run, which shows
         the nominal values the forward model would use). A fitted extra is one the
@@ -1824,50 +1721,62 @@ class StageRetrieve(Stage):
         thickness_m, _tau0, smear_scale, _smear_delta = extra_param_centres(p, None)
 
         if result is not None and result.thickness is not None:
-            thickness = f"{result.thickness / 1e-6:.2f} µm (fit)"
+            thickness = (f"{result.thickness / 1e-6:.2f} µm", "fit")
         elif p.dispersive:
-            thickness = f"{thickness_m / 1e-6:.2f} µm (fixed)"
+            thickness = (f"{thickness_m / 1e-6:.2f} µm", "fixed")
         else:
-            thickness = DASH  # no slab is modelled at all
+            thickness = (DASH, "")  # no slab is modelled at all
 
         # A fitted τ₀ that lands exactly on zero is indistinguishable from a fixed
         # one in the result; the status line makes the same trade.
         if result is not None and result.tau0:
-            tau0 = f"{result.tau0 / 1e-15:.2f} fs (fit)"
+            tau0 = (f"{result.tau0 / 1e-15:.2f} fs", "fit")
         else:
-            tau0 = "0.00 fs (fixed)"
+            tau0 = ("0.00 fs", "fixed")
 
-        smear = DASH
+        smear = (DASH, "")
         if result is not None and result.smear_scale is not None:
             smear_scale, fitted = result.smear_scale, True
-            smear = f"×{smear_scale:.3f} (fit)"
+            smear = (f"×{smear_scale:.3f}", "fit")
         else:
             fitted = False
         if p.smearing and td is not None:
             sigma_fs = self._smear_width_fs(smear_scale, td)
             if sigma_fs is not None:
                 marker = "fit" if fitted else "fixed"
-                smear = f"{sigma_fs:.2f} fs (×{smear_scale:.3f}, {marker})"
+                smear = (f"{sigma_fs:.2f} fs", f"×{smear_scale:.3f} {marker}")
 
-        self.readout.set_scalars(
-            {"tau0": tau0, "thickness": thickness, "smearing": smear}
-        )
+        shown = {"tau0": tau0, "thickness": thickness, "smearing": smear}
+        self.readout.set_scalars({key: value for key, (value, _) in shown.items()})
+        self.readout.set_notes({key: note for key, (_, note) in shown.items()})
 
     def _on_failed(self, message):
-        self.run_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.set_running(False)
         self._elapsed_timer.stop()
         self._conv_timer.stop()
-        # Keep the last true iteration/error/elapsed; blank the curve table, whose
-        # numbers would otherwise be silently stale.
+        # Blank the numbers, which would otherwise be silently stale.
         self.readout.clear()
         self._update_extras_readout(None)
-        self.set_status("Stopped." if message == "stopped" else f"Failed: {message}")
+        if message == "stopped":
+            self.set_status("Stopped.")
+        else:
+            self.set_status(f"Failed: {message}", "error")
+
+    def set_status(self, text: str, state: str = "ok") -> None:
+        """Say ``text`` at the foot of the window; a failure also over the plots.
+
+        Retrieve has no ready line (its numbers say how a run goes), so what it
+        has to say is a passing notice, and a failed retrieval stays in the
+        advice box until the next run starts.
+        """
+        self.message.emit(text)
+        if state == "error":
+            self.advice.say("The retrieval failed", text)
 
     def _retarget(self):
-        """Ask for a new dataset folder and hand off to the wizard to replay it.
+        """Ask for a new dataset folder and hand off to the window to replay it.
 
-        The wizard rewrites the dataset-folder load paths (keeping calibration
+        The window rewrites the dataset-folder load paths (keeping calibration
         fixed) and reruns load → preprocess → retrieve with the current settings.
         """
         folder = QFileDialog.getExistingDirectory(self, "Select new dataset folder")
@@ -1875,25 +1784,3 @@ class StageRetrieve(Stage):
             return
         self.set_status(f"Retargeting to {folder} …")
         self.state.retarget_requested.emit(folder)
-
-    def _save(self):
-        if self.state.result is None:
-            return
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
-        if not folder:
-            return
-        save.save_result(
-            self.state.result,
-            os.path.join(folder, "result.h5"),
-            processed=self.state.processed,
-            truth=self.state.truth,
-            force=True,
-        )
-        save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        # The PDF is the full twelve-panel overview drawn afresh at its design size
-        # (each tab's toolbar Save writes that page instead).
-        data = self._plot_data(self.state.result, self.state.processed)
-        plotting.plot_retrieval_page(data, plotting.RETRIEVAL_OVERVIEW).savefig(
-            os.path.join(folder, "retrieval.pdf"), dpi=600
-        )
-        self.set_status(f"Saved result.h5, options.toml, retrieval.pdf to {folder}")

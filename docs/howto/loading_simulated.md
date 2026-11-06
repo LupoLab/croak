@@ -196,7 +196,7 @@ retrieved spectrum blue-shifted. Three alternatives avoid the guesswork:
 
 If you trust the measured gating spectrum, **Rω with a light `reg_spectrum`**,
 or **phase-only** retrieval, removes the exponent; a single exponent (the
-marginal-check stage's **Auto** picks it from your spectrum) is the quick
+marginal check's **Auto** picks it from your spectrum) is the quick
 approximation. None of these corrections removes delay-dependent collection
 effects, which need the [collection model](collection_aperture.md).
 
@@ -314,8 +314,8 @@ The options live on {class}`~croak.session.params.SimulatedLoadParams`:
 ```{note}
 **What "load λ band" does.** `lam_min_nm`/`lam_max_nm` crop the *loaded* trace to
 bins with λ in that range (and always drop the unphysical ω ≤ 0 bins). It sets the
-**extent of the data** handed to the marginal-check and preprocess stages — it is
-*not* the retrieval grid (that is the Preprocess stage's own λ range). The GUI
+**extent of the data** handed to the marginal check and Prepare — it is
+*not* the retrieval grid (that is Prepare's own λ range). The GUI
 defaults it to the file's **full** positive-frequency span; narrow it only to crop
 noisy or empty wings.
 ```
@@ -324,7 +324,7 @@ noisy or empty wings.
 TG-FROG keeps the carrier (`omega0_scale = 1`), so the trace and the pulse sit at
 the same wavelengths and `"pg"`/`"sd"` are the only sensible interactions — never
 `"shg"`. The default `third_order_exp = 2.0` is the radiated-field $\omega^2$
-factor; the marginal-check stage's **Auto** refines it against your spectrum (the
+factor; the marginal check's **Auto** refines it against your spectrum (the
 `Iω_win` + beamlet combination usually wants a little more, the `"source"`
 spectrum more again). It is only an approximation — see the correction options
 above (Rω / phase-only / calibration).
@@ -361,7 +361,7 @@ data = assemble_simulated_load_data(
     )
 )
 
-# stage 2 onward is identical to a measurement: filter / window / regrid …
+# from here on it is identical to a measurement: filter / window / regrid …
 td = build_tracedata(
     PreprocParams(lam_min_nm=200, lam_max_nm=340, lamm_min_nm=210, lamm_max_nm=330),
     data,
@@ -426,21 +426,23 @@ delay resampling is needed.
 
 ## From the GUI
 
-The welcome menu's **Load simulated trace** entry opens a loader page: choose the
-`.h5` file, the trace window, the **thickness**, the corrections, the
-**reference spectrum** and the **time-domain truth** source, then preview the trace
-live and press the footer's **Load & continue →** button (bottom right, like every
-other page) to hand it straight to the **Preprocess** stage. The
+The **Simulated scan** tile on Home starts a session on the loader, the first
+step of the Data stage: choose the `.h5` file, the trace window, the
+**thickness**, the corrections, the **reference spectrum** and the **time-domain
+truth** source, then preview the trace live and press **Continue** (the primary
+action, at the right of the top bar) to load it and move to the marginal check,
+and from there to **Prepare**. The
 **time-domain truth** dropdown lists what the file stores (the beamlet first, so
 `It_beamlet` is the default) and is disabled when the file offers only one. For a
 multi-thickness file the **thickness**
 dropdown lists every saved depth (largest/exit first, the default); changing it
 re-previews the trace at that depth. For an older single-thickness file the dropdown
-is disabled (only the exit slice exists). Every control has a hover tooltip, and the **? Help** button
-summarises the options (including the exponent/reference guidance above). From the
-filter stage on, the workflow is exactly as for a measured trace — so you can apply
-croak's fringe/DC/threshold filters to the modelled data too. **Back** from
-preprocess returns to the loader page to adjust the options.
+is disabled (only the exit slice exists). Every control has a hover tooltip, and
+**Help for this stage** (⋯ menu or F1) summarises the options (including the
+exponent/reference guidance above). From Prepare on, the workflow is exactly as
+for a measured trace — so you can apply croak's fringe/DC/threshold filters to the
+modelled data too. The **Data** button in the top bar returns to the loader to
+adjust the options.
 
 The preview is shown in the **file-native representation**: the simulated trace
 and its spectral marginal are an **angular-frequency density** plotted against
@@ -450,12 +452,12 @@ stays in fs. The **load λ band** seeds to the file's full range (see the note
 above).
 
 Tick **Skip filtering & regrid (raw → retrieval)** to load the as-simulated trace
-on its native grid **straight into the Retrieve stage**, bypassing the
-marginal-check and preprocess stages (see
-[above](#raw-direct-to-retrieval)); the footer's forward button relabels to
-**Load raw → Retrieve →** to say so. The known-truth overlay is still shown, and
-**Back** from Retrieve reaches Preprocess so you can run the regrid path and
-compare.
+on its native grid **straight into the Retrieve stage** when you press Continue,
+bypassing the marginal check and Prepare (see
+[above](#raw-direct-to-retrieval)); a scan loaded this way leaves Prepare
+disabled, and its tooltip says why. The known-truth overlay is still shown. To
+compare with the regrid path, untick the option on the loader and Continue
+again.
 
 The Rω / phase-only alternatives to the third-order exponent live on the
 **Retrieve** stage (the *Rω adaptive scaling* and *phase-only* toggles); turn the
@@ -463,18 +465,19 @@ loader's third-order correction off and let Rω absorb the response there instea
 
 ## Saving and reloading a simulated session
 
-Saving from the Retrieve stage writes the loader's options into the session file
+Saving the session writes the loader's options into the session file
 as a `[simulated]` table, alongside `entry = "simulated"` (see
 [Saving and loading](saving_and_loading.md)) — the scan file, trace window,
 thickness slice, loaded band, third-order exponent, delay-sign convention and the
 spectrum/truth choices. So the retrieval records *which* simulated trace it came
 from and how that trace was built.
 
-**Load previous retrieval** reads `entry` and reloads through this loader rather
+**Open a session…** reads `entry` and reloads through this loader rather
 than the measured one: it re-reads the scan with the saved options (including the
 raw *skip filtering & regrid* path, which rebuilds the native-grid trace
 directly), restores the loader page's controls, replays the saved preprocessing
-and rehydrates the sibling `result.h5` without re-running the solver. The same
+and rehydrates the sibling `result.h5` without re-running the solver, when it
+was fitted to the trace the replay produced. The same
 file replays headlessly:
 
 ```bash
@@ -486,6 +489,6 @@ uv run croak replay options.toml
 another *per-dataset folder*, a convention of measured acquisitions (trace,
 spectrum and backgrounds sharing a folder with stable filenames). A simulated
 session is one scansave file with no such siblings, so retargeting it raises — and
-the Retrieve stage's **Retarget…** button reports that instead of silently
+the Retrieve stage's **Retarget to new dataset…** button reports that instead of silently
 replaying the same scan.
 ```

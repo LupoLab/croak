@@ -93,47 +93,6 @@ def test_plot_frog_filter(experiment):
     assert len(fig.axes) >= 6
 
 
-def test_frog_filter_view_reuses_artists(experiment):
-    """FrogFilterView.update mutates the existing images, not rebuild them."""
-    from matplotlib.figure import Figure
-
-    exp = experiment
-    common = dict(
-        lam_min=exp.lam_min,
-        lam_max=exp.lam_max,
-        input_unit="delay",
-        filter_fringes=False,
-        dtau_min=None,
-    )
-    td1 = preprocess.load_and_clean(
-        exp.trace, exp.lam_nm * 1e-9, exp.delay_fs * 1e-15, exp.interaction, **common
-    )
-    # a different crop -> different delay count, exercising set_extent/shape change
-    td2 = preprocess.load_and_clean(
-        exp.trace,
-        exp.lam_nm * 1e-9,
-        exp.delay_fs * 1e-15,
-        exp.interaction,
-        tau_crop=(-30e-15, 30e-15),
-        **common,
-    )
-
-    fig = Figure()
-    view = plotting.FrogFilterView()
-    view.attach(fig)
-    view.update(td1)
-    images_before = {k: (id(p), id(n)) for k, (p, n) in view.images.items()}
-    n_axes = len(fig.axes)
-
-    view.update(td2)  # must not recreate axes/images/colorbars
-    images_after = {k: (id(p), id(n)) for k, (p, n) in view.images.items()}
-    assert images_before == images_after
-    assert len(fig.axes) == n_axes
-    # the regridded panel's data tracks the new (cropped) delay count
-    assert view.images["e"][0].get_array().shape[0] == td2.delays.size
-    assert td2.delays.size != td1.delays.size  # the crop really changed it
-
-
 def test_single_axis_plotters(result_and_trace):
     from matplotlib.figure import Figure
 
@@ -174,40 +133,6 @@ def test_si_power_prefixes():
     assert plotting.si_power(1.2e7) == (1e6, "MW")
     assert plotting.si_power(2.0e12) == (1e12, "TW")
     assert plotting.si_power(0.0) == (1.0, "W")  # unspecified falls back to W
-
-
-def test_resample_uniform_x_leaves_uniform_axis_unchanged():
-    x = np.linspace(200.0, 800.0, 64)
-    C = np.random.default_rng(0).random((10, 64))
-    xu, Cu = plotting._resample_uniform_x(x, C)
-    np.testing.assert_allclose(xu, x)
-    np.testing.assert_allclose(Cu, C)
-
-
-def test_resample_uniform_x_places_feature_at_true_wavelength():
-    """A λ axis from a uniform ω grid must not shift a feature's wavelength.
-
-    Regression for the simulated-trace preprocess panel painting a 260 nm signal
-    near 480 nm: imshow's linear extent assumes even spacing, so the strongly
-    non-uniform (ω-uniform) λ axis must be resampled first.
-    """
-    # uniform angular-frequency grid spanning 150–800 nm; descending ω gives an
-    # ascending (non-uniform) wavelength axis, as the simulated loader yields.
-    omega = np.linspace(wlfreq(150e-9), wlfreq(800e-9), 400)
-    lam_nm = wlfreq(omega) / 1e-9  # non-uniform, ascending (150 → 800 nm)
-    peak_nm = 260.0
-    row = np.exp(-0.5 * ((lam_nm - peak_nm) / 5.0) ** 2)  # narrow feature at 260 nm
-    C = np.tile(row, (8, 1))  # (ndelay, nlam)
-
-    xu, Cu = plotting._resample_uniform_x(lam_nm, C)
-    # on the uniform display axis the peak column maps linearly to its wavelength
-    j = int(np.argmax(Cu.sum(axis=0)))
-    wl = xu[0] + j / (xu.size - 1) * (xu[-1] - xu[0])
-    assert wl == pytest.approx(peak_nm, abs=3.0)
-    # the raw (non-uniform) axis would have mis-placed it far to the red
-    i = int(np.argmax(C.sum(axis=0)))
-    wl_raw = lam_nm[0] + i / (lam_nm.size - 1) * (lam_nm[-1] - lam_nm[0])
-    assert wl_raw > 400.0  # the bug being fixed
 
 
 def test_retrieval_annotations_carry_expected_precision(result_and_trace):
@@ -307,7 +232,7 @@ def test_sig3_formats_three_significant_digits():
         "1234",
     ]
     # _fs is the femtosecond wrapper the legends use; it must not drift from sig3
-    assert plotting._fs(9.512e-15) == plotting.sig3(9.512)
+    assert plotting.units._fs(9.512e-15) == plotting.sig3(9.512)
     assert plotting.sig3(float("nan")) == "nan"
 
 
@@ -317,13 +242,13 @@ def test_plot_retrieval_reuses_a_precomputed_processed_result(result_and_trace):
     pr = processing.process_result(res, measured=trace)
 
     calls = []
-    real = plotting.process_result
+    real = plotting.panels.process_result
 
     def counting(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
 
-    plotting.process_result = counting
+    plotting.panels.process_result = counting
     try:
         fig = plotting.plot_retrieval(
             res, measured=trace, lam_min=700e-9, lam_max=950e-9, processed=pr
@@ -338,7 +263,7 @@ def test_plot_retrieval_reuses_a_precomputed_processed_result(result_and_trace):
         assert len(calls) == 1
         fig.clf()
     finally:
-        plotting.process_result = real
+        plotting.panels.process_result = real
 
 
 def test_plot_retrieval_rejects_a_processed_result_from_another_retrieval(
@@ -415,34 +340,6 @@ def test_filter_view_scale_ignores_out_of_band_negatives(experiment):
     assert plotting.filter_view_vmax(spoiled) == pytest.approx(1.0, rel=1e-9)
 
 
-def test_filter_view_clims_follow_the_positive_scale(experiment):
-    """The linear panels take the positive scale; the dB row stays fixed."""
-    from matplotlib.figure import Figure
-
-    exp = experiment
-    td = preprocess.load_and_clean(
-        exp.trace,
-        exp.lam_nm * 1e-9,
-        exp.delay_fs * 1e-15,
-        exp.interaction,
-        lam_min=exp.lam_min,
-        lam_max=exp.lam_max,
-        input_unit="delay",
-        filter_fringes=False,
-        dtau_min=None,
-    )
-    view = plotting.FrogFilterView(tracedb=30.0)
-    view.attach(Figure())
-    view.update(td)
-    vmax = plotting.filter_view_vmax(td)
-    for key in ("c", "d", "f"):  # the linear row
-        for image in view.images[key]:
-            assert image.get_clim() == pytest.approx((0.0, vmax))
-    for key in ("a", "b", "e"):  # the dB row is on its own fixed scale
-        for image in view.images[key]:
-            assert image.get_clim() == pytest.approx((-30.0, 0.0))
-
-
 def test_filter_view_vmax_falls_back_when_nothing_is_positive():
     """An all-negative trace still gets a usable, positive scale."""
     from dataclasses import dataclass
@@ -495,90 +392,6 @@ def test_plot_convergence_ignores_out_of_range_boundaries():
 
 
 # -- on-screen density -------------------------------------------------------
-@pytest.mark.parametrize(
-    ("width", "height", "design"),
-    [(15.45, 7.33, (12.0, 7.0)), (13.53, 7.70, (12.0, 7.0)), (9.73, 5.73, (5.0, 4.0))],
-)
-def test_plot_scale_is_full_at_or_above_the_design_size(width, height, design):
-    """A canvas at or above its design size keeps matplotlib's default text size."""
-    assert plotting.plot_scale(width, height, design) == plotting.FULL_SCALE
-
-
-@pytest.mark.parametrize(
-    ("width", "height", "design", "expected"),
-    [
-        (9.91, 4.21, (12.0, 7.0), 0.7),  # Retrieve canvas at 1366x768 (clamped)
-        (9.91, 5.91, (9.0, 7.0), 0.85),  # the 2x2 stages at 1366x768
-        (9.73, 2.64, (5.0, 4.0), 0.7),  # the stacked marginal-check pair
-        (9.91, 5.91, (11.0, 4.5), 0.9),  # Uncertainty at 1366x768
-    ],
-)
-def test_plot_scale_follows_the_tighter_dimension_and_clamps(
-    width, height, design, expected
-):
-    assert plotting.plot_scale(width, height, design).font == pytest.approx(expected)
-
-
-def test_plot_scale_is_quantised_to_the_step():
-    """0.883 of the design height rounds to the nearest 0.05 step, 0.9."""
-    font = plotting.plot_scale(10.6, 7.0, (12.0, 7.0)).font
-    assert font == pytest.approx(0.9)
-    steps = font / plotting.FONT_SCALE_STEP
-    assert steps == pytest.approx(round(steps))
-
-
-@pytest.mark.parametrize(
-    ("width", "height", "design"),
-    [(0.0, 4.0, (5.0, 4.0)), (5.0, 4.0, (5.0, 0.0)), (-1.0, 4.0, (5.0, 4.0))],
-)
-def test_plot_scale_rejects_non_positive_sizes(width, height, design):
-    with pytest.raises(ValueError, match="must be positive"):
-        plotting.plot_scale(width, height, design)
-
-
-def test_plot_scale_compact_flag():
-    assert plotting.PlotScale(0.85).compact
-    assert not plotting.PlotScale(0.9).compact
-    assert not plotting.FULL_SCALE.compact
-
-
-def test_scaled_rc_keys_are_valid_and_scale_uniformly():
-    """Every key is a real rc key, values scale together, full scale = defaults."""
-    from matplotlib.font_manager import FontProperties
-
-    small = plotting.scaled_rc(plotting.PlotScale(0.7))
-    full = plotting.scaled_rc(plotting.FULL_SCALE)
-    with matplotlib.rc_context(small):  # unknown keys would raise KeyError
-        pass
-    for key, value in small.items():
-        assert value == pytest.approx(0.7 * full[key])
-    for key, value in full.items():
-        default = matplotlib.rcParamsDefault[key]
-        if isinstance(default, str):  # 'large'/'medium' resolve against 10 pt
-            default = FontProperties(size=default).get_size_in_points()
-        assert value == pytest.approx(default)
-
-
-def test_scaled_rc_sizes_artists_created_inside_the_context():
-    """rc sizes bind at artist creation: inside the context text is scaled, and an
-    axes created afterwards is back at the defaults even on the same figure."""
-    from matplotlib.figure import Figure
-
-    with matplotlib.rc_context(plotting.scaled_rc(plotting.PlotScale(0.7))):
-        fig = Figure()
-        ax = fig.add_subplot()
-        ax.plot([0.0, 1.0], [0.0, 1.0], label="x")
-        ax.set_title("t")
-        ax.set_xlabel("x")
-        legend = ax.legend()
-    fig.canvas.draw()  # drawing later, outside the context, does not undo it
-    assert ax.title.get_fontsize() == pytest.approx(8.4)
-    assert ax.xaxis.label.get_fontsize() == pytest.approx(7.0)
-    assert ax.xaxis.get_majorticklabels()[0].get_fontsize() == pytest.approx(7.0)
-    assert legend.get_texts()[0].get_fontsize() == pytest.approx(7.0)
-    late = fig.add_subplot()
-    late.set_title("late")
-    assert late.title.get_fontsize() == pytest.approx(12.0)
 
 
 # -- retrieval panels and pages ----------------------------------------------------
@@ -676,13 +489,13 @@ def test_spectrogram_is_lazy_and_cached(result_and_trace, monkeypatch):
     """The Gabor transform runs only for a page that shows it, and only once."""
     res, trace = result_and_trace
     calls = []
-    real = plotting.spectrogram
+    real = plotting.panels.spectrogram
 
     def counted(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(plotting, "spectrogram", counted)
+    monkeypatch.setattr(plotting.panels, "spectrogram", counted)
     data = _plot_data(res, trace)
     assert calls == []
     plotting.plot_retrieval_page(data, plotting.RETRIEVAL_PAGES["traces"])
@@ -755,16 +568,6 @@ def _retrieve_on(n_delays, maxiters):
     return res, trace
 
 
-@pytest.fixture(scope="module")
-def update_results():
-    """Two retrievals on one grid (same shapes, different values) and a third on
-    another delay grid (different shapes)."""
-    r1, trace = _retrieve_on(60, 60)
-    r2, _ = _retrieve_on(60, 15)
-    r3, trace3 = _retrieve_on(40, 15)
-    return (r1, trace), (r2, trace), (r3, trace3)
-
-
 def _artist_state(value):
     from matplotlib.axes import Axes
     from matplotlib.collections import QuadMesh
@@ -817,28 +620,6 @@ def _assert_equal(x, y, where):
         assert x == y, (where, x, y)
 
 
-@pytest.mark.parametrize("key", list(plotting.RETRIEVAL_PANELS))
-def test_update_panel_matches_a_fresh_draw(update_results, key):
-    """update(draw(d1), d2) shows exactly what draw(d2) shows, on the same artists."""
-    from matplotlib.figure import Figure
-
-    (r1, trace), (r2, _), _ = update_results
-    d1 = _plot_data(r1, trace)
-    d2 = _plot_data(r2, trace)
-    spec = plotting.RETRIEVAL_PANELS[key]
-    fig_u = Figure()
-    ax_u = fig_u.add_subplot()
-    artists = spec.draw(ax_u, d1)
-    ids = [id(a) for a in fig_u.axes] + [id(v) for v in vars(artists).values()]
-    spec.update(artists, d2)
-    assert [id(a) for a in fig_u.axes] + [id(v) for v in vars(artists).values()] == ids
-    fig_f = Figure()
-    ax_f = fig_f.add_subplot()
-    fresh = spec.draw(ax_f, d2)
-    for k, v in _panel_state(fresh, ax_f).items():
-        _assert_equal(_panel_state(artists, ax_u)[k], v, f"{key}.{k}")
-
-
 def test_retrieval_legends_sit_in_fixed_corners(result_and_trace):
     """No retrieval-panel legend uses loc="best", which jumps between live frames."""
     res, trace = result_and_trace
@@ -847,111 +628,6 @@ def test_retrieval_legends_sit_in_fixed_corners(result_and_trace):
     assert legends
     for legend in legends:
         assert legend._loc != 0, legend  # 0 is matplotlib's code for "best"
-
-
-def test_update_temporal_legend_follows_the_fwhm(update_results):
-    from matplotlib.figure import Figure
-
-    (r1, trace), (r2, _), _ = update_results
-    artists = plotting.draw_temporal(Figure().add_subplot(), _plot_data(r1, trace))
-    plotting.update_temporal(artists, _plot_data(r2, trace))
-    pr2 = processing.process_result(r2, measured=trace)
-    assert plotting._fs(pr2.fwhm_retr) in artists.legend_retr.get_text()
-    assert plotting._fs(pr2.fwhm_tl) in artists.legend_tl.get_text()
-
-
-def test_update_convergence_curve_grows_and_rescales():
-    from matplotlib.figure import Figure
-
-    ax = Figure().add_subplot()
-    artists = plotting.plot_convergence(ax, [1.0, 0.5, 0.3])
-    line = artists.line
-    plotting.update_convergence_curve(artists, [1.0, 0.5, 0.3, 0.1, 0.01])
-    assert artists.line is line
-    assert line.get_xydata().shape == (5, 2)
-    assert ax.get_xlim()[1] >= 5
-    assert ax.get_ylim()[0] <= 0.01
-    plotting.update_convergence_curve(artists, [])  # a rehydrated result
-    assert line.get_xydata().shape == (0, 2)
-
-
-def test_update_residual_colorbar_follows_the_new_scale(update_results):
-    from matplotlib.figure import Figure
-
-    (r1, trace), (r2, _), _ = update_results
-    fig = Figure()
-    ax = fig.add_subplot()
-    artists = plotting.draw_residual(ax, _plot_data(r1, trace))
-    assert artists.mesh is not None
-    cbar = fig.colorbar(artists.mesh, ax=ax)
-    d2 = _plot_data(r2, trace)
-    plotting.update_residual(artists, d2)
-    assert d2.processed.residual is not None
-    mr = float(np.max(np.abs(d2.processed.residual)))
-    assert artists.mesh.get_clim() == pytest.approx((-mr, mr))
-    assert cbar.ax.get_ylim() == pytest.approx((-mr, mr))
-
-
-def test_update_signature_separates_shapes_from_values(update_results):
-    from croak.processing import TruthPulse
-
-    (r1, trace), (r2, _), (r3, trace3) = update_results
-    d1 = _plot_data(r1, trace)
-    d2 = _plot_data(r2, trace)
-    d3 = _plot_data(r3, trace3)
-    assert plotting._update_signature(d1) == plotting._update_signature(d2)
-    assert plotting._update_signature(d1) != plotting._update_signature(d3)
-    g = Grid(96, dt=0.5e-15)
-    truth = TruthPulse.from_spectrum(g, gaussian_pulse(g, 7e-15), float(wlfreq(800e-9)))
-    assert plotting._update_signature(d1) != plotting._update_signature(
-        _plot_data(r1, trace, truth=truth)
-    )
-
-
-@pytest.mark.parametrize("key", ["traces", "pulse", "diagnostics"])
-def test_page_view_updates_in_place_and_falls_back_to_draw(update_results, key):
-    from matplotlib.figure import Figure
-
-    (r1, trace), (r2, _), (r3, trace3) = update_results
-    view = plotting.RetrievalPageView(plotting.RETRIEVAL_PAGES[key])
-    assert not view.attached
-    with pytest.raises(RuntimeError, match="draw"):
-        view.update(_plot_data(r1, trace))
-    fig = Figure(layout="constrained")
-    view.draw(fig, _plot_data(r1, trace))
-    axes_before = list(fig.axes)
-    d2 = _plot_data(r2, trace)
-    assert view.can_update(d2)
-    view.update(d2)
-    assert list(fig.axes) == axes_before
-    d3 = _plot_data(r3, trace3)
-    assert not view.can_update(d3)
-    with pytest.raises(ValueError, match="draw"):
-        view.update(d3)
-    view.draw(fig, d3)  # the fallback: a fresh page
-    assert list(fig.axes) != axes_before
-    view.reset()
-    assert not view.attached
-
-
-def test_page_view_freezes_the_layout_after_the_first_draw(update_results):
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-    from matplotlib.layout_engine import (
-        ConstrainedLayoutEngine,
-        PlaceHolderLayoutEngine,
-    )
-
-    (r1, trace), _, _ = update_results
-    view = plotting.RetrievalPageView(plotting.RETRIEVAL_PAGES["pulse"])
-    fig = Figure(layout="constrained")
-    FigureCanvasAgg(fig)
-    view.draw(fig, _plot_data(r1, trace))
-    assert isinstance(fig.get_layout_engine(), ConstrainedLayoutEngine)
-    fig.canvas.draw()  # the first real draw solves the layout, then holds it
-    assert isinstance(fig.get_layout_engine(), PlaceHolderLayoutEngine)
-    view.draw(fig, _plot_data(r1, trace))  # a redraw solves it again
-    assert isinstance(fig.get_layout_engine(), ConstrainedLayoutEngine)
 
 
 # -- spectrum axis --------------------------------------------------------------------
@@ -1006,40 +682,6 @@ def test_frequency_spectrum_is_the_omega_density(result_and_trace):
     np.testing.assert_allclose(ax.lines[0].get_ydata(), pr.Iw / pr.Iw.max(), atol=1e-12)
     omega_abs = pr.omega + pr.omega0
     np.testing.assert_allclose(ax.lines[0].get_xdata(), omega_abs / (2 * np.pi * 1e15))
-
-
-def test_retrieval_plot_data_carries_the_spectral_axis(result_and_trace):
-    from matplotlib.figure import Figure
-
-    res, trace = result_and_trace
-    default = _plot_data(res, trace)
-    assert default.spectral_axis == "frequency"
-    by_wavelength = _plot_data(res, trace, spectral_axis="wavelength")
-    ax = Figure().add_subplot()
-    plotting.draw_spectral(ax, by_wavelength)
-    assert ax.get_xlabel() == "Wavelength (nm)"
-    # a different abscissa is a different set of artists: no in-place update
-    assert plotting._update_signature(default) != plotting._update_signature(
-        by_wavelength
-    )
-    fig = plotting.plot_retrieval(res, measured=trace, spectral_axis="wavelength")
-    spectrum = next(a for a in fig.axes if a.get_title() == "Spectrum")
-    assert spectrum.get_xlabel() == "Wavelength (nm)"
-
-
-def test_update_spectral_matches_a_fresh_draw_on_the_wavelength_axis(update_results):
-    from matplotlib.figure import Figure
-
-    (r1, trace), (r2, _), _ = update_results
-    d1 = _plot_data(r1, trace, spectral_axis="wavelength")
-    d2 = _plot_data(r2, trace, spectral_axis="wavelength")
-    ax_u = Figure().add_subplot()
-    artists = plotting.draw_spectral(ax_u, d1)
-    plotting.update_spectral(artists, d2)
-    ax_f = Figure().add_subplot()
-    fresh = plotting.draw_spectral(ax_f, d2)
-    for k, v in _panel_state(fresh, ax_f).items():
-        _assert_equal(_panel_state(artists, ax_u)[k], v, f"spectral.{k}")
 
 
 # ---------------------------------------------------------------------------
@@ -1167,36 +809,6 @@ def _variant_kwargs(res, variant):
     return {"processed": processing.process_result(res)}
 
 
-@pytest.mark.parametrize("variant", ["truth", "truth_without_phases", "bare"])
-@pytest.mark.parametrize("key", list(plotting.RETRIEVAL_PANELS))
-def test_update_panel_matches_a_fresh_draw_with_optional_curves(
-    update_results, key, variant
-):
-    """The optional curves (truth, measured spectrum, absolute power, missing
-    residual) update exactly as a fresh draw shows them."""
-    from dataclasses import replace
-
-    from matplotlib.figure import Figure
-
-    (r1, trace), (r2, _), _ = update_results
-    # a per-frequency R_omega factor, so the spectral-filter panel has a shape
-    r1 = replace(r1, mu=np.linspace(1.0, 2.0, r1.omega.size))
-    r2 = replace(r2, mu=np.linspace(2.0, 1.0, r2.omega.size))
-    kw1, kw2 = _variant_kwargs(r1, variant), _variant_kwargs(r2, variant)
-    d1 = plotting.retrieval_plot_data(r1, measured=trace, **kw1)
-    d2 = plotting.retrieval_plot_data(r2, measured=trace, **kw2)
-    spec = plotting.RETRIEVAL_PANELS[key]
-    fig_u = Figure()
-    ax_u = fig_u.add_subplot()
-    artists = spec.draw(ax_u, d1)
-    spec.update(artists, d2)
-    fig_f = Figure()
-    ax_f = fig_f.add_subplot()
-    fresh = spec.draw(ax_f, d2)
-    for k, v in _panel_state(fresh, ax_f).items():
-        _assert_close(_panel_state(artists, ax_u)[k], v, f"{key}.{k}")
-
-
 def _assert_close(x, y, where):
     """Like _assert_equal, to 1e-6 relative (1e-9 for scalars).
 
@@ -1229,11 +841,20 @@ def test_cmap_negwhite_without_a_negative_part_is_cmap_white():
 
 def test_si_power_below_the_smallest_prefix_uses_it():
     scale, unit = plotting.si_power(1e-30)
-    assert (scale, unit) == plotting._POWER_PREFIXES[-1]
+    assert (scale, unit) == plotting.units._POWER_PREFIXES[-1]
 
 
 def test_phase_ylim_of_nothing_finite_is_none():
-    assert plotting._phase_ylim(None, np.array([np.nan]), np.array([])) is None
+    assert plotting.pulse._phase_ylim(None, np.array([np.nan]), np.array([])) is None
+
+
+def test_phase_ylim_keeps_a_flat_phase_from_filling_the_axis():
+    floor = plotting.pulse.PHASE_MIN_HALF_SPAN
+    # Rounding noise of a transform-limited pulse: the axis stays ±floor wide.
+    low, high = plotting.pulse._phase_ylim(np.array([0.0, 1e-15, -2e-15]))
+    assert high - low == pytest.approx(2 * floor)
+    # A real phase keeps its own span as margin either side.
+    assert plotting.pulse._phase_ylim(np.array([0.0, 4.0])) == (-2.0, 6.0)
 
 
 def test_plot_residual_and_spectrogram_defaults(result_and_trace):
@@ -1268,82 +889,12 @@ def test_plot_spectral_frequency_axis_with_a_measured_spectrum(result_and_trace)
     plt.close(fig)
 
 
-def test_flat_phases_leave_the_phase_axis_unscaled(result_and_trace):
-    """With no finite phase sample there is no phase range to set."""
-    from dataclasses import replace
-
-    import matplotlib.pyplot as plt
-
-    res, trace = result_and_trace
-    pr = processing.process_result(res, measured=trace)
-    pr = replace(
-        pr, phi_t=np.full_like(pr.phi_t, np.nan), phi_w=np.full_like(pr.phi_w, np.nan)
-    )
-    fig, (a, b) = plt.subplots(1, 2)
-    data = plotting.retrieval_plot_data(res, measured=trace, processed=pr)
-    t_art = plotting.draw_temporal(a, data)
-    s_art = plotting.draw_spectral(b, data)
-    # matplotlib's own autoscaled limits, which no phase range overrides
-    t_lim, s_lim = t_art.ax_phase.get_ylim(), s_art.ax_phase.get_ylim()
-    plotting.update_temporal(t_art, data)
-    plotting.update_spectral(s_art, data)
-    assert t_art.ax_phase.get_ylim() == t_lim
-    assert s_art.ax_phase.get_ylim() == s_lim
-    plt.close(fig)
-
-
-def test_axes_of_an_unplaced_artist_raises():
-    from matplotlib.lines import Line2D
-
-    with pytest.raises(RuntimeError, match="not on any axes"):
-        plotting._axes_of(Line2D([0], [0]))
-
-
-def test_trace_update_with_negative_samples_and_no_label(result_and_trace):
-    """A trace holding negatives keeps its second (negative) image in step, and
-    an unlabelled trace panel updates without a label."""
-    from matplotlib.figure import Figure
-
-    res, trace = result_and_trace
-    signed = trace - 0.05 * trace.max()  # background-subtracted: negatives
-    data = plotting.retrieval_plot_data(res, measured=signed)
-    ax = Figure().add_subplot()
-    artists = plotting.draw_measured_lin(ax, data)
-    assert artists.mesh_neg is not None and artists.label is None
-    plotting.update_measured_lin(artists, data)
-    plotting.update_retrieved_lin(artists, data)  # no label to refresh
-    assert artists.mesh_neg.get_clim() == artists.mesh_pos.get_clim()
-
-
-def test_update_residual_without_a_residual_is_a_no_op(result_and_trace):
-    from matplotlib.figure import Figure
-
-    res, trace = result_and_trace
-    bare = plotting.retrieval_plot_data(res, processed=processing.process_result(res))
-    ax = Figure().add_subplot()
-    artists = plotting.draw_residual(ax, bare)
-    assert artists.mesh is None
-    plotting.update_residual(artists, bare)  # nothing drawn, nothing to update
-
-
-def test_update_spectrogram_refuses_a_new_shape(update_results):
-    from matplotlib.figure import Figure
-
-    (r1, trace), _, _ = update_results
-    ax = Figure().add_subplot()
-    artists = plotting.draw_spectrogram(ax, _plot_data(r1, trace))
-    # a narrower wavelength band keeps fewer rows of the spectrogram
-    narrower = plotting.retrieval_plot_data(
-        r1, measured=trace, lam_min=760e-9, lam_max=900e-9
-    )
-    with pytest.raises(ValueError, match="spectrogram shape changed"):
-        plotting.update_spectrogram(artists, narrower)
-
-
 def test_mappables_of_a_curve_panel_are_empty():
     from matplotlib.lines import Line2D
 
-    assert plotting._mappables(plotting.LineArtists(line=Line2D([0], [0]))) == (
+    assert plotting.retrieval._mappables(
+        plotting.LineArtists(line=Line2D([0], [0]))
+    ) == (
         None,
         None,
     )
@@ -1369,21 +920,6 @@ def test_page_without_a_residual_or_with_negatives_lays_out_its_colorbars(
     assert len(fig.axes) == 12 + 2 + 2 * 2 + 1
 
 
-def test_page_view_redrawn_into_another_figure_leaves_the_old_one(update_results):
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-    from matplotlib.layout_engine import ConstrainedLayoutEngine
-
-    (r1, trace), _, _ = update_results
-    view = plotting.RetrievalPageView(plotting.RETRIEVAL_PAGES["pulse"])
-    first = Figure(layout="constrained")
-    FigureCanvasAgg(first)
-    view.draw(first, _plot_data(r1, trace))
-    view.draw(Figure(layout="constrained"), _plot_data(r1, trace))
-    first.canvas.draw()  # the stale figure's freeze must not touch it
-    assert isinstance(first.get_layout_engine(), ConstrainedLayoutEngine)
-
-
 def test_filter_view_vmax_ignores_a_window_outside_the_axis():
     from dataclasses import dataclass
 
@@ -1405,23 +941,10 @@ def test_filter_view_vmax_ignores_a_window_outside_the_axis():
 
 def test_decimate_for_display_strides_large_images():
     C = np.arange(2500.0 * 3).reshape(2500, 3)
-    out, x, y = plotting._decimate_for_display(C, np.arange(3.0), np.arange(2500.0))
+    out, x, y = plotting.traces._decimate_for_display(
+        C, np.arange(3.0), np.arange(2500.0)
+    )
     assert out.shape == (1250, 3) and y.size == 1250 and x.size == 3
-
-
-def test_resample_uniform_x_passes_short_axes_through():
-    x = np.array([1.0, 3.0])
-    C = np.ones((2, 2))
-    xu, Cu = plotting._resample_uniform_x(x, C)
-    assert xu is not None and Cu is C
-
-
-def test_frog_filter_view_requires_attach():
-    view = plotting.FrogFilterView()
-    with pytest.raises(RuntimeError, match="attach"):
-        view.update(None)
-    with pytest.raises(RuntimeError, match="not attached"):
-        view._set_panel("a", np.arange(2.0), np.arange(2.0), np.ones((2, 2)), db=False)
 
 
 def test_plot_simulated_trace_with_negative_samples(result_and_trace):
@@ -1456,3 +979,42 @@ def test_plot_frog_filter_without_negative_samples(experiment):
     fig = plotting.plot_frog_filter(clipped)
     # six panels and one colorbar per row
     assert len(fig.axes) == 6 + 2
+
+
+def test_retrieval_plot_data_carries_the_spectral_axis(result_and_trace):
+    from matplotlib.figure import Figure
+
+    res, trace = result_and_trace
+    default = _plot_data(res, trace)
+    assert default.spectral_axis == "frequency"
+    by_wavelength = _plot_data(res, trace, spectral_axis="wavelength")
+    ax = Figure().add_subplot()
+    plotting.draw_spectral(ax, by_wavelength)
+    assert ax.get_xlabel() == "Wavelength (nm)"
+    fig = plotting.plot_retrieval(res, measured=trace, spectral_axis="wavelength")
+    spectrum = next(a for a in fig.axes if a.get_title() == "Spectrum")
+    assert spectrum.get_xlabel() == "Wavelength (nm)"
+
+
+def test_flat_phases_leave_the_phase_axis_unscaled(result_and_trace):
+    """With no finite phase sample there is no phase range to set."""
+    from dataclasses import replace
+
+    from matplotlib.figure import Figure
+
+    from croak.plotting import screen
+
+    res, trace = result_and_trace
+    pr = processing.process_result(res, measured=trace)
+    pr = replace(
+        pr, phi_t=np.full_like(pr.phi_t, np.nan), phi_w=np.full_like(pr.phi_w, np.nan)
+    )
+    data = plotting.retrieval_plot_data(res, measured=trace, processed=pr)
+    fig = Figure()
+    a, b = fig.subplots(1, 2)
+    t_art = plotting.draw_temporal(a, data)
+    s_art = plotting.draw_spectral(b, data)
+    # matplotlib's own autoscale, which no phase range overrode
+    assert t_art.ax_phase.get_autoscaley_on() and s_art.ax_phase.get_autoscaley_on()
+    assert screen.temporal_view(data).right_range is None
+    assert screen.spectral_view(data).right_range is None

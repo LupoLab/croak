@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtGui import QValidator
+from PySide6.QtGui import QValidator
 
-from croak.gui.widgets import RangeControl, SciSpinBox, ValueControl
+from croak.gui.widgets import (
+    SPIN_MAX_CHARS,
+    SPIN_MIN_CHARS,
+    RangeControl,
+    SciSpinBox,
+    ValueControl,
+)
 
 State = QValidator.State
 
@@ -94,3 +100,28 @@ def test_value_control_spin_and_slider_stay_in_sync(qapp):
     assert vc.value() == pytest.approx(7.0)
     assert seen == [pytest.approx(3.5), pytest.approx(7.0)]
     assert vc.bounds() == (0.0, 10.0)
+
+
+def test_slider_spin_boxes_leave_the_row_to_the_slider(qapp):
+    from PySide6.QtWidgets import QDoubleSpinBox
+
+    # Qt sizes a plain spin box to its range's widest text...
+    plain = QDoubleSpinBox()
+    plain.setDecimals(2)
+    plain.setRange(-1e5, 1e5)
+    wide = ValueControl(-1e5, 1e5, 0.0, decimals=2)
+    # ...this one to at most SPIN_MAX_CHARS digits, however wide the range
+    assert wide.spin.chars == SPIN_MAX_CHARS
+    assert wide.spin.sizeHint().width() < plain.sizeHint().width()
+    assert wide.spin.minimumSizeHint() == wide.spin.sizeHint()
+    narrow = ValueControl(0.0, 10.0, 1.0)
+    assert narrow.spin.chars == SPIN_MIN_CHARS
+    assert narrow.spin.sizeHint().width() < wide.spin.sizeHint().width()
+    # a range row is one line: low value, slider, high value
+    rc = RangeControl(-60.0, 60.0, -10.0, 10.0)
+    layout = rc.layout()
+    assert layout is not None
+    order = [layout.itemAt(i).widget() for i in range(layout.count())]
+    assert order == [rc.lo_spin, rc.slider, rc.hi_spin]
+    rc.set_bounds(-3000.0, 3000.0)  # a wider range refits both ends
+    assert rc.lo_spin.chars == rc.hi_spin.chars == 5

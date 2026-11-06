@@ -291,7 +291,7 @@ fig = croak.plot_frog_filter(td)
 
 ## Settings across a re-load
 
-In the [wizard](gui.md) the preprocess controls are bound one way: a widget
+In the [GUI](gui.md) the Prepare controls are bound one way: a widget
 writes its parameter and triggers a recompute, so what the parameters say is
 what gets computed. To keep the two in step, **entering the stage re-seeds every
 widget from the current parameters**. That matters because loading a trace
@@ -303,7 +303,7 @@ dataset or window selection, units, loaded band, orientation and interaction,
 that is, everything that changes the data-seeded defaults.
 
 * **Same trace** (reloading after changing a background, a calibration or the
-  third-order correction, or walking Back and forward again): your windowing
+  third-order correction, or going back to Data and forward again): your windowing
   and filter choices are kept; only the slider bounds are refreshed and the
   values clamped into them.
 * **Different trace**: the data-seeded defaults are restored, and since the
@@ -341,7 +341,7 @@ against a known chirp. An SHG trace is symmetric in delay for any pulse
 settles nothing — SHG's direction-of-time ambiguity is resolved after retrieval
 with {func}`~croak.processing.resolve_time_direction`, see
 [Post-processing](postprocessing.md#shg-settle-the-direction-of-time-first).
-The GUI's Load stage exposes both as the **Transpose**
+The GUI's measured loader (on Data) exposes both as the **Transpose**
 and **Reverse delay axis** switches
 ({class}`~croak.session.params.LoadParams`); `croak.session` applies the flip in
 {func}`~croak.session.pipeline.assemble_load_data`, before the axis is sorted, so

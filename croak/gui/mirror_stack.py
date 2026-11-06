@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import contextlib
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 
 from .. import dispersion, io, mirrors
 from ..session.params import BeamPathMirror
-from .canvas import combo, spin
+from .controls import combo, spin
 
 __all__ = ["MirrorRow", "MirrorStack"]
 
@@ -57,10 +57,10 @@ class MirrorRow(QWidget):
     removal); chirped compressors and custom files are phase-only.
     """
 
-    changed = pyqtSignal()
-    status = pyqtSignal(str)
-    remove_requested = pyqtSignal(object)
-    auto_requested = pyqtSignal(object)
+    changed = Signal()
+    status = Signal(str)
+    remove_requested = Signal(object)
+    auto_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -102,7 +102,7 @@ class MirrorRow(QWidget):
         outer.addWidget(line)
 
         self.range_label = QLabel("–")
-        self.range_label.setStyleSheet("color: gray;")
+        self.range_label.setObjectName("help")  # secondary text, from the theme
         outer.addWidget(self.range_label)
 
         # custom-file sub-controls, shown only when 'Custom file…' is selected
@@ -319,9 +319,9 @@ class MirrorRow(QWidget):
 class MirrorStack(QWidget):
     """An editable list of :class:`MirrorRow` widgets plus an 'Add' button."""
 
-    changed = pyqtSignal()
-    status = pyqtSignal(str)
-    auto_requested = pyqtSignal(object)
+    changed = Signal()
+    status = Signal(str)
+    auto_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)

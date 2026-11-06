@@ -13,7 +13,7 @@ import contextlib
 import os
 
 import numpy as np
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -24,11 +24,12 @@ from PyQt6.QtWidgets import (
 
 from .. import io
 from ..interactions import get_interaction
-from ..plotting import cmap_white, signed_pcolormesh
+from ..plotting.screen import raw_trace_map
 from ..session.pipeline import assemble_load_data
 from .base import Stage
-from .canvas import MplCanvas, check, combo, group, with_toolbar
+from .controls import check, combo, group
 from .state import PreprocParams
+from .view_panel import ViewPanel
 from .widgets import SciSpinBox
 
 _LAM_UNITS = ["nm", "µm", "m"]
@@ -339,7 +340,7 @@ class StageLoad(Stage):
         )
         self.controls.addWidget(box)
 
-        # Units & interaction ("&&" escapes the literal ampersand; see help._plain)
+        # Units & interaction ("&&" escapes the literal ampersand; see sheet.plain)
         box, form = group("Units && interaction")
         self.lam_unit_combo = combo(
             _LAM_UNITS, p.lam_unit, lambda v: setattr(p, "lam_unit", v)
@@ -454,11 +455,10 @@ class StageLoad(Stage):
         load_btn = QPushButton("Load && Preview")
         load_btn.clicked.connect(self._load_preview)
         self.controls.addWidget(load_btn)
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
-        self.trace_canvas = MplCanvas()
-        self.set_plot_area(with_toolbar(self.trace_canvas))
+        self.trace_view = ViewPanel("map", signed=True)
+        self.set_plot_area(self.trace_view)
 
         self.apply_help()
 
@@ -799,32 +799,10 @@ class StageLoad(Stage):
         tau_fs = (
             io.position_to_delay(scan) if data["input_unit"] == "position" else scan
         ) / 1e-15
-        trace = data["trace"]
-        lo, hi = _PREVIEW_TRUST_NM
-        in_band = (lam_nm >= lo) & (lam_nm <= hi)
-        band = trace[in_band] if np.any(in_band) else trace
-        vmax = float(np.nanmax(np.abs(band))) if band.size else 0.0
-        self.trace_canvas.render(
-            lambda fig: self._plot_trace(
-                fig.add_subplot(111), tau_fs, lam_nm, trace, in_band, vmax
-            )
+        trace = np.asarray(data["trace"])
+        if min(trace.shape) < 2:  # nothing to draw as an image
+            self.trace_view.say("Measured trace", "The trace holds no samples.")
+            return
+        self.trace_view.show_view(
+            raw_trace_map(tau_fs, lam_nm, trace, _PREVIEW_TRUST_NM)
         )
-
-    @staticmethod
-    def _plot_trace(ax, tau_fs, lam_nm, trace, in_band, vmax) -> None:
-        """Draw the raw-trace preview into ``ax`` (the body of :meth:`_draw`)."""
-        signed_pcolormesh(
-            ax,
-            tau_fs,
-            lam_nm,
-            trace,
-            db=False,
-            cmap_pos=cmap_white("viridis"),
-            vmax=vmax if vmax > 0 else None,
-        )
-        sig = lam_nm[in_band & (trace.max(axis=1) > 1e-2 * (vmax or 1.0))]
-        if sig.size:
-            ax.set_ylim(sig.min(), sig.max())
-        ax.set_xlabel("Delay (fs)")
-        ax.set_ylabel("Wavelength (nm)")
-        ax.set_title("Measured trace")

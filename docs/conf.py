@@ -8,7 +8,11 @@ Build locally with::
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from pathlib import Path
+
+from sphinx.pycode import ModuleAnalyzer
 
 import croak
 
@@ -80,6 +84,31 @@ autodoc_default_options = {
 }
 autodoc_typehints = "description"
 autodoc_member_order = "bysource"
+
+
+# croak.plotting is a package whose __init__.py re-exports what its submodules
+# define. autodoc reads a constant's ``#:`` doc-comment only from the source of the
+# module it documents -- here __init__.py, where a re-exported constant has none --
+# and silently drops the constant as undocumented. Seed autodoc's cached analysis
+# of the package with the comments (and annotations) of the defining submodules.
+def _adopt_submodule_attr_docs(package_name: str) -> None:
+    """Give ``package_name``'s analyzer the attribute docs of its submodules."""
+    package = importlib.import_module(package_name)
+    analyzer = ModuleAnalyzer.for_module(package_name)
+    analyzer.analyze()
+    for info in pkgutil.iter_modules(package.__path__, f"{package_name}."):
+        submodule = ModuleAnalyzer.for_module(info.name)
+        submodule.analyze()
+        for (scope, name), comment in submodule.attr_docs.items():
+            if scope == "" and name in package.__all__:
+                analyzer.attr_docs.setdefault((scope, name), comment)
+                if (scope, name) in submodule.annotations:
+                    analyzer.annotations.setdefault(
+                        (scope, name), submodule.annotations[scope, name]
+                    )
+
+
+_adopt_submodule_attr_docs("croak.plotting")
 
 napoleon_numpy_docstring = True
 napoleon_google_docstring = False

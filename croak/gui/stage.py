@@ -1,0 +1,159 @@
+"""The base of a page in the workflow window.
+
+The window owns the navigation and the one primary action; a page says what it
+can do through a few hooks (:class:`PageBase`) and does it in :meth:`~PageBase.act`.
+Most pages are a :class:`StagePage`: a :class:`~croak.gui.sheet.Sheet` with a form
+of folding sections on the left and, on the right, an advice box over the
+stage's plots. Pages made of other pages
+(Data's loader, Analyse's rail) build on :class:`PageBase` directly.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+from .help import HelpDialog, HelpSections
+from .sheet import AdviceBox, Form, Sheet
+from .state import WizardState
+from .view_panel import export_figure, file_name, page_figure
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+
+    from ..plotting import RetrievalPlotData
+
+__all__ = ["PageBase", "StagePage"]
+
+
+class PageBase(QWidget):
+    """What the window asks of a page.
+
+    Attributes
+    ----------
+    changed : Signal
+        Emitted when what the page can do changes (it can now go on, a run
+        started or ended), so the window re-reads the hooks.
+    message : Signal(str)
+        A passing notice for the window's status bar.
+    moved_on : Signal
+        The page handed its work on by itself (an entry loader's own forward
+        action did), so the window goes to the next stage.
+    """
+
+    HELP_TITLE: str = ""
+    """The page's name in its help dialog."""
+    HELP_INTRO: str = ""
+    """One paragraph on what the page is for."""
+    HELP: HelpSections = []
+    """Per-setting help, ``[(section, [(label, text), ...]), ...]``."""
+
+    changed = Signal()
+    message = Signal(str)
+    moved_on = Signal()
+
+    def __init__(self, state: WizardState) -> None:
+        super().__init__()
+        self.state = state
+        self._help_dialog: HelpDialog | None = None
+
+    def on_enter(self) -> None:
+        """Refresh as the page comes on screen (default: nothing to do)."""
+
+    def can_advance(self) -> bool:
+        """Whether the primary action can be pressed now (default: yes)."""
+        return True
+
+    def busy(self) -> bool:
+        """Whether the page is running work the primary action would stop."""
+        return False
+
+    def page_key(self) -> str:
+        """Which sub-page is shown, for pages that have several (default: "")."""
+        return ""
+
+    def save_extras(self, folder: Path) -> list[str]:
+        """Write what the page adds to a saved session into ``folder``.
+
+        Called by Save session after the session's own files; returns the names
+        of the files written (by default none).
+        """
+        return []
+
+    def act(self, kind: str) -> bool:
+        """Do the primary action ``kind``; return whether the window moves on.
+
+        ``kind`` is a :class:`croak.gui.workflow.Action` kind. By default
+        ``"continue"`` has nothing to do here and the window moves to the next
+        stage; a page with steps of its own moves through them first.
+
+        Raises
+        ------
+        ValueError
+            If this page has no such action.
+        """
+        if kind == "continue":
+            return True
+        raise ValueError(f"{type(self).__name__} has no {kind!r} action")
+
+    def overview(self) -> RetrievalPlotData | None:
+        """The retrieval this page shows, for a saved session's overview PDF."""
+        return None
+
+    def figure(self) -> Figure | None:
+        """The page as a publication figure; ``None`` while it shows nothing.
+
+        By default every plot on the page, laid out as on the screen
+        (:func:`~croak.gui.view_panel.page_figure`).
+        """
+        return page_figure(self)
+
+    def figure_name(self) -> str:
+        """The file name a saved figure of the page is offered under."""
+        return file_name(self.HELP_TITLE)
+
+    def export_figure(self) -> str:
+        """Ask where to save :meth:`figure`; return the path, or ``""``."""
+        return export_figure(self, self.figure(), self.figure_name(), self.message.emit)
+
+    def show_help(self) -> HelpDialog | None:
+        """Open (or raise) the page's help dialog; ``None`` if it has no help."""
+        if not self.HELP:
+            return None
+        if self._help_dialog is None:
+            self._help_dialog = HelpDialog(
+                self.HELP_TITLE, self.HELP_INTRO, self.HELP, self
+            )
+        self._help_dialog.show()
+        self._help_dialog.raise_()
+        return self._help_dialog
+
+
+class StagePage(PageBase):
+    """A page that is a sheet: its form beside its plots.
+
+    Subclasses fill :attr:`form` with sections, add their plots with
+    :meth:`set_plots`, and override the hooks they need.
+    """
+
+    def __init__(self, state: WizardState, *, find: bool = False) -> None:
+        super().__init__(state)
+        self.form = Form(find=find)
+        self.advice = AdviceBox()
+        right = QWidget()
+        right.setObjectName("page")
+        self.body = QVBoxLayout(right)
+        self.body.setContentsMargins(16, 12, 16, 12)
+        self.body.setSpacing(10)
+        self.body.addWidget(self.advice)
+        self.sheet = Sheet(self.form, right)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self.sheet)
+
+    def set_plots(self, plots: QWidget) -> None:
+        """Put the stage's plots under its advice box; they take the room."""
+        self.body.addWidget(plots, stretch=1)

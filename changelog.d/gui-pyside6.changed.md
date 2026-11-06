@@ -1,0 +1,1 @@
+The GUI runs on PySide6 instead of PyQt6, and the `gui` extra now installs `pyside6-essentials`, `pyqtgraph` and `superqt`. Code that embeds croak's GUI widgets in its own Qt application must create a PySide6 `QApplication`.

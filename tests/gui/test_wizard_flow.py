@@ -1,4 +1,4 @@
-"""Offscreen smoke tests for the PyQt6 wizard.
+"""Offscreen smoke tests for the PySide6 wizard.
 
 Headless (``QT_QPA_PLATFORM=offscreen``); drive a synthetic dataset through
 Load → Marginal check → Preprocess → Retrieve → Dispersion. Smoke-level, not
@@ -19,17 +19,17 @@ import pytest
 
 import croak
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QSize, Qt
+from gui_session import Driver
+from PySide6.QtCore import QSize, Qt
 
 from croak.gui import settings
-from croak.gui.base import CONTROLS_MIN_WIDTH
-from croak.gui.canvas import MplCanvas, collapsible
+from croak.gui.controls import collapsible
 from croak.gui.stage_load import assemble_load_data, seed_preproc_defaults
 from croak.gui.stage_marginal_check import StageMarginalCheck
 from croak.gui.state import WizardState
-from croak.gui.wizard import Wizard
+from croak.gui.workflow import Stage
 from croak.uncertainty import UncertaintyResult
 
 
@@ -59,43 +59,42 @@ def _uresult(method, sd, rng):
     )
 
 
-def test_wizard_opens_on_welcome(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
+def test_window_opens_on_home_then_a_measured_session_on_data(qtbot):
+    from croak.gui.window import MainWindow
+
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.stage is Stage.HOME and win.stack.currentWidget() is win.home
+    win.home.tiles["experimental"].clicked.emit()
+    w = Driver.of(win)
     assert len(w.stages) == 6
-    # opens on the welcome page (index 0); the stage header is not yet set
-    assert w.stack.currentIndex() == 0
-    # entering the load workflow shows Stage 1
-    w.start_load()
-    assert w.stack.currentWidget() is w.stages[0]
-    assert "Stage 1" in w.header.text()
-    assert not w.next_btn.isEnabled()
+    assert w.current_page() is w.stages[0]
+    assert win.context.text() == "Measured trace"
+    assert not win.primary.isEnabled()  # nothing loaded yet
 
 
 def test_synthetic_generation_routes_to_marginal_check(qtbot):
     """The synthetic generator builds a trace and lands on the marginal-check stage."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
-    assert w.stack.currentWidget() is w.synthetic
+    w = Driver(qtbot)
+    w.start("synthetic")
+    assert w.current_page() is w.synthetic
     # defaults: 10 fs Gaussian at 800 nm, SHG, λ window 350–450 nm
     w.synthetic.advance()
     assert w.state.load_data is not None
     assert w.state.truth is not None
-    assert w.state.stage == 2
-    assert w.stack.currentWidget() is w.stages[1]  # StageMarginalCheck
+    assert w.stage_number == 2
+    assert w.current_page() is w.stages[1]  # StageMarginalCheck
     # the trace is regridded only on entering the (next) preprocess stage
     assert w.state.tracedata is None
-    w.state.stage = 3  # advance to preprocess
+    w.goto(3)  # advance to preprocess
     assert w.state.tracedata is not None
-    assert w.stack.currentWidget() is w.stages[2]  # StagePreprocess
+    assert w.current_page() is w.stages[2]  # StagePreprocess
 
 
 def test_synthetic_generates_independent_spectrum_and_steps(qtbot):
     """Synthetic SHG traces carry a mirrored ×2 fundamental spectrum; steps link."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     s = w.synthetic
     # step <-> count interlock at fixed range
     s._on_delay_step(2.0)  # 120 fs span / 2 fs -> 61 delays
@@ -114,9 +113,8 @@ def test_synthetic_generates_independent_spectrum_and_steps(qtbot):
 
 def test_marginal_correction_lives_on_marginal_stage(qtbot):
     """The SHG marginal correction control is on the marginal stage, not preprocess."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()  # SHG synthetic trace with an independent spectrum
     marginal = w.stages[1]
     preprocess = w.stages[2]
@@ -130,17 +128,14 @@ def test_marginal_correction_lives_on_marginal_stage(qtbot):
 
 def test_synthetic_back_returns_to_generator(qtbot):
     """In a synthetic session, Back from the marginal stage returns to the generator."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()
-    assert w.state.stage == 2  # marginal check
+    assert w.stage_number == 2  # marginal check
 
-    w.state.stage = 3  # advance to preprocess
-    w.go_back()  # -> marginal check
-    assert w.stack.currentWidget() is w.stages[1]
-    w.go_back()  # -> the synthetic generator, not the experimental loader
-    assert w.stack.currentWidget() is w.synthetic
+    w.goto(3)  # advance to preprocess
+    w.win.stage_buttons[Stage.DATA].click()  # back to Data: the generator
+    assert w.current_page() is w.synthetic
     # the in-progress data survives the round trip (no reset on Back)
     assert w.state.truth is not None
 
@@ -149,10 +144,9 @@ def test_simulated_load_routes_to_marginal_check(
     qtbot, simulated_scan_h5, simulated_truth
 ):
     """Loading a simulated scan lands on the marginal-check stage."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
-    assert w.stack.currentWidget() is w.simulated
+    w = Driver(qtbot)
+    w.start("simulated")
+    assert w.current_page() is w.simulated
     sim = w.simulated
     sim.path_edit.setText(simulated_scan_h5)
     sim.band.set_values(
@@ -169,12 +163,12 @@ def test_simulated_load_routes_to_marginal_check(
     # the chosen options are recorded on the state for provenance
     assert w.state.simulated.interaction == "pg"
     assert w.state.simulated.frog_path == simulated_scan_h5
-    assert w.state.stage == 2
-    assert w.stack.currentWidget() is w.stages[1]  # StageMarginalCheck
+    assert w.stage_number == 2
+    assert w.current_page() is w.stages[1]  # StageMarginalCheck
     # preprocess regrids on advancing to it
-    w.state.stage = 3
+    w.goto(3)
     assert w.state.tracedata is not None
-    assert w.stack.currentWidget() is w.stages[2]  # StagePreprocess
+    assert w.current_page() is w.stages[2]  # StagePreprocess
 
 
 def test_simulated_thickness_selector(
@@ -183,9 +177,8 @@ def test_simulated_thickness_selector(
     """The thickness selector lists ``zsave`` slices and disables for legacy files."""
     from conftest import SIMULATED_ZSAVE
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
 
     # multi-thickness file: one item per slice, default = the full (exit) thickness
@@ -213,9 +206,8 @@ def test_simulated_truth_source_selector(
     import h5py
     from conftest import write_simulated_h5
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
 
     # legacy file stores only the source temporal truth -> disabled, falls to source
@@ -238,8 +230,7 @@ def test_simulated_truth_source_selector(
 
 def test_dispersive_dz_npoints_coupling(qtbot):
     """Δz, thickness and Npoints stay tied (npoints = thickness / Δz)."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[3]  # StageRetrieve
     p = stage.state.retrieve
 
@@ -266,8 +257,7 @@ def test_dispersive_dz_npoints_coupling(qtbot):
 
 def test_smearing_geometry_sigma_coupling(qtbot):
     """Hole diameter, spacing and sigma stay tied through the square-BOXCARS map."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[3]  # StageRetrieve
     p = stage.state.retrieve
 
@@ -300,8 +290,7 @@ def test_smearing_geometry_sigma_coupling(qtbot):
 
 def test_smearing_gates_the_fit_checkbox_and_solver_support(qtbot):
     """The group follows solver capability; the fit box follows the enable."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[3]
 
     stage.solver_combo.setCurrentText("lbfgs-ad")
@@ -322,9 +311,8 @@ def test_simulated_trace_window_lists_iomega_full(
     qtbot, simulated_scan_multi_h5, simulated_scan_h5
 ):
     """The trace-window dropdown offers ``Iω_full`` only when the file stores it."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
 
     sim.path_edit.setText(simulated_scan_multi_h5)
@@ -345,9 +333,8 @@ def test_simulated_band_defaults_to_full_range(qtbot, simulated_scan_multi_h5):
     """Picking a file seeds the load band to the file's full λ range."""
     from croak import io
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
     sim._populate_file_options(simulated_scan_multi_h5)
     lam_lo, lam_hi = io.read_simulated_wavelength_range(simulated_scan_multi_h5)
@@ -360,17 +347,17 @@ def test_simulated_raw_direct_routes_to_retrieve(qtbot, simulated_scan_h5):
     """The raw checkbox loads straight into Retrieve with tracedata + truth set."""
     from croak import io
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
     sim.path_edit.setText(simulated_scan_h5)
     sim._populate_file_options(simulated_scan_h5)
     sim.raw_direct.setChecked(True)
-    sim.advance()
+    sim._preview()
+    w.win.do_primary()  # Continue
     # bypassed marginal-check (2) and preprocess (3): landed on Retrieve (4)
-    assert w.state.stage == 4
-    assert w.stack.currentWidget() is w.stages[3]  # StageRetrieve
+    assert w.stage_number == 4
+    assert w.current_page() is w.stages[3]  # StageRetrieve
     assert w.state.tracedata is not None
     assert w.state.truth is not None  # truth still carried for the overlay
     # native grid: as-simulated (no regrid), so the grid matches the scan's ω axis
@@ -380,27 +367,23 @@ def test_simulated_raw_direct_routes_to_retrieve(qtbot, simulated_scan_h5):
 
 def test_simulated_back_returns_to_loader(qtbot, simulated_scan_h5, simulated_truth):
     """In a simulated session, Back from the marginal stage returns to the loader."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     w.simulated.path_edit.setText(simulated_scan_h5)
     w.simulated.advance()
-    assert w.state.stage == 2
+    assert w.stage_number == 2
 
-    w.state.stage = 3  # advance to preprocess
-    w.go_back()  # -> marginal check
-    assert w.stack.currentWidget() is w.stages[1]
-    w.go_back()  # -> the simulated loader, not the experimental Stage 1
-    assert w.stack.currentWidget() is w.simulated
+    w.goto(3)  # advance to preprocess
+    w.win.stage_buttons[Stage.DATA].click()  # back to Data: the simulated loader
+    assert w.current_page() is w.simulated
 
 
 def test_marginal_check_predicts_and_auto_fits(
     qtbot, simulated_scan_h5, simulated_truth
 ):
     """The marginal-check stage predicts a marginal and Auto sets a finite exponent."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
     sim.path_edit.setText(simulated_scan_h5)
     sim.band.set_values(
@@ -411,7 +394,7 @@ def test_marginal_check_predicts_and_auto_fits(
         simulated_truth.lam_max / 1e-9 + 10,
     )
     sim.advance()
-    assert w.state.stage == 2
+    assert w.stage_number == 2
     mc = w.stages[1]
     assert isinstance(mc, StageMarginalCheck)
     data = w.state.load_data
@@ -429,30 +412,28 @@ def test_marginal_check_predicts_and_auto_fits(
 
 def test_new_session_clears_previous_data(qtbot, experiment_h5, experiment):
     """Starting a new process from the menu clears prior data and settings."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
 
     # run a synthetic generation, leaving load_data/truth populated
-    w.show_synthetic()
+    w.start("synthetic")
     w.synthetic.advance()
     assert w.state.truth is not None
     assert w.state.load_data is not None
 
     # switch to the experimental workflow from the menu -> everything cleared
-    w.start_load()
+    w.start("experimental")
     assert w.state.truth is None
     assert w.state.load_data is None
     assert w.state.tracedata is None
     assert w.state.result is None
     assert w.state.load.frog_path == ""
-    assert w.stack.currentWidget() is w.stages[0]  # StageLoad, fresh
+    assert w.current_page() is w.stages[0]  # StageLoad, fresh
 
 
 def test_solver_combo_lists_all_algorithms(qtbot):
-    from PyQt6.QtWidgets import QComboBox
+    from PySide6.QtWidgets import QComboBox
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[3]  # StageRetrieve
     items = {
         combo.itemText(i)
@@ -472,8 +453,7 @@ def test_every_stage_help_entry_maps_to_a_control(qtbot):
     """
     from croak.gui.help import flatten
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     # the simulated loader is an entry page (not in w.stages) but declares HELP too
     for stage in [*w.stages, w.simulated]:
         expected = set(flatten(stage.HELP))
@@ -485,14 +465,13 @@ def test_every_stage_help_entry_maps_to_a_control(qtbot):
 
 def test_help_dialog_builds_and_shows(qtbot):
     """The header '?' opens a non-empty summary dialog for the current stage."""
-    from PyQt6.QtWidgets import QTextBrowser
+    from PySide6.QtWidgets import QTextBrowser
 
     from croak.gui.help import HelpDialog
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.goto_stage(4)  # Retrieve
-    w._show_help()
+    w = Driver(qtbot)
+    w.goto(4)  # Retrieve
+    w.win.show_help()
     dlg = w.stages[3]._help_dialog
     assert isinstance(dlg, HelpDialog)
     assert dlg.isVisible()
@@ -504,7 +483,7 @@ def test_help_dialog_builds_and_shows(qtbot):
 
 def test_load_options_refreshes_controls(qtbot, tmp_path):
     """'Load saved…' must update the on-screen controls, not just the params."""
-    from PyQt6.QtWidgets import QComboBox, QSpinBox
+    from PySide6.QtWidgets import QComboBox, QSpinBox
 
     from croak import save
 
@@ -518,11 +497,10 @@ def test_load_options_refreshes_controls(qtbot, tmp_path):
     opts_path = str(tmp_path / "options.toml")
     save.save_options(src.to_options(), opts_path)
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     # emulate _load_options without the file dialog
     w.state.from_options(save.load_options(opts_path))
-    w._rebuild_stages()
+    w.rebuild()
 
     stage = w.stages[3]  # StageRetrieve
     assert stage.findChildren(QComboBox)[0].currentText() == "lm"
@@ -535,7 +513,7 @@ def test_load_options_refreshes_controls(qtbot, tmp_path):
     assert w.state.retrieve.reltol == pytest.approx(1e-6)
     assert w.state.retrieve.reg_spectrum == pytest.approx(0.25)
     # the λ-spectrum control is present in the Regularisation group
-    from PyQt6.QtWidgets import QDoubleSpinBox
+    from PySide6.QtWidgets import QDoubleSpinBox
 
     dspin_values = {round(s.value(), 3) for s in stage.findChildren(QDoubleSpinBox)}
     assert 0.25 in dspin_values
@@ -546,8 +524,7 @@ def test_load_options_restores_full_session(qtbot, experiment_h5, experiment, tm
     from croak import save
 
     # Build and save a complete session in one wizard.
-    w1 = Wizard()
-    qtbot.addWidget(w1)
+    w1 = Driver(qtbot)
     s1 = w1.state
     s1.load.frog_path = experiment_h5
     w1.stages[0]._populate_frog()
@@ -555,7 +532,7 @@ def test_load_options_restores_full_session(qtbot, experiment_h5, experiment, tm
     w1.stages[0]._load_preview()
     s1.preproc.lam_min_nm = experiment.lam_min / 1e-9
     s1.preproc.lam_max_nm = experiment.lam_max / 1e-9
-    s1.stage = 3  # preprocess
+    w1.goto(3)  # preprocess
     assert s1.tracedata is not None
     s1.retrieve.solver = "copra"
     s1.retrieve.maxiters = 40
@@ -563,18 +540,17 @@ def test_load_options_restores_full_session(qtbot, experiment_h5, experiment, tm
     save.save_options(s1.to_options(), opts_path)
 
     # Restore into a fresh wizard (emulating _load_options without the dialog).
-    w2 = Wizard()
-    qtbot.addWidget(w2)
+    w2 = Driver(qtbot)
     w2.state.from_options(save.load_options(opts_path))
-    w2._rebuild_stages()
+    w2.rebuild()
     with qtbot.waitSignal(w2.state.result_changed, timeout=60000):
-        w2._restore_session()
+        w2.win.replay()
 
     # Same data, options and (re-computed) result are all restored.
     assert w2.state.load_data is not None
     assert w2.state.tracedata is not None
     assert w2.state.result is not None
-    assert w2.state.stage == 4
+    assert w2.stage_number == 4
     assert w2.state.preproc.lam_min_nm == pytest.approx(experiment.lam_min / 1e-9)
     assert w2.state.load.interaction == experiment.interaction
 
@@ -585,8 +561,7 @@ def test_load_options_restores_defringe_baseline_widgets(
     """A saved options.toml restores the new de-fringe / baseline controls."""
     from croak import save
 
-    w1 = Wizard()
-    qtbot.addWidget(w1)
+    w1 = Driver(qtbot)
     s1 = w1.state
     s1.load.frog_path = experiment_h5
     w1.stages[0]._populate_frog()
@@ -605,10 +580,9 @@ def test_load_options_restores_defringe_baseline_widgets(
     save.save_options(s1.to_options(), opts_path)
 
     # Restore into a fresh wizard and rebuild the stage widgets from the file.
-    w2 = Wizard()
-    qtbot.addWidget(w2)
+    w2 = Driver(qtbot)
     w2.state.from_options(save.load_options(opts_path))
-    w2._rebuild_stages()
+    w2.rebuild()
 
     p2 = w2.state.preproc
     assert p2.defringe is True
@@ -639,8 +613,7 @@ def test_load_previous_reuses_saved_result_without_rerun(
     """A sibling result.h5 is rehydrated on load, skipping the solver re-run."""
     from croak import save
 
-    w1 = Wizard()
-    qtbot.addWidget(w1)
+    w1 = Driver(qtbot)
     s1 = w1.state
     s1.load.frog_path = experiment_h5
     w1.stages[0]._populate_frog()
@@ -648,10 +621,10 @@ def test_load_previous_reuses_saved_result_without_rerun(
     w1.stages[0]._load_preview()
     s1.preproc.lam_min_nm = experiment.lam_min / 1e-9
     s1.preproc.lam_max_nm = experiment.lam_max / 1e-9
-    s1.stage = 3  # preprocess
+    w1.goto(3)  # preprocess
     s1.retrieve.solver = "copra"
     s1.retrieve.maxiters = 40
-    s1.stage = 4  # retrieve
+    w1.goto(4)  # retrieve
     with qtbot.waitSignal(s1.result_changed, timeout=60000):
         w1.stages[3]._run()
     save.save_result(
@@ -663,18 +636,17 @@ def test_load_previous_reuses_saved_result_without_rerun(
     save.save_options(s1.to_options(), str(tmp_path / "options.toml"))
 
     # Restore into a fresh wizard; spy on the solver re-run.
-    w2 = Wizard()
-    qtbot.addWidget(w2)
+    w2 = Driver(qtbot)
     w2.state.from_options(save.load_options(str(tmp_path / "options.toml")))
-    w2._rebuild_stages()
+    w2.rebuild()
     reran = {"called": False}
     w2.stages[3]._run = lambda *a, **k: reran.__setitem__("called", True)
     with qtbot.waitSignal(w2.state.result_changed, timeout=60000):
-        w2._restore_session(str(tmp_path / "result.h5"))
+        w2.win.replay(str(tmp_path / "result.h5"))
 
     assert w2.state.result is not None  # result loaded from disk
     assert reran["called"] is False  # rehydrated, not re-run
-    assert w2.state.stage == 4
+    assert w2.stage_number == 4
     # the rehydrated result matches the saved spectrum
     np.testing.assert_allclose(w2.state.result.spectrum, s1.result.spectrum)
 
@@ -695,8 +667,7 @@ def test_load_previous_reruns_when_saved_result_grid_moved(
 
     from croak import save
 
-    w1 = Wizard()
-    qtbot.addWidget(w1)
+    w1 = Driver(qtbot)
     s1 = w1.state
     s1.load.frog_path = experiment_h5
     w1.stages[0]._populate_frog()
@@ -704,10 +675,10 @@ def test_load_previous_reruns_when_saved_result_grid_moved(
     w1.stages[0]._load_preview()
     s1.preproc.lam_min_nm = experiment.lam_min / 1e-9
     s1.preproc.lam_max_nm = experiment.lam_max / 1e-9
-    s1.stage = 3
+    w1.goto(3)
     s1.retrieve.solver = "copra"
     s1.retrieve.maxiters = 20
-    s1.stage = 4
+    w1.goto(4)
     with qtbot.waitSignal(s1.result_changed, timeout=60000):
         w1.stages[3]._run()
     rp = str(tmp_path / "result.h5")
@@ -726,16 +697,15 @@ def test_load_previous_reruns_when_saved_result_grid_moved(
             del f["tau"]
             f["tau"] = trimmed
 
-    w2 = Wizard()
-    qtbot.addWidget(w2)
+    w2 = Driver(qtbot)
     w2.state.from_options(save.load_options(str(tmp_path / "options.toml")))
-    w2._rebuild_stages()
+    w2.rebuild()
     reran = {"called": False}
     w2.stages[3]._run = lambda *a, **k: reran.__setitem__("called", True)
-    w2._restore_session(rp)  # must not raise
+    w2.win.replay(rp)  # must not raise
 
     assert reran["called"] is True  # fell back to a re-run
-    assert "regrids to" in w2.stages[3].status_label.text()  # and said why
+    assert "regrids to" in w2.win.statusBar().currentMessage()  # and said why
 
 
 def test_rehydrated_result_matches_a_rerun_of_the_same_session(
@@ -750,8 +720,7 @@ def test_rehydrated_result_matches_a_rerun_of_the_same_session(
     """
     from croak import save
 
-    w1 = Wizard()
-    qtbot.addWidget(w1)
+    w1 = Driver(qtbot)
     s1 = w1.state
     s1.load.frog_path = experiment_h5
     w1.stages[0]._populate_frog()
@@ -759,22 +728,21 @@ def test_rehydrated_result_matches_a_rerun_of_the_same_session(
     w1.stages[0]._load_preview()
     s1.preproc.lam_min_nm = experiment.lam_min / 1e-9
     s1.preproc.lam_max_nm = experiment.lam_max / 1e-9
-    s1.stage = 3
+    w1.goto(3)
     s1.retrieve.solver = "copra"
     s1.retrieve.maxiters = 20
-    s1.stage = 4
+    w1.goto(4)
     with qtbot.waitSignal(s1.result_changed, timeout=60000):
         w1.stages[3]._run()
     rp = str(tmp_path / "result.h5")
     save.save_result(s1.result, rp, processed=s1.processed, force=True)
     save.save_options(s1.to_options(), str(tmp_path / "options.toml"))
 
-    w2 = Wizard()
-    qtbot.addWidget(w2)
+    w2 = Driver(qtbot)
     w2.state.from_options(save.load_options(str(tmp_path / "options.toml")))
-    w2._rebuild_stages()
+    w2.rebuild()
     with qtbot.waitSignal(w2.state.result_changed, timeout=60000):
-        w2._restore_session(rp)
+        w2.win.replay(rp)
 
     # the trace the reloaded session preprocessed is the one that was fitted
     np.testing.assert_allclose(w2.state.tracedata.trace, s1.tracedata.trace)
@@ -786,7 +754,7 @@ def test_rehydrated_result_matches_a_rerun_of_the_same_session(
 
 def _load_simulated_session(w, simulated_scan_h5, simulated_truth):
     """Drive the simulated loader page to the marginal-check stage."""
-    w.load_simulated()
+    w.start("simulated")
     sim = w.simulated
     sim.path_edit.setText(simulated_scan_h5)
     band = (
@@ -806,8 +774,7 @@ def test_simulated_session_saves_its_trace_provenance(
     """A simulated session records which scan (and how) it was loaded from."""
     from croak import save
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     band = _load_simulated_session(w, simulated_scan_h5, simulated_truth)
 
     opts_path = str(tmp_path / "options.toml")
@@ -827,17 +794,16 @@ def test_load_previous_restores_a_simulated_session(
     """A saved simulated session reloads its own scan — not the empty Load stage."""
     from croak import save
 
-    w1 = Wizard()
-    qtbot.addWidget(w1)
+    w1 = Driver(qtbot)
     _load_simulated_session(w1, simulated_scan_h5, simulated_truth)
     s1 = w1.state
     s1.preproc.lam_min_nm = simulated_truth.lam_min / 1e-9
     s1.preproc.lam_max_nm = simulated_truth.lam_max / 1e-9
-    s1.stage = 3  # preprocess
+    w1.goto(3)  # preprocess
     assert s1.tracedata is not None
     s1.retrieve.solver = "copra"
     s1.retrieve.maxiters = 40
-    s1.stage = 4  # retrieve
+    w1.goto(4)  # retrieve
     with qtbot.waitSignal(s1.result_changed, timeout=60000):
         w1.stages[3]._run()
     save.save_result(
@@ -846,19 +812,18 @@ def test_load_previous_restores_a_simulated_session(
     save.save_options(s1.to_options(), str(tmp_path / "options.toml"))
 
     # Restore into a fresh wizard (emulating _load_options without the dialog).
-    w2 = Wizard()
-    qtbot.addWidget(w2)
+    w2 = Driver(qtbot)
     w2.state.from_options(save.load_options(str(tmp_path / "options.toml")))
-    w2._rebuild_stages()
+    w2.rebuild()
     with qtbot.waitSignal(w2.state.result_changed, timeout=60000):
-        w2._restore_session(str(tmp_path / "result.h5"))
+        w2.win.replay(str(tmp_path / "result.h5"))
 
     assert w2.state.entry == "simulated"
     assert w2.state.simulated.frog_path == simulated_scan_h5
     assert w2.state.load_data is not None
     assert w2.state.tracedata is not None
     assert w2.state.result is not None
-    assert w2.state.stage == 4
+    assert w2.stage_number == 4
     # the loader page's controls reflect the restored options, so going Back and
     # reloading does not silently revert to the defaults
     assert w2.simulated.path_edit.text() == simulated_scan_h5
@@ -873,23 +838,21 @@ def test_load_previous_restores_a_raw_direct_simulated_session(
     """The raw simulated path restores its native-grid trace, skipping preprocess."""
     from croak import save
 
-    w1 = Wizard()
-    qtbot.addWidget(w1)
-    w1.load_simulated()
+    w1 = Driver(qtbot)
+    w1.start("simulated")
     w1.simulated.path_edit.setText(simulated_scan_h5)
     w1.simulated.raw_direct.setChecked(True)
     w1.simulated._preview()
-    w1.simulated.advance()
-    assert w1.state.stage == 4  # straight to Retrieve
+    w1.win.do_primary()  # Continue
+    assert w1.stage_number == 4  # straight to Retrieve
     opts_path = str(tmp_path / "options.toml")
     save.save_options(w1.state.to_options(), opts_path)
 
-    w2 = Wizard()
-    qtbot.addWidget(w2)
+    w2 = Driver(qtbot)
     w2.state.from_options(save.load_options(opts_path))
-    w2._rebuild_stages()
+    w2.rebuild()
     w2.stages[3]._run = lambda *a, **k: None  # don't re-run the solver here
-    w2._restore_session()
+    w2.win.replay()
 
     assert w2.state.simulated.raw_direct is True
     assert w2.state.tracedata is not None
@@ -900,19 +863,15 @@ def test_retarget_reports_that_simulated_sessions_cannot_move(
     qtbot, simulated_scan_h5, simulated_truth
 ):
     """Retarget is experimental-only; a simulated session is told, not replayed."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     _load_simulated_session(w, simulated_scan_h5, simulated_truth)
     replayed = {"called": False}
-    w._restore_session = lambda *a, **k: replayed.__setitem__("called", True)
+    w.win.replay = lambda *a, **k: replayed.__setitem__("called", True)
 
-    w._retarget_session("/data/run99")
+    w.win.retarget("/data/run99")
 
     assert replayed["called"] is False
-    assert (
-        "cannot retarget a simulated session"
-        in w.stages[w.state.stage - 1].status_label.text()
-    )
+    assert "cannot retarget a simulated session" in (w.win.statusBar().currentMessage())
 
 
 def test_dispersion_round_trips_through_wizard_state(tmp_path):
@@ -947,8 +906,7 @@ def test_dispersion_stage_syncs_and_restores_controls(qtbot):
     import croak
     from croak.session.params import BeamPathMirror
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[4]  # StageDispersion
     w.state.dispersion.gdd_fs2 = 80.0
     w.state.dispersion.material_thickness_mm = {"SiO2": 0.3}
@@ -984,8 +942,7 @@ def test_retrieve_stage_retarget_reruns_on_new_dataset(qtbot, tmp_path, experime
     run01.mkdir()
     h5 = write_experiment_h5(run01 / "acq.h5", experiment)
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     s = w.state
     s.load.frog_path = h5
     w.stages[0]._populate_frog()
@@ -995,7 +952,7 @@ def test_retrieve_stage_retarget_reruns_on_new_dataset(qtbot, tmp_path, experime
     s.preproc.lam_max_nm = experiment.lam_max / 1e-9
     s.retrieve.solver = "copra"
     s.retrieve.maxiters = 10
-    s.stage = 3  # preprocess → tracedata
+    w.goto(3)  # preprocess → tracedata
     assert s.tracedata is not None
 
     # Copy the dataset folder and retarget the session onto it (the handler the
@@ -1008,12 +965,11 @@ def test_retrieve_stage_retarget_reruns_on_new_dataset(qtbot, tmp_path, experime
     assert s.load.frog_path == str(run02 / "acq.h5")
     assert s.load_data is not None
     assert s.result is not None  # reran load → preprocess → retrieve on the new data
-    assert s.stage == 4
+    assert w.stage_number == 4
 
 
 def test_load_autodetects_datasets_and_units(qtbot, experiment_h5, experiment):
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[0]
     w.state.load.frog_path = experiment_h5
     stage._populate_frog()
@@ -1073,10 +1029,9 @@ def test_load_reverse_trace_mirrors_delay_columns(experiment_h5, experiment):
 
 def test_load_reverse_trace_checkbox_sets_the_param(qtbot, experiment_h5, experiment):
     """The Load stage's checkbox writes ``LoadParams.reverse_trace`` live."""
-    from PyQt6.QtWidgets import QCheckBox
+    from PySide6.QtWidgets import QCheckBox
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[0]
     box = next(
         c for c in stage.findChildren(QCheckBox) if c.text() == "Reverse delay axis"
@@ -1096,15 +1051,14 @@ def test_load_reverse_trace_checkbox_sets_the_param(qtbot, experiment_h5, experi
 
 
 def test_preprocess_widgets_show_seeded_wavelengths(qtbot, experiment_h5, experiment):
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     state = w.state
     state.load.frog_path = experiment_h5
     w.stages[0]._populate_frog()
     state.load.interaction = experiment.interaction
     w.stages[0]._load_preview()
     lam_nm = state.load_data["lam"] / 1e-9
-    state.stage = 3  # preprocess: triggers _seed_ranges -> widgets
+    w.goto(3)  # preprocess: triggers _seed_ranges -> widgets
     lo, hi = w.stages[2].lam_range.values()
     # the grid-λ widget must reflect the seeded trace extents, not the 700-900 default
     assert lo == pytest.approx(np.floor(lam_nm.min()), abs=2)
@@ -1116,18 +1070,17 @@ def test_preprocess_interactive_change_recomputes_off_thread(
     qtbot, experiment_h5, experiment
 ):
     """An interactive (debounced) change recomputes via the worker thread."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     state = w.state
     state.load.frog_path = experiment_h5
     w.stages[0]._populate_frog()
     state.load.interaction = experiment.interaction
     w.stages[0]._load_preview()
-    state.stage = 3  # on_enter runs the initial (synchronous) preprocess
+    w.goto(3)  # on_enter runs the initial (synchronous) preprocess
     stage = w.stages[2]
     assert state.tracedata is not None
     td_before = state.tracedata
-    assert stage._view.attached  # the reusable view was built on the first draw
+    assert stage.views["regridded_lin"].plot.data is not None  # drawn at once
 
     # Narrow the grid-λ range: schedules the 200 ms debounce, which fires the
     # off-thread recompute. Spinning the event loop runs both timer and worker.
@@ -1143,8 +1096,7 @@ def test_preprocess_interactive_change_recomputes_off_thread(
 
 def test_retrieve_solver_combo_greys_regularisation(qtbot):
     """COPRA (no reg) disables the Regularisation group; LBFGS enables it."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = w.stages[3]
     rs.solver_combo.setCurrentText("copra")
     assert not rs.reg_box.isEnabled()
@@ -1156,46 +1108,44 @@ def test_retrieve_solver_combo_greys_regularisation(qtbot):
 
 def test_retrieve_view_restored_on_reentry(qtbot, experiment_h5, experiment):
     """Navigating back to preprocess and forward keeps the result and re-shows it."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     st = w.state
     st.load.frog_path = experiment_h5
     w.stages[0]._populate_frog()
     st.load.interaction = experiment.interaction
     w.stages[0]._load_preview()
-    st.stage = 3  # preprocess (synchronous)
+    w.goto(3)  # preprocess (synchronous)
     rs = w.stages[3]
     rs.state.retrieve.solver = "copra"
     rs.state.retrieve.maxiters = 15
-    st.stage = 4  # retrieve
+    w.goto(4)  # retrieve
     with qtbot.waitSignal(st.result_changed, timeout=30000):
         rs._run()
     assert st.result is not None
-    assert w.next_btn.isEnabled()  # can proceed to dispersion
+    assert w.win.primary.isEnabled()  # can proceed to dispersion
 
     # simulate a fresh stage instance that hasn't drawn the result yet
     rs._base_result = None
-    rs.save_btn.setEnabled(False)
+    rs.retarget_btn.setEnabled(False)
     rs.on_enter()
     assert rs._base_result is st.result  # view restored
-    assert rs.save_btn.isEnabled()
-    assert w.next_btn.isEnabled()
+    assert rs.retarget_btn.isEnabled()
+    assert w.win.primary.isEnabled()
 
 
 def test_retrieve_reuse_previous_result_guess(qtbot, experiment_h5, experiment):
     """'Reuse previous result' seeds the next run from the prior spectrum."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     st = w.state
     st.load.frog_path = experiment_h5
     w.stages[0]._populate_frog()
     st.load.interaction = experiment.interaction
     w.stages[0]._load_preview()
-    st.stage = 3
+    w.goto(3)
     rs = w.stages[3]
     rs.state.retrieve.solver = "copra"
     rs.state.retrieve.maxiters = 15
-    st.stage = 4
+    w.goto(4)
     with qtbot.waitSignal(st.result_changed, timeout=30000):
         rs._run()
     first = st.result.spectrum.copy()
@@ -1211,8 +1161,7 @@ def test_retrieve_reuse_previous_result_guess(qtbot, experiment_h5, experiment):
 
 def test_retrieve_initial_guess_selector_is_mutually_exclusive(qtbot):
     """Selecting one GUI seed clears every previously selected seed flag."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = w.stages[3]
     p = rs.state.retrieve
 
@@ -1233,8 +1182,7 @@ def test_retrieve_reuse_passes_the_previous_fitted_extras(qtbot, monkeypatch):
     """'Reuse previous result' hands the last result on as the warm-start seed."""
     from croak.gui import stage_retrieve as sr
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     st = w.state
     rs = w.stages[3]
 
@@ -1266,12 +1214,14 @@ def test_retrieve_reuse_passes_the_previous_fitted_extras(qtbot, monkeypatch):
             return _Signal() if _name != "start" else (lambda: None)
 
     monkeypatch.setattr(sr, "RetrievalWorker", _Worker)
+    said = []
+    rs.message.connect(said.append)
     rs._run()
 
     assert captured["extras_seed"] is previous
     np.testing.assert_allclose(captured["guess_override"], previous.spectrum)
-    # the status names what was seeded, so a warm start is never silent
-    assert "τ₀" in rs.status_label.text()
+    # the notice names what was seeded, so a warm start is never silent
+    assert any("τ₀" in text for text in said)
 
 
 def _seed_result_for_reuse(*, n: int):
@@ -1290,12 +1240,11 @@ def _seed_result_for_reuse(*, n: int):
     )
 
 
-def test_retrieve_status_reports_the_fitted_smearing_width(qtbot):
-    """A fitted smearing strength is reported as a delay width and its factor."""
+def test_retrieve_reports_the_fitted_smearing_width(qtbot):
+    """A fitted smearing strength is reported as the kernel's delay width."""
     from croak.session.pipeline import smearing_kernel
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = w.stages[3]
     p = rs.state.retrieve
     p.smearing = True
@@ -1307,11 +1256,8 @@ def test_retrieve_status_reports_the_fitted_smearing_width(qtbot):
         omega0_pulse = 2.0 * np.pi * 3e8 / 800e-9
 
     td = _TD()
-    text = rs._smear_summary(1.457, td)
-
     sigma_fs = smearing_kernel(p, td).sigma_delta * 1.457 / 1e-15
-    assert f"{sigma_fs:.2f} fs" in text
-    assert "×1.457" in text
+    assert rs._smear_width_fs(1.457, td) == pytest.approx(sigma_fs)
 
 
 def test_position_scan_seeds_delay(experiment_h5, experiment):
@@ -1333,8 +1279,7 @@ def test_position_scan_seeds_delay(experiment_h5, experiment):
 
 
 def test_full_flow(qtbot, experiment_h5, experiment):
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     state = w.state
 
     # Stage 1: load via the real flow
@@ -1343,18 +1288,18 @@ def test_full_flow(qtbot, experiment_h5, experiment):
     state.load.interaction = experiment.interaction
     w.stages[0]._load_preview()
     assert state.load_data is not None
-    assert w.next_btn.isEnabled()
+    assert w.win.primary.isEnabled()
 
     # narrow the retrieval grid to the useful band (keeps the test fast)
     state.preproc.lam_min_nm = experiment.lam_min / 1e-9
     state.preproc.lam_max_nm = experiment.lam_max / 1e-9
 
     # Stage 3: preprocess
-    state.stage = 3
+    w.goto(3)
     assert state.tracedata is not None
 
     # Stage 4: retrieve (threaded)
-    state.stage = 4
+    w.goto(4)
     state.retrieve.solver = "copra"
     state.retrieve.maxiters = 40
     with qtbot.waitSignal(state.result_changed, timeout=60000):
@@ -1363,7 +1308,7 @@ def test_full_flow(qtbot, experiment_h5, experiment):
     assert state.result.error < 0.2
 
     # Stage 5: dispersion tuning
-    state.stage = 5
+    w.goto(5)
     disp = w.stages[4]
     disp.gdd.set_value(10.0)
     disp._changed()
@@ -1392,8 +1337,7 @@ def test_dispersion_gas_updates_pulse(qtbot):
     import croak
     from croak.maths import wlfreq
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     g = croak.Grid(48, dt=0.6e-15)
     ew = croak.gaussian_pulse(g, 7e-15)
     delays = np.linspace(-30e-15, 30e-15, 30)
@@ -1441,8 +1385,7 @@ def test_dispersion_mirror_stack_removes_beam_path_mirrors(qtbot):
     from croak import dispersion
     from croak.maths import wlfreq
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     g = croak.Grid(48, dt=0.6e-15)
     ew = croak.gaussian_pulse(g, 7e-15)
     delays = np.linspace(-30e-15, 30e-15, 30)
@@ -1522,8 +1465,7 @@ def test_sci_spinbox_decade_aware_stepping(qtbot):
 
 def test_reload_same_trace_keeps_preproc(qtbot, experiment_h5, experiment):
     """Reloading the *same* trace must not discard the user's preprocess windows."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     state = w.state
     state.load.frog_path = experiment_h5
     w.stages[0]._populate_frog()
@@ -1548,8 +1490,7 @@ def test_reload_same_trace_keeps_preproc(qtbot, experiment_h5, experiment):
 
 def test_preprocess_defringe_baseline_controls(qtbot, experiment_h5, experiment):
     """The new de-fringe / baseline controls drive params, gate, and round-trip."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     state = w.state
     state.load.frog_path = experiment_h5
     w.stages[0]._populate_frog()
@@ -1607,8 +1548,7 @@ def test_preprocess_defringe_baseline_controls(qtbot, experiment_h5, experiment)
 
 
 def test_preprocess_reset_button_restores_defaults(qtbot, experiment_h5, experiment):
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     state = w.state
     state.load.frog_path = experiment_h5
     w.stages[0]._populate_frog()
@@ -1616,7 +1556,7 @@ def test_preprocess_reset_button_restores_defaults(qtbot, experiment_h5, experim
     w.stages[0]._load_preview()
     default_lam = state.preproc_defaults.lam_min_nm
 
-    state.stage = 3
+    w.goto(3)
     pre = w.stages[2]
     state.preproc.lam_min_nm = 321.0
     state.preproc.filter_dc = True
@@ -1628,8 +1568,7 @@ def test_preprocess_reset_button_restores_defaults(qtbot, experiment_h5, experim
 
 
 def test_retrieve_reset_button_restores_defaults(qtbot, experiment_h5, experiment):
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     ret = w.stages[3]
     state = w.state
     state.retrieve.solver = "lm"
@@ -1650,8 +1589,7 @@ def test_retrieve_reset_button_restores_defaults(qtbot, experiment_h5, experimen
 # ---------------------------------------------------------------------------
 def test_stage6_combine_estimates(qtbot):
     """Ticking two retained estimates and combining produces a 'combined' result."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[5]
     rng = np.random.default_rng(0)
     w.state.uncertainty_results = {
@@ -1670,44 +1608,36 @@ def test_stage6_combine_estimates(qtbot):
     assert stage.est_list.count() == 3  # combined now listed too
 
 
-def test_stage6_save_appends_uncertainty(qtbot, tmp_path, monkeypatch):
-    """The stage-6 Save writes the intervals (and bands) into result.h5."""
-    from PyQt6.QtWidgets import QFileDialog
+def test_save_session_appends_uncertainty_and_its_figure(qtbot, tmp_path, monkeypatch):
+    """Save session writes the intervals (and bands) into result.h5, and the
+    figure of the estimate on screen."""
+    from PySide6.QtWidgets import QFileDialog
 
     import croak
-    from croak.maths import wlfreq
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
+    _run_synthetic_retrieval(w, qtbot)
     stage = w.stages[5]
-    g = croak.Grid(48, dt=0.6e-15)
-    ew = croak.gaussian_pulse(g, 7e-15)
-    delays = np.linspace(-30e-15, 30e-15, 30)
-    trace = croak.maketrace(g.omega, delays, ew, "pg")
-    res = croak.retrieve(
-        trace,
-        g.omega,
-        delays,
-        "pg",
-        guess=ew,
-        omega0=float(wlfreq(800e-9)),
-        maxiters=30,
-    )
-    w.state.set_result(res, croak.process_result(res, measured=trace))
     rng = np.random.default_rng(1)
     w.state.set_uncertainty_result(_uresult("parametric", 0.05e-15, rng))
     w.state.set_uncertainty_result(_uresult("thickness", 0.12e-15, rng))
     stage._refresh_estimates()
+    stage._draw(w.state.uncertainty_result)
 
     monkeypatch.setattr(
         QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path)
     )
-    stage._save()
+    written = w.win.save_session()
 
     data = croak.save.load_result(str(tmp_path / "result.h5"))
     assert set(data["uncertainty"]) == {"parametric", "thickness"}
     assert "band_median" in data["uncertainty"]["thickness"]
-    assert (tmp_path / "options.toml").exists()
+    assert written == [
+        "result.h5",
+        "options.toml",
+        "retrieval.pdf",
+        "uncertainty.pdf",
+    ]
 
 
 def test_preprocess_reseeds_every_control_on_entry(qtbot):
@@ -1719,11 +1649,10 @@ def test_preprocess_reseeds_every_control_on_entry(qtbot):
     a different set of options was actually applied — the user had to un-tick and
     re-tick each one to force it through.
     """
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()
-    w.state.stage = 3  # preprocess
+    w.goto(3)  # preprocess
     stage = w.stages[2]
 
     # mutate the parameters behind the widgets' backs, as a re-load would
@@ -1752,9 +1681,8 @@ def test_simulated_reload_keeps_preproc_settings(qtbot, simulated_scan_h5):
     Same rule as the experimental loader: only a genuinely different trace (here a
     narrower loaded λ band, which moves the data-seeded defaults) resets them.
     """
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
     sim.path_edit.setText(simulated_scan_h5)
     sim._populate_file_options(simulated_scan_h5)
@@ -1765,14 +1693,14 @@ def test_simulated_reload_keeps_preproc_settings(qtbot, simulated_scan_h5):
     w.state.preproc.use_threshold = True
 
     # Back to the loader and forward again with the same options -> settings kept
-    w.go_back()  # stage 2 -> the simulated loader (this session's "stage 1")
-    assert w.stack.currentWidget() is w.simulated
+    w.win.stage_buttons[Stage.DATA].click()  # back to the simulated loader
+    assert w.current_page() is w.simulated
     sim.advance()
     assert w.state.preproc.defringe is True
     assert w.state.preproc.use_threshold is True
 
     # a different loaded band is a different trace -> data-seeded defaults return
-    w.go_back()
+    w.win.stage_buttons[Stage.DATA].click()
     lo, hi = sim.band.values()
     sim.band.set_values(lo + 5.0, hi - 5.0)
     sim._band = (lo + 5.0, hi - 5.0)
@@ -1781,109 +1709,67 @@ def test_simulated_reload_keeps_preproc_settings(qtbot, simulated_scan_h5):
     assert w.state.preproc.use_threshold is False
 
 
-def test_entry_pages_use_the_wizard_footer(qtbot, simulated_scan_h5):
-    """Both entry pages navigate through the shared bottom-right Back/Next."""
-    w = Wizard()
-    qtbot.addWidget(w)
-
-    # -- synthetic generator --
-    w.show_synthetic()
-    assert w.footer.isVisible() or not w.isVisible()  # chrome shown, not hidden
-    assert w._header_bar.isVisibleTo(w)
-    assert w.next_btn.text() == "Generate →"
-    assert w.next_btn.isEnabled()
-    w.go_back()
-    assert w.stack.currentWidget() is w.welcome
-    w.show_synthetic()
-    w.go_next()  # Next == Generate
-    assert w.state.stage == 2
-    assert w.stack.currentWidget() is w.stages[1]
-
-    # -- simulated loader --
-    w.load_simulated()
-    sim = w.simulated
-    assert not w.next_btn.isEnabled()  # nothing previewed yet
-    # "&&" is Qt's escape for a literal "&" in a button label
-    assert w.next_btn.text() == "Load && continue →"
-    sim.path_edit.setText(simulated_scan_h5)
-    sim._populate_file_options(simulated_scan_h5)
-    sim._preview()
-    assert w.next_btn.isEnabled()
-    # the raw path changes where Next lands, so it relabels
-    sim.raw_direct.setChecked(True)
-    assert w.next_btn.text() == "Load raw → Retrieve →"
-    sim.raw_direct.setChecked(False)
-    # "&&" is Qt's escape for a literal "&" in a button label
-    assert w.next_btn.text() == "Load && continue →"
-    w.go_back()
-    assert w.stack.currentWidget() is w.welcome
-
-
 def test_slider_controls_fill_the_control_column(qtbot):
-    """Range sliders span their group box rather than collapsing to the spins.
+    """Range controls span their group box rather than collapsing to the spins.
 
     Regression: ``QFormLayout``'s default field-growth policy is style-dependent
     (``FieldsStayAtSizeHint`` on macOS), which ignored the controls' ``Expanding``
     size policy and left the sliders as narrow as the two spin boxes.
     """
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()
-    w.state.stage = 3
+    w.goto(3)
     stage = w.stages[2]
     w.resize(1500, 950)
     w.show()
     qtbot.waitExposed(w)
-    assert stage.splitter.sizes()[0] == settings.DEFAULT_CONTROLS_WIDTH
 
     box = stage.lam_range.parentWidget()
     assert box is not None
-    # the slider reaches (nearly) the group box's inner width
-    assert stage.lam_range.slider.width() > 0.85 * box.width()
-    assert stage.lam_range.slider.width() > 2 * stage.lam_range.lo_spin.width()
+    # the control reaches (nearly) the group box's inner width, and the slider
+    # between its two ends takes the room they do not need
+    control = stage.lam_range
+    assert control.width() > 0.85 * box.width()
+    assert control.slider.width() > 1.5 * control.lo_spin.width()
 
 
 def test_widget_labels_escape_literal_ampersands(qtbot):
     """A literal "&" in a widget label is written "&&", and help still matches.
 
     Regression: Qt reads a lone ``&`` in a check box, push button, radio button,
-    group-box title or form-row label as a keyboard-mnemonic marker and does not
+    section title or form-row label as a keyboard-mnemonic marker and does not
     draw it, so "Skip filtering & regrid" rendered as "Skip filtering  regrid".
-    Escaping it as ``&&`` fixes the rendering, and :func:`croak.gui.help._plain`
+    Escaping it as ``&&`` fixes the rendering, and :func:`croak.gui.sheet.plain`
     undoes the escape so the (unescaped) HELP keys still resolve to their controls.
     """
-    from PyQt6.QtWidgets import (
+    from PySide6.QtWidgets import (
         QCheckBox,
         QFormLayout,
-        QGroupBox,
         QLabel,
         QPushButton,
         QRadioButton,
+        QToolButton,
     )
 
-    from croak.gui.help import _plain
+    from croak.gui.sheet import Section
+    from croak.gui.sheet import plain as _plain
 
     assert _plain("a && b") == "a & b"
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    pages = [w.welcome, w.synthetic, w.simulated, *w.stages]
+    w = Driver(qtbot)
+    simulated = Driver(qtbot, "simulated")
+    pages = [w.win.home, *w.stages, simulated.simulated]
 
     # no mnemonic-parsing label anywhere carries an unescaped ampersand
     unescaped = []
     for page in pages:
-        for cls in (QCheckBox, QPushButton, QRadioButton):
+        for cls in (QCheckBox, QPushButton, QRadioButton, QToolButton):
             unescaped += [
                 (type(page).__name__, x.text())
                 for x in page.findChildren(cls)
                 if "&" in x.text().replace("&&", "")
             ]
-        unescaped += [
-            (type(page).__name__, x.title())
-            for x in page.findChildren(QGroupBox)
-            if "&" in x.title().replace("&&", "")
-        ]
         for form in page.findChildren(QFormLayout):
             for row in range(form.rowCount()):
                 item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
@@ -1893,75 +1779,49 @@ def test_widget_labels_escape_literal_ampersands(qtbot):
     assert not unescaped, f"unescaped '&' in widget labels: {unescaped}"
 
     # the two labels that actually contain an ampersand render it exactly once...
-    raw_direct = w.simulated.raw_direct
+    raw_direct = simulated.simulated.raw_direct
     assert raw_direct.text() == "Skip filtering && regrid (raw → retrieval)"
     assert _plain(raw_direct.text()) == "Skip filtering & regrid (raw → retrieval)"
     units = next(
-        b for b in w.stages[0].findChildren(QGroupBox) if "interaction" in b.title()
+        b for b in w.stages[0].findChildren(Section) if "interaction" in b.section_title
     )
-    assert _plain(units.title()) == "Units & interaction"
+    assert units.section_title == "Units & interaction"
+    assert units.header.text() == "Units && interaction"
 
     # ...and their (unescaped) help entries still reach the controls
     assert "skipping the marginal-check" in raw_direct.toolTip()
     assert w.stages[0].lam_unit_combo.toolTip()  # a row inside "Units & interaction"
 
 
-def _readout_row(readout, name):
-    """The four formatted cells of one curve row, in column order."""
-    from croak.gui.readout import _COLUMNS
-
-    return [readout._cells[name, key].text() for key, *_ in _COLUMNS]
-
-
 def _run_synthetic_retrieval(w, qtbot, *, energy=None, maxiters=15):
     """Generate a synthetic trace and retrieve it; returns the Retrieve stage."""
-    w.show_synthetic()
+    w.start("synthetic")
     w.synthetic.advance()
-    w.state.stage = 3  # preprocess (synchronous)
+    w.goto(3)  # preprocess (synchronous)
     rs = w.stages[3]
     rs.state.retrieve.solver = "copra"
     rs.state.retrieve.maxiters = maxiters
     if energy is not None:
         rs.state.load.energy_j = energy
-    w.state.stage = 4
+    w.goto(4)
     with qtbot.waitSignal(w.state.result_changed, timeout=30000):
         rs._run()
     return rs
 
 
 def test_retrieval_readout_fills_from_a_synthetic_run(qtbot):
-    """Each curve row carries exactly the quantities that are defined for it."""
-    from croak.gui.readout import DASH
-
-    w = Wizard()
-    qtbot.addWidget(w)
+    """The run's numbers and the retrieved pulse's peak wavelength and FWHM."""
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    lam_peak, lam_fwhm, fwhm, power = range(4)
-
-    r = _readout_row(rs.readout, "R")
-    assert all(cell != DASH for cell in r[:3])  # spectral + temporal, no energy
-    assert r[power] == DASH
-
-    # the measured spectrum has no phase -> no temporal envelope
-    m = _readout_row(rs.readout, "M")
-    assert m[lam_peak] != DASH and m[lam_fwhm] != DASH
-    assert m[fwhm] == DASH and m[power] == DASH
-
-    # the transform limit shares R's spectrum, so it is reported once, on R
-    tl = _readout_row(rs.readout, "TL")
-    assert tl[lam_peak] == DASH and tl[lam_fwhm] == DASH
-    assert tl[fwhm] != DASH
-
-    # the synthetic generator supplies a known truth, spectrum included
-    truth = _readout_row(rs.readout, "truth")
-    assert truth[lam_peak] != DASH and truth[fwhm] != DASH
-    # ...and it agrees with the truth pulse it was built from
-    assert float(truth[fwhm]) == pytest.approx(w.state.truth.fwhm / 1e-15, rel=1e-2)
-
-    scalars = {k: v.text() for k, v in rs.readout._scalars.items()}
-    assert scalars["iteration"] == str(len(w.state.result.errors))
-    assert scalars["error"].endswith("%")
-    assert scalars["elapsed"].endswith(" s")
+    readout = rs.readout
+    assert readout.text("iteration") == str(len(w.state.result.errors))
+    assert readout.text("error").endswith("%")
+    assert readout.text("elapsed").endswith(" s")
+    assert readout.text("lam_peak").endswith(" nm")
+    # the retrieved FWHM is the one the status line reports
+    fwhm = float(readout.text("fwhm").removesuffix(" fs"))
+    # sig3 against the status line's two decimals: equal to 3 figures
+    assert fwhm == pytest.approx(w.state.processed.fwhm_retr / 1e-15, rel=5e-3)
 
 
 def test_retrieval_readout_shows_the_truth_errors(qtbot):
@@ -1973,11 +1833,10 @@ def test_retrieval_readout_shows_the_truth_errors(qtbot):
     """
     from croak.gui.readout import DASH
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
 
-    scalars = {k: v.text() for k, v in rs.readout._scalars.items()}
+    scalars = {k: rs.readout.text(k) for k in ("eps_It", "eps_Iw", "eps_Ew")}
     for key in ("eps_It", "eps_Iw", "eps_Ew"):
         assert scalars[key] != DASH
         assert 0.0 <= float(scalars[key]) <= 1.5
@@ -1992,71 +1851,20 @@ def test_retrieval_readout_dashes_the_truth_errors_without_a_truth(qtbot):
     """An experimental load has no known pulse, so nothing is invented."""
     from croak.gui.readout import DASH
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = w.stages[3]
     rs._update_truth_error_readout(None, None)
-    scalars = {k: v.text() for k, v in rs.readout._scalars.items()}
-    assert all(scalars[k] == DASH for k in ("eps_It", "eps_Iw", "eps_Ew"))
-
-
-def test_retrieval_readout_peak_power_column(qtbot):
-    """The peak-power column needs a pulse energy, and shares one SI prefix."""
-    from croak.gui.readout import DASH
-
-    w = Wizard()
-    qtbot.addWidget(w)
-    rs = _run_synthetic_retrieval(w, qtbot, energy=1.2e-6)
-
-    header = rs.readout._header["peak_power"].text()
-    assert header.startswith("Peak power (") and header.endswith("W)")
-    for row in ("R", "TL", "truth"):
-        assert _readout_row(rs.readout, row)[3] != DASH
-    assert _readout_row(rs.readout, "M")[3] == DASH  # no temporal envelope
-
-    # dropping the energy takes the whole column away again
-    rs.state.load.energy_j = 0.0
-    rs._update_view()
-    assert rs.readout._header["peak_power"].text() == "Peak power"
-    for row in ("R", "M", "TL", "truth"):
-        assert _readout_row(rs.readout, row)[3] == DASH
-
-
-def test_retrieval_readout_truth_row_blank_without_a_truth(
-    qtbot, experiment_h5, experiment
-):
-    """An experimental trace has no known truth, so that row stays blank."""
-    from croak.gui.readout import DASH
-
-    w = Wizard()
-    qtbot.addWidget(w)
-    st = w.state
-    st.load.frog_path = experiment_h5
-    w.stages[0]._populate_frog()
-    st.load.interaction = experiment.interaction
-    w.stages[0]._load_preview()
-    st.stage = 3
-    rs = w.stages[3]
-    rs.state.retrieve.solver = "copra"
-    rs.state.retrieve.maxiters = 15
-    st.stage = 4
-    with qtbot.waitSignal(st.result_changed, timeout=30000):
-        rs._run()
-
-    assert st.truth is None
-    assert _readout_row(rs.readout, "truth") == [DASH] * 4
-    assert _readout_row(rs.readout, "R")[0] != DASH  # the rest still fills
+    assert all(rs.readout.text(k) == DASH for k in ("eps_It", "eps_Iw", "eps_Ew"))
 
 
 def test_retrieval_readout_progress_without_a_result(qtbot):
     """Per-iteration updates move iteration/error with no processed result."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = w.stages[3]
     rs._errors = []
     rs._on_progress(7, 0.0123, 0.0100)
-    assert rs.readout._scalars["iteration"].text() == "7"
-    assert rs.readout._scalars["error"].text() == "1.2300%"
+    assert rs.readout.text("iteration") == "7"
+    assert rs.readout.text("error") == "1.2300%"
 
 
 def test_retrieval_readout_cleared_when_a_run_starts(qtbot, monkeypatch):
@@ -2064,10 +1872,9 @@ def test_retrieval_readout_cleared_when_a_run_starts(qtbot, monkeypatch):
     from croak.gui import stage_retrieve as sr
     from croak.gui.readout import DASH
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    assert _readout_row(rs.readout, "R")[0] != DASH
+    assert rs.readout.text("fwhm") != DASH
 
     # a worker that never runs, so we can inspect the just-cleared state
     class _Idle:
@@ -2084,8 +1891,8 @@ def test_retrieval_readout_cleared_when_a_run_starts(qtbot, monkeypatch):
 
     monkeypatch.setattr(sr, "RetrievalWorker", _Idle)
     rs._run()
-    assert _readout_row(rs.readout, "R") == [DASH] * 4
-    assert rs.readout._scalars["iteration"].text() == "0"
+    assert rs.readout.text("fwhm") == DASH
+    assert rs.readout.text("iteration") == "0"
     assert rs._elapsed_timer.isActive()
     rs._elapsed_timer.stop()
 
@@ -2094,24 +1901,25 @@ def test_retrieval_readout_marks_extras_fitted_or_fixed(qtbot):
     """τ₀ / thickness / smearing say whether the solver was free to move them."""
     from croak.gui.readout import DASH
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = w.stages[3]
     p = rs.state.retrieve
-    scalars = rs.readout._scalars
+    readout = rs.readout
 
     # no dispersive slab modelled at all -> nothing to report
     p.dispersive = False
     rs._update_extras_readout(None)
-    assert scalars["thickness"].text() == DASH
-    assert scalars["tau0"].text() == "0.00 fs (fixed)"
-    assert scalars["smearing"].text() == DASH
+    assert readout.text("thickness") == DASH
+    assert readout.name("thickness") == "Thickness"
+    assert (readout.text("tau0"), readout.name("tau0")) == ("0.00 fs", "τ₀ · fixed")
+    assert readout.text("smearing") == DASH
 
     # a slab, held fixed at the value in the controls
     p.dispersive = True
     p.thickness_um = 42.0
     rs._update_extras_readout(None)
-    assert scalars["thickness"].text() == "42.00 µm (fixed)"
+    assert readout.text("thickness") == "42.00 µm"
+    assert readout.name("thickness") == "Thickness · fixed"
 
     # ...and one the solver fitted
     class _Fitted:
@@ -2120,14 +1928,17 @@ def test_retrieval_readout_marks_extras_fitted_or_fixed(qtbot):
         smear_scale = None
 
     rs._update_extras_readout(_Fitted())
-    assert scalars["thickness"].text() == "55.00 µm (fit)"
-    assert scalars["tau0"].text() == "1.25 fs (fit)"
+    assert readout.text("thickness") == "55.00 µm"
+    assert readout.name("thickness") == "Thickness · fit"
+    assert (readout.text("tau0"), readout.name("tau0")) == ("1.25 fs", "τ₀ · fit")
+    # a cleared read-out drops the notes with the numbers
+    readout.clear()
+    assert readout.name("tau0") == "τ₀"
 
 
 def test_gas_controls_reach_millibar_and_long_paths(qtbot):
     """Pressure resolves 1 mbar; the gas path reaches ±999 cm."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[4]  # StageDispersion
 
     assert stage.gas_pressure.bounds() == (0.0, 10.0)
@@ -2152,30 +1963,28 @@ def test_retrieval_readout_smearing_survives_an_shg_trace(qtbot):
     """
     from croak.gui.readout import DASH
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()  # the default synthetic trace is SHG
-    w.state.stage = 3
+    w.goto(3)
     rs = w.stages[3]
     rs.state.retrieve.smearing = True
 
     rs._update_extras_readout(None)  # must not raise
-    assert rs.readout._scalars["smearing"].text() == DASH
-    # and the status-line helper, which shares _smear_width_fs, degrades too
-    assert rs._smear_summary(1.5, w.state.tracedata) == "smearing ×1.500"
+    assert rs.readout.text("smearing") == DASH
+    # SHG has no smearing kernel, so there is no width to report
+    assert rs._smear_width_fs(1.5, w.state.tracedata) is None
 
 
 def test_preprocess_tau_exclude_auto_button(qtbot, experiment_h5, experiment):
     """'Auto' fills the baseline hold-out from the loaded trace's delay marginal."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     st = w.state
     st.load.frog_path = experiment_h5
     w.stages[0]._populate_frog()
     st.load.interaction = experiment.interaction
     w.stages[0]._load_preview()
-    st.stage = 3  # preprocess
+    w.goto(3)  # preprocess
     stage = w.stages[2]
 
     # the whole baseline group, Auto included, is gated on the checkbox
@@ -2202,8 +2011,7 @@ def test_preprocess_tau_exclude_auto_button(qtbot, experiment_h5, experiment):
 
 def test_preprocess_tau_exclude_auto_without_a_trace(qtbot):
     """Auto with nothing loaded reports it rather than raising."""
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[2]
     assert w.state.load_data is None
     stage._auto_tau_exclude()
@@ -2230,7 +2038,7 @@ def test_app_icon_loads_at_every_size(qtbot):
 
 def test_apply_identity_names_the_application(qtbot):
     """Name, display name and window icon reach the running QApplication."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from croak.gui.branding import APP_NAME, ORGANISATION_NAME, apply_identity
 
@@ -2263,8 +2071,7 @@ def test_wizard_carries_the_icon_under_a_foreign_qapplication(qtbot):
     window-level call is what covers an embedder (and this test suite, whose
     QApplication comes from qtbot).
     """
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     assert not w.windowIcon().isNull()
 
 
@@ -2277,7 +2084,8 @@ def test_importing_croak_gui_does_not_import_qt():
     import subprocess
 
     code = (
-        "import croak.gui, sys; print(any(m.startswith('PyQt6') for m in sys.modules))"
+        "import croak.gui, sys; "
+        "print(any(m.startswith('PySide6') for m in sys.modules))"
     )
     out = subprocess.run(  # noqa: S603 — sys.executable and a literal, nothing untrusted
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
@@ -2300,9 +2108,8 @@ def test_simulated_load_adopts_recorded_geometry(qtbot, simulated_truth, tmp_pat
         zsave=SIMULATED_ZSAVE,
         geometry=(1e-3, 1e-3, "tg"),
     )
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
     stage = w.stages[3]  # StageRetrieve
     # start from settings that do NOT match the file, so adoption is visible
@@ -2334,9 +2141,8 @@ def test_simulated_load_says_when_the_mask_is_not_recorded(
     """A file without mask metadata sets the thickness and says the mask is unknown."""
     from conftest import SIMULATED_ZSAVE
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
+    w = Driver(qtbot)
+    w.start("simulated")
     sim = w.simulated
     stage = w.stages[3]
     stage.hole_spacing_spin.setValue(0.5)
@@ -2364,8 +2170,7 @@ def test_solver_switch_rescales_regularisation(qtbot):
     """
     from croak.session.params import REG_DEFAULTS
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     stage = w.stages[3]
     p = stage.state.retrieve
     grad_spec, grad_amp = REG_DEFAULTS["gradient"]
@@ -2388,88 +2193,6 @@ def test_solver_switch_rescales_regularisation(qtbot):
     stage.reg_spectrum_spin.setValue(0.05)
     stage.solver_combo.setCurrentText("copra")
     assert p.reg_spectrum == pytest.approx(0.05)
-
-
-# -- responsive canvas ---------------------------------------------------------
-@pytest.mark.parametrize(
-    ("size", "small"), [((1366, 768), True), ((1920, 1080), False)]
-)
-def test_canvas_density_follows_the_window_size(qtbot, size, small):
-    """Plot text shrinks in a small window and stays at full size in a large one."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
-    w.synthetic.advance()  # marginal check: two stacked (5, 4)-inch canvases
-    canvas = w.stages[1].marg_canvas
-    w.resize(*size)
-    w.show()
-    qtbot.waitExposed(w)
-    if small:
-        qtbot.waitUntil(lambda: canvas.scale.font < 0.8)
-    else:
-        qtbot.waitUntil(lambda: canvas.scale.font == 1.0)
-    # once the debounced re-plot has run, the title carries the scaled size
-    qtbot.waitUntil(
-        lambda: (
-            bool(canvas.figure.axes)
-            and canvas.figure.axes[0].title.get_fontsize()
-            == pytest.approx(12.0 * canvas.scale.font)
-        )
-    )
-
-
-def test_canvas_replots_when_a_resize_changes_the_density(qtbot):
-    canvas = MplCanvas(figsize=(12, 7))
-    qtbot.addWidget(canvas)
-    calls = []
-    canvas.render(lambda fig: calls.append(fig.add_subplot(111).set_title("t")))
-    canvas.resize(1200, 700)  # exactly the design size: no re-plot on show
-    canvas.show()
-    qtbot.waitExposed(canvas)
-    assert canvas.scale.font == 1.0
-    assert len(calls) == 1
-    canvas.resize(600, 350)  # half size -> density clamps to the 0.7 minimum
-    qtbot.waitUntil(lambda: len(calls) == 2)
-    assert canvas.scale.font == pytest.approx(0.7)
-    assert canvas.figure.axes[0].title.get_fontsize() == pytest.approx(8.4)
-
-
-def test_canvas_resize_without_a_density_change_does_not_replot(qtbot):
-    canvas = MplCanvas(figsize=(12, 7))
-    qtbot.addWidget(canvas)
-    calls = []
-    canvas.render(lambda fig: calls.append(fig.add_subplot(111)))
-    canvas.resize(1200, 700)
-    canvas.show()
-    qtbot.waitExposed(canvas)
-    canvas.resize(1180, 690)  # a few pixels: same quantised density
-    qtbot.wait(3 * MplCanvas.REPLOT_DELAY_MS)
-    assert len(calls) == 1
-
-
-def test_canvas_save_figure_exports_at_the_design_size(qtbot, tmp_path):
-    """The export is drawn afresh at the design size, not the shrunken screen size."""
-    canvas = MplCanvas(figsize=(12, 7))
-    qtbot.addWidget(canvas)
-    seen = []
-
-    def plot(fig):
-        seen.append(tuple(float(v) for v in fig.get_size_inches()))
-        fig.add_subplot(111).set_title("t")
-
-    canvas.render(plot)
-    canvas.resize(600, 350)
-    canvas.show()
-    qtbot.waitExposed(canvas)
-    qtbot.waitUntil(lambda: canvas.scale.font == pytest.approx(0.7))
-    path = tmp_path / "fig.pdf"
-    canvas.save_figure(path, dpi=72)
-    assert path.stat().st_size > 0
-    assert seen[-1] == pytest.approx((12.0, 7.0))
-    blank = MplCanvas()
-    qtbot.addWidget(blank)
-    with pytest.raises(RuntimeError, match="nothing has been rendered"):
-        blank.save_figure(tmp_path / "none.pdf", dpi=72)
 
 
 # -- remembered layout -----------------------------------------------------------
@@ -2495,13 +2218,12 @@ def test_settings_file_lives_under_the_redirected_path(tmp_path):
 
 def test_new_window_is_clamped_to_the_screen(qtbot):
     """With nothing saved, a fresh window fills at most 90 % of the screen."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     screen = QApplication.primaryScreen()
     assert screen is not None
     available = screen.availableGeometry().size()  # 800x800 offscreen
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     assert w.width() <= settings.SCREEN_FILL * available.width()
     assert w.height() <= settings.SCREEN_FILL * available.height()
     assert w.width() < settings.DEFAULT_WINDOW_SIZE.width()
@@ -2510,10 +2232,9 @@ def test_new_window_is_clamped_to_the_screen(qtbot):
 @pytest.mark.parametrize("layout_min_width", [0, 920])
 def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot, layout_min_width):
     """Closing saves geometry; restoration also clamps oversized saved geometry."""
-    from PyQt6.QtWidgets import QMainWindow
+    from PySide6.QtWidgets import QMainWindow
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     # Windows font metrics can make the layout wider than the offscreen display.
     w.centralWidget().setMinimumWidth(layout_min_width)
     w.resize(700, 600)  # the width is clamped up to the window's minimum
@@ -2522,8 +2243,7 @@ def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot, layout_min
     shown = (w.width(), w.height())
     assert shown != (settings.DEFAULT_WINDOW_SIZE.width(), 600)
     w.close()
-    again = Wizard()
-    qtbot.addWidget(again)
+    again = Driver(qtbot)
     again.centralWidget().setMinimumWidth(layout_min_width)
     # Compare at the same lifecycle stage: restoreGeometry clamps to the screen
     # before show() applies the platform's layout minimums.
@@ -2537,8 +2257,7 @@ def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot, layout_min
     big.show()
     qtbot.waitExposed(big)
     settings.save_window(big)
-    clamped = Wizard()
-    qtbot.addWidget(clamped)
+    clamped = Driver(qtbot)
     assert clamped.width() <= 800
     assert clamped.height() <= 800
 
@@ -2546,9 +2265,8 @@ def test_window_geometry_round_trips_and_is_clamped_on_restore(qtbot, layout_min
 # -- adaptive layout: splitter and strips ----------------------------------------
 def _marginal_stage_shown(qtbot, width, height):
     """A wizard on the marginal-check stage, shown at ``width`` x ``height``."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()
     w.resize(width, height)
     w.show()
@@ -2556,42 +2274,26 @@ def _marginal_stage_shown(qtbot, width, height):
     return w, w.stages[1]
 
 
-def test_stage_control_column_is_a_collapsible_splitter(qtbot):
-    """The controls sit on a splitter: 315 px by default, min 240, closable."""
-    _w, stage = _marginal_stage_shown(qtbot, 1366, 768)
-    sp = stage.splitter
-    assert sp.isCollapsible(0)
-    assert not sp.isCollapsible(1)
-    assert sp.sizes()[0] == settings.DEFAULT_CONTROLS_WIDTH
-    assert sp.widget(0).minimumWidth() == CONTROLS_MIN_WIDTH
-    before = stage.marg_canvas.width()
-    sp.setSizes([0, 1])
-    qtbot.waitUntil(lambda: sp.sizes()[0] == 0)
-    qtbot.waitUntil(lambda: stage.marg_canvas.width() >= before + 300)
-
-
-def test_control_column_width_is_shared_and_remembered(qtbot):
-    """A dragged divider is remembered, reaches the other stages and later runs."""
+def test_stage_plots_move_below_the_form_on_a_narrow_window(qtbot):
+    """Wide, the form sits beside the plots; narrow, the plots move below it."""
     w, stage = _marginal_stage_shown(qtbot, 1366, 768)
-    sp = stage.splitter
-    sp.setSizes([260, 1])
-    sp.splitterMoved.emit(260, 1)  # setSizes() is silent; a real drag emits this
-    qtbot.waitUntil(lambda: settings.controls_width() == 260)
-    w.state.stage = 3  # preprocess: shown for the first time, adopts the width
-    qtbot.waitUntil(lambda: w.stages[2].splitter.sizes()[0] == 260)
-    again, again_stage = _marginal_stage_shown(qtbot, 1366, 768)
-    assert again_stage.splitter.sizes()[0] == 260
+    assert not stage.sheet.narrow
+    assert (
+        stage.form.geometry().right()
+        < stage.marg_view.mapTo(stage, stage.marg_view.rect().topLeft()).x()
+    )
+    w.resize(900, 768)
+    qtbot.waitUntil(lambda: stage.sheet.narrow)
 
 
 def test_no_stage_needs_more_than_a_small_display(qtbot):
     """No page (or widget on it) demands a window wider or taller than 1366x768."""
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()
-    for page in [*w.stages, w.synthetic, w.simulated, w.welcome]:
+    for page in [*w.stages, w.win.home]:
         w.stack.setCurrentWidget(page)
         hint = w.minimumSizeHint()
         assert (hint.width(), hint.height()) <= (1366, 768), type(page).__name__
@@ -2608,7 +2310,7 @@ def test_marginal_check_canvases_share_a_vertical_splitter(qtbot):
 
 
 def test_collapsible_strip_folds_and_remembers_its_state(qtbot):
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtWidgets import QLabel
 
     strip = collapsible("Read-out", QLabel("x"), settings_key="test/strip")
     qtbot.addWidget(strip)
@@ -2624,16 +2326,7 @@ def test_collapsible_strip_folds_and_remembers_its_state(qtbot):
     assert plain.isExpanded()  # no key: the default
 
 
-# -- Retrieve pages ----------------------------------------------------------------
-def _titles(figure):
-    return [ax.get_title() for ax in figure.axes if ax.get_title()]
-
-
-def _page_titles(key):
-    page = croak.plotting.RETRIEVAL_PAGES[key]
-    return [croak.plotting.RETRIEVAL_PANELS[k].title for k in page.keys]
-
-
+# -- Retrieve's live overview and Analyse's pages ---------------------------------
 class _IdleWorker:
     """A retrieval worker that never runs, so a just-started state can be inspected."""
 
@@ -2649,177 +2342,111 @@ class _IdleWorker:
         pass
 
 
-def test_retrieve_pages_show_three_tabs_and_draw_the_visible_page(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
+def test_retrieve_shows_the_overview_after_a_run(qtbot):
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    pages = rs.pages
-    assert pages.page_keys() == ("traces", "pulse", "diagnostics")
-    assert pages.current_page() == "traces"
-    assert _titles(pages.canvas("traces").figure) == _page_titles("traces")
-    assert pages.is_stale("pulse") and pages.is_stale("diagnostics")
-    assert not pages.canvas("pulse").figure.axes  # not drawn until selected
+    assert rs.pages.mode == "panels"
+    assert set(rs.pages.boxes) == {
+        "measured_log",
+        "retrieved_log",
+        "temporal",
+        "spectral",
+    }
+    assert rs.pages.data is not None and rs.pages.data.result is w.state.result
 
 
-def test_retrieve_pages_redraw_a_stale_page_when_selected(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
-    rs = _run_synthetic_retrieval(w, qtbot)
-    rs.pages.set_current_page("pulse")
-    assert not rs.pages.is_stale("pulse")
-    assert _titles(rs.pages.canvas("pulse").figure) == _page_titles("pulse")
-    rs.pages.set_current_page("diagnostics")
-    assert _titles(rs.pages.canvas("diagnostics").figure) == _page_titles("diagnostics")
+def test_analyse_rail_shows_every_page_of_the_result(qtbot):
+    w = Driver(qtbot)
+    _run_synthetic_retrieval(w, qtbot)
+    w.win.go(Stage.ANALYSE)
+    analyse = w.analyse
+    assert list(analyse.rail_items)[:4] == [
+        "overview",
+        "traces",
+        "pulse",
+        "diagnostics",
+    ]
+    for key in ("traces", "pulse", "diagnostics"):
+        analyse.show_page(key)
+        page = analyse.pages[key]
+        expected = set(croak.plotting.RETRIEVAL_PAGES[key].keys)
+        assert set(page.panels.boxes) == expected
+        assert page.panels.mode == "panels"
 
 
-def test_retrieve_pages_pop_out_opens_a_window_that_follows_the_result(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
-    rs = _run_synthetic_retrieval(w, qtbot)
-    dlg = rs.pages.pop_out("pulse")
-    assert dlg.isWindow()
-    assert dlg.isVisible()
-    assert _titles(dlg.canvas.figure) == _page_titles("pulse")
-    before = dlg.canvas.figure.axes[0]
-    rs._update_view()  # the pop-out follows, updated in place
-    assert dlg.canvas.figure.axes[0] is before
-    assert rs.pages.pop_out("pulse") is dlg  # one window per page
-    dlg.close()
-    qtbot.waitUntil(lambda: "pulse" not in rs.pages._popouts)
-
-
-def test_retrieve_progress_curve_shows_on_the_visible_page(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+def test_retrieve_convergence_curve_follows_the_run(qtbot):
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()
-    w.state.stage = 3
-    w.state.stage = 4
+    w.goto(3)
+    w.goto(4)
     rs = w.stages[3]
-    rs.pages.set_current_page("pulse")
     rs._errors = []
     rs._on_progress(1, 0.1, 0.1)
     rs._on_progress(2, 0.05, 0.05)
-    fig = rs.pages.canvas("pulse").figure
-    qtbot.waitUntil(lambda: _titles(fig) == ["Convergence"])  # after the debounce
-    line = fig.axes[0].lines[0]
-    assert line.get_xydata().shape == (2, 2)
+    plot = rs.convergence.plot
+    qtbot.waitUntil(lambda: bool(plot.items) and plot.items[0].yData.size == 2)
     rs._on_progress(3, 0.02, 0.02)
-    qtbot.waitUntil(lambda: line.get_xydata().shape == (3, 2))  # grown in place
-    assert fig.axes[0].lines[0] is line
-    # switching tabs while running shows the curve there too
-    rs.pages.set_current_page("traces")
-    assert _titles(rs.pages.canvas("traces").figure) == ["Convergence"]
+    qtbot.waitUntil(lambda: plot.items[0].yData.size == 3)
 
 
-def test_retrieve_run_clears_the_pages(qtbot, monkeypatch):
+def test_retrieve_run_clears_the_overview(qtbot, monkeypatch):
     from croak.gui import stage_retrieve as sr
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    assert rs.pages.canvas("traces").figure.axes
+    assert rs.pages.mode == "panels"
     monkeypatch.setattr(sr, "RetrievalWorker", _IdleWorker)
     rs._run()
-    assert all(not rs.pages.canvas(k).figure.axes for k in rs.pages.page_keys())
+    assert rs.pages.mode == "empty"
     assert rs.pages.data is None
 
 
-def test_retrieve_readout_collapse_frees_canvas_height(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
+def test_retrieve_shows_the_whole_convergence_after_a_run(qtbot):
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    w.resize(1366, 768)
-    w.show()
-    qtbot.waitExposed(w)
-    assert rs.readout_strip.isExpanded()
-    before = rs.pages.height()
-    rs.readout_strip.collapse(animate=False)
-    qtbot.waitUntil(lambda: rs.pages.height() > before + 100)
-    assert settings.value("retrieve/readout_expanded", True) is False
+    errors = w.state.result.errors
+    assert rs.convergence.view is not None
+    assert rs.convergence.view.title == "Convergence"
+    assert rs.convergence.plot.items[0].yData.size == len(errors)
 
 
-def test_retrieve_save_writes_the_full_overview_pdf(qtbot, tmp_path, monkeypatch):
-    from PyQt6.QtWidgets import QFileDialog
-
-    from croak.gui import stage_retrieve as sr
-
-    w = Wizard()
-    qtbot.addWidget(w)
-    rs = _run_synthetic_retrieval(w, qtbot)
-    monkeypatch.setattr(
-        QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path)
-    )
-    seen = []
-    real = sr.plotting.plot_retrieval_page
-
-    def spy(data, page, **kwargs):
-        fig = real(data, page, **kwargs)
-        seen.append((page, fig))
-        return fig
-
-    monkeypatch.setattr(sr.plotting, "plot_retrieval_page", spy)
-    rs._save()
-    assert (tmp_path / "retrieval.pdf").stat().st_size > 0
-    page, fig = seen[-1]
-    assert page is croak.plotting.RETRIEVAL_OVERVIEW
-    assert len(_titles(fig)) == 12
-
-
-# -- live preview in place -----------------------------------------------------------
-def test_retrieve_live_preview_updates_the_page_in_place(qtbot):
-    """A later snapshot of the same run reuses the drawn axes and artists."""
+def test_retrieve_live_preview_redraws_the_overview(qtbot):
+    """A later snapshot of the same run is drawn on the same plots."""
     from dataclasses import replace
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
     r1 = w.state.result
     assert r1 is not None
     r2 = replace(r1, errors=list(r1.errors[:5]), error=float(r1.errors[4]))
     rs._on_preview(r1)
-    figure = rs.pages.canvas("traces").figure
-    axes = list(figure.axes)
-    retrieved_lin = next(
-        ax for ax in figure.axes if ax.get_title() == "Retrieved (lin)"
-    )
-    label = retrieved_lin.texts[0]  # the bold error/shape annotation
+    plot = rs.pages.boxes["temporal"].plot
     rs._on_preview(r2)
-    assert list(figure.axes) == axes
-    assert rs._live_full
-    assert f"{r2.error * 100:.2f}%" in label.get_text()
-    assert "iter 5" in rs.status_label.text()
-    # a stale page drawn later shows the latest snapshot
-    rs.pages.set_current_page("pulse")
-    assert rs.pages.data is not None
-    assert rs.pages.data.result is r2
+    assert rs.pages.boxes["temporal"].plot is plot
+    assert rs.pages.data is not None and rs.pages.data.result is r2
 
 
-def test_retrieve_post_filter_updates_in_place(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
+def test_retrieve_post_filter_redraws_the_stored_result(qtbot):
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    figure = rs.pages.canvas("traces").figure
-    axes = list(figure.axes)
-    status = rs.status_label.text()
+    before = rs.pages.data
     rs.pf_lam.setChecked(True)  # re-plots the stored result through _update_view
-    assert list(figure.axes) == axes
     assert rs.state.retrieve.post_filter_lam is True
-    assert rs.status_label.text() != status or "Done" in rs.status_label.text()
+    assert rs.pages.data is not before
 
 
 def test_retrieve_convergence_redraw_is_throttled(qtbot, monkeypatch):
     """A thousand iterations in a burst draw the curve once, after the debounce."""
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
+    w = Driver(qtbot)
+    w.start("synthetic")
     w.synthetic.advance()
-    w.state.stage = 3
-    w.state.stage = 4
+    w.goto(3)
+    w.goto(4)
     rs = w.stages[3]
     calls = []
     monkeypatch.setattr(
-        rs.pages, "show_progress", lambda errors: calls.append(len(errors))
+        rs.convergence, "show_view", lambda view: calls.append(view.curves[0].y.size)
     )
     rs._errors = []
     for i in range(1000):
@@ -2832,27 +2459,25 @@ def test_retrieve_convergence_redraw_is_throttled(qtbot, monkeypatch):
 
 
 # -- spectrum axis and preview cadence -------------------------------------------------
-def _spectrum_axes(rs):
-    return next(
-        ax
-        for ax in rs.pages.canvas("pulse").figure.axes
-        if ax.get_title() == "Spectrum"
-    )
+def test_retrieve_follows_the_display_axis_and_remembers_it(qtbot):
+    from croak.gui.display import current, set_display
+    from croak.plotting.display import Display
 
-
-def test_retrieve_spectrum_axis_defaults_to_frequency_and_is_remembered(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    assert rs.spectrum_axis_combo.currentText() == "frequency"
-    rs.pages.set_current_page("pulse")
-    assert _spectrum_axes(rs).get_xlabel() == "Frequency (PHz)"
-    rs.spectrum_axis_combo.setCurrentText("wavelength")  # re-presents the result
-    assert _spectrum_axes(rs).get_xlabel() == "Wavelength (nm)"
-    assert settings.text("retrieve/spectrum_axis", "frequency") == "wavelength"
-    again = Wizard()
-    qtbot.addWidget(again)
-    assert again.stages[3].spectrum_axis_combo.currentText() == "wavelength"
+    spectrum = rs.pages.boxes["spectral"].plot
+    measured = rs.pages.boxes["measured_log"].plot
+    # As computed: the retrieval's own frequency axis
+    assert spectrum.item.getAxis("bottom").labelText == "Frequency (PHz)"
+    set_display(Display(axis="wavelength", db_range=50.0))  # redraws in place
+    assert spectrum.item.getAxis("bottom").labelText == "Wavelength (nm)"
+    assert measured.item.getAxis("left").labelText == "Wavelength (nm)"
+    assert measured.bar.levels() == pytest.approx((-50.0, 0.0))
+    # the figures drawn from the result follow it too
+    data = rs.overview()
+    assert data is not None
+    assert (data.spectral_axis, data.tracedb) == ("wavelength", 50.0)
+    assert current() == Display(axis="wavelength", db_range=50.0)  # remembered
 
 
 def test_retrieve_preview_reports_its_cost_to_the_worker(qtbot):
@@ -2863,57 +2488,10 @@ def test_retrieve_preview_reports_its_cost_to_the_worker(qtbot):
         def report_preview_cost(self, seconds):
             self.costs.append(seconds)
 
-    w = Wizard()
-    qtbot.addWidget(w)
+    w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
     rs._worker = _Recorder()
     rs._on_preview(w.state.result)
     rs._on_preview(w.state.result)  # the second one is an in-place update
     assert len(rs._worker.costs) == 2
     assert all(cost > 0 for cost in rs._worker.costs)
-
-
-# -- leaving for the welcome menu -------------------------------------------------
-def test_back_to_the_menu_asks_before_leaving_a_session_with_data(qtbot, monkeypatch):
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
-    w.synthetic.advance()  # trace generated: on the marginal check, data in hand
-    w.go_back()  # to the generator page: nothing is lost, nothing is asked
-    assert w.stack.currentWidget() is w.synthetic
-    asked = []
-    monkeypatch.setattr(w, "_confirm_discard", lambda: asked.append("no") or False)
-    w.go_back()  # entry page -> menu would leave the session: ask; cancelled
-    assert asked == ["no"]
-    assert w.stack.currentWidget() is w.synthetic
-    assert w.state.load_data is not None
-    monkeypatch.setattr(w, "_confirm_discard", lambda: asked.append("yes") or True)
-    w.go_back()
-    assert asked == ["no", "yes"]
-    assert w.stack.currentIndex() == 0  # the welcome menu
-    assert w.state.load_data is not None  # kept until a menu entry starts anew
-
-
-def test_back_from_an_empty_stage_one_does_not_ask(qtbot, monkeypatch):
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.start_load()
-    assert not w.state.has_data
-    monkeypatch.setattr(
-        w, "_confirm_discard", lambda: pytest.fail("asked with nothing to lose")
-    )
-    w.go_back()
-    assert w.stack.currentIndex() == 0
-
-
-def test_main_menu_button_asks_when_the_session_holds_data(qtbot, monkeypatch):
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.show_synthetic()
-    w.synthetic.advance()
-    monkeypatch.setattr(w, "_confirm_discard", lambda: False)
-    w.menu_btn.click()
-    assert w.stack.currentWidget() is w.stages[1]  # stayed on the marginal check
-    monkeypatch.setattr(w, "_confirm_discard", lambda: True)
-    w.menu_btn.click()
-    assert w.stack.currentIndex() == 0

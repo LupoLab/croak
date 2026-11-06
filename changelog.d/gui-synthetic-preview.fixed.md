@@ -1,0 +1,1 @@
+The synthetic generator's trace preview shows the trace that Continue hands on, sampled onto the λ window; it used to show a featureless stripe. A flat phase no longer fills its axis with rounding noise: phase axes span at least ±1 rad, in the GUI and in croak's figures.

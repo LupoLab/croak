@@ -198,7 +198,7 @@ direction of time.
 Reversal is applied by conjugating the spectrum, which is exact: the stored trace,
 `mu` and `error` remain valid. Note that the **spectral phase changes sign**, so
 the retrieved GDD and TOD only become comparable with the truth once the direction
-is settled. The wizard does this automatically for synthetic and simulated
+is settled. The GUI does this automatically for synthetic and simulated
 sessions, where a truth is available.
 
 ### Framing the axes
@@ -246,8 +246,8 @@ croak.plotting.draw_spectral(ax, data)   # one panel, in your own figure
 `retrieved_log`, `measured_lin`, `retrieved_lin`, `temporal`, `spectral`,
 `convergence`, `residual`, `spectral_filter`, `freq_marginal`, `delay_marginal`,
 `spectrogram` — to their titles and draw functions;
-{data}`~croak.plotting.RETRIEVAL_PAGES` holds the three 2×2 pages the wizard shows
-as tabs (**Traces**, **Pulse**, **Diagnostics**), and
+{data}`~croak.plotting.RETRIEVAL_PAGES` holds the three 2×2 pages the GUI shows
+on Analyse (**Traces**, **Pulse**, **Diagnostics**), and
 {data}`~croak.plotting.RETRIEVAL_OVERVIEW` the 3×4 layout `plot_retrieval` draws.
 The spectrum panel is drawn against frequency by default; pass
 `spectral_axis="wavelength"` to `plot_retrieval` or `retrieval_plot_data` (or
@@ -256,8 +256,8 @@ unit-peak densities in their own variable, so the wavelength view carries the $1
 Jacobian and the frequency view does not.
 Colourbars shared by a pair of trace panels are drawn whenever both panels are on
 the page. Every `draw_*` returns the artists it created (for example
-{class}`~croak.plotting.TemporalArtists`), which is what a live view updates in
-place instead of redrawing.
+{class}`~croak.plotting.TemporalArtists`), so you can restyle or annotate them
+afterwards.
 
 Other composites and single-axis plotters:
 
@@ -277,10 +277,14 @@ Other composites and single-axis plotters:
 The single-axis plotters take an existing Matplotlib axis, so you can compose your
 own figures.
 
-### Live views (GUI support)
+### Screen views (GUI support)
 
-For custom interactive applications, see the [live-view contracts in the
-developer’s guide](../developer_guide/gui_sessions.md#live-views-gui-support).
+The GUI does not draw these matplotlib panels on screen: it draws the same data
+with interactive views, from the Qt-free {mod}`croak.plotting.screen`, and
+{mod}`croak.plotting.export` draws those views back into matplotlib for a
+publication figure ({func}`~croak.plotting.export.views_figure`,
+{func}`~croak.plotting.export.save_figure`). See
+[screen views in the developer’s guide](../developer_guide/gui_sessions.md#screen-views-gui-support).
 
 ## Windowing the retrieved field
 

@@ -3,14 +3,14 @@
 A result is reproducible when both the retrieved field and the settings that
 produced it are kept. croak saves results to HDF5 and every setting of an
 analysis to a TOML session file, which can be replayed without the GUI or turned
-into an editable Python script. This chapter covers the graphical wizard, which
-writes those sessions, and the saving and loading functions behind it.
+into an editable Python script. This chapter covers the graphical interface,
+which writes those sessions, and the saving and loading functions behind it.
 
 ## Which page do I need?
 
 | I want to… | Read |
 |---|---|
-| use the wizard stage by stage | [The wizard GUI](../howto/gui.md) |
+| use the GUI stage by stage | [Using the GUI](../howto/gui.md) |
 | save a result, or several, and load them back | [Saving and loading](../howto/saving_and_loading.md) |
 | rerun a saved session headlessly or retarget it at new data | [Saving and loading](../howto/saving_and_loading.md) |
 | decide between the GUI and a script | [GUI or script interface](../introduction/interfaces.md) |

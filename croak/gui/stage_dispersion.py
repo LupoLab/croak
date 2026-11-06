@@ -1,4 +1,4 @@
-"""Stage 4 — tune residual dispersion (GDD/TOD/FOD, material) and save.
+"""Analyse ▸ Dispersion — tune residual dispersion (GDD/TOD/FOD, material).
 
 GDD/TOD/FOD and material thicknesses use slider + spin-box controls (default 0).
 The auto-tuners maximise the absolute temporal
@@ -8,12 +8,13 @@ default).
 
 from __future__ import annotations
 
-import os
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
-from PyQt6.QtWidgets import (
-    QFileDialog,
+from matplotlib.figure import Figure
+from PySide6.QtWidgets import (
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -21,10 +22,19 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import dispersion, gases, materials, plotting, save
+from ..plotting.screen import (
+    CurveView,
+    LineView,
+    spectral_view_of,
+    spectrogram_map_of,
+    temporal_view_of,
+)
 from ..processing import process_result, spectrogram
+from ..session.files import DISPERSION_FIGURE, DISPERSION_FILE
 from .base import Stage
-from .canvas import MplCanvas, combo, group, with_toolbar
+from .controls import add_wide_row, combo, group
 from .mirror_stack import MirrorStack
+from .view_panel import ViewPanel
 from .widgets import SciSpinBox, ValueControl
 
 _GAS_NONE = "(none)"
@@ -246,21 +256,28 @@ class StageDispersion(Stage):
         form.addRow("TL peak power", self.peak_tl_label)
         self.controls.addWidget(box)
 
-        btns = QWidget()
-        bl = QHBoxLayout(btns)
-        bl.setContentsMargins(0, 0, 0, 0)
+        # Save session writes the dispersed pulse (save_extras); only Reset
+        # stays here.
         reset = QPushButton("Reset")
         reset.clicked.connect(self._reset)
-        save_btn = QPushButton("Save…")
-        save_btn.clicked.connect(self._save)
-        bl.addWidget(reset)
-        bl.addWidget(save_btn)
-        self.controls.addWidget(btns)
-        self.controls.addWidget(self.status_label)
+        self.controls.addWidget(reset)
         self.controls.addStretch(1)
 
-        self.canvas = MplCanvas(figsize=(9, 7))
-        self.set_plot_area(with_toolbar(self.canvas))
+        self.views = {
+            "spectral": ViewPanel("line", right=True),
+            "temporal": ViewPanel("line", right=True),
+            "applied": ViewPanel("line"),
+            "spectrogram": ViewPanel("map"),
+        }
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        for index, view in enumerate(self.views.values()):
+            grid.addWidget(view, index // 2, index % 2)
+        plots = QWidget()
+        plots.setLayout(grid)
+        self.set_plot_area(plots)
 
         self.apply_help()
 
@@ -289,7 +306,8 @@ class StageDispersion(Stage):
             *_GAS_PRESSURE_RANGE_BAR, 1.0, decimals=3, step=0.001, slider_scale=1000.0
         )
         self.gas_pressure.changed.connect(self._on_gas_pressure)
-        form.addRow("pressure (bar)", self.gas_pressure)
+        # Label above, so the sliders (and the path's Auto) fit the form column.
+        add_wide_row(form, "pressure (bar)", self.gas_pressure)
         self.gas_path = ValueControl(
             *_GAS_PATH_RANGE_CM, 0.0, decimals=2, slider_scale=10.0
         )
@@ -301,7 +319,7 @@ class StageDispersion(Stage):
         auto = QPushButton("Auto")
         auto.clicked.connect(self._auto_gas)
         rl.addWidget(auto)
-        form.addRow("path length (cm)", row)
+        add_wide_row(form, "path length (cm)", row)
         self.controls.addWidget(box)
 
     # -- mirror-stack handlers ----------------------------------------------
@@ -541,20 +559,37 @@ class StageDispersion(Stage):
         )
 
     def _draw(self, mod, pr):
-        self.canvas.render(lambda fig: self._plot(fig, mod, pr))
+        """Show the dispersed pulse: spectrum, time, applied phase, spectrogram."""
+        # Wavelength, to match the applied-phase panel beneath it.
+        self.views["spectral"].show_view(spectral_view_of(pr, axis="wavelength"))
+        self.views["temporal"].show_view(temporal_view_of(pr))
+        lam_nm, phase = self._applied_curve(pr)
+        self.views["applied"].show_view(
+            LineView(
+                curves=(CurveView(lam_nm, phase, "retrieved", "applied"),),
+                title="Applied phase",
+                xlabel="Wavelength (nm)",
+                ylabel="Phase (rad)",
+            )
+        )
+        tc, lam, s = spectrogram(mod)
+        self.views["spectrogram"].show_view(spectrogram_map_of(tc, lam, s))
+
+    def _applied_curve(self, pr):
+        """The applied phase on the pulse's spectrum, zero at its peak."""
+        phi = self._applied_phase()
+        phi = phi - phi[pr.mask_w][int(np.argmax(pr.Iw[pr.mask_w]))]
+        return pr.wavelength[pr.mask_w] / 1e-9, phi[pr.mask_w]
 
     def _plot(self, fig, mod, pr) -> None:
-        """Draw the four dispersion panels into ``fig``."""
+        """Draw the four dispersion panels into ``fig`` (the saved PDF)."""
         axd = fig.subplot_mosaic("ab\ncd")
         # Wavelength, to match the applied-phase panel beneath it.
         plotting.plot_spectral(axd["a"], pr, axis="wavelength")  # phase + fit
         plotting.plot_temporal(axd["b"], pr)
         # bottom-left: only the *applied* dispersion phase
-        phi_applied = self._applied_phase()
-        phi_applied = (
-            phi_applied - phi_applied[pr.mask_w][int(np.argmax(pr.Iw[pr.mask_w]))]
-        )
-        axd["c"].plot(pr.wavelength[pr.mask_w] / 1e-9, phi_applied[pr.mask_w], c="C0")
+        lam_nm, phase = self._applied_curve(pr)
+        axd["c"].plot(lam_nm, phase, c="C0")
         axd["c"].set_xlabel("Wavelength (nm)")
         axd["c"].set_ylabel("Phase (rad)")
         axd["c"].set_title("Applied phase")
@@ -651,29 +686,39 @@ class StageDispersion(Stage):
         self._unregister_gas()
         self._changed()
 
-    def _save(self):
-        if self.state.result is None:
-            return
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
-        if not folder:
-            return
+    def _applied(self) -> bool:
+        """Whether any dispersion is set (a Taylor term, a material, a mirror)."""
+        mats, bounces = self._extra_dispersion()
+        taylor = (self.gdd.value(), self.tod.value(), self.fod.value())
+        return any(taylor) or bool(mats) or bool(bounces)
+
+    def save_extras(self, folder: Path) -> list[str]:
+        """Write the dispersed pulse and its figure, if a dispersion is applied.
+
+        The pulse is processed with the pulse energy, so the file carries peak
+        power, and with a synthetic or simulated session's known truth, as the
+        session's ``result.h5`` is.
+        """
+        if self._base is None or self.state.result is None or not self._applied():
+            return []
+        # The page takes its copy of the spectrum when it is shown; a retrieval
+        # run since then (Save session can be reached from any page) would
+        # otherwise pair the old pulse with the new result's grid and error.
+        self._base = self.state.result.spectrum.copy()
         mod = self._modified()
-        self._sync_to_params()  # ensure the saved options.toml captures dispersion
         measured = self.state.tracedata.trace if self.state.tracedata else None
-        # Process with the pulse energy so the saved HDF5 carries peak power.
         pr = process_result(
             mod, measured=measured, energy=self.state.load.energy_j or None
         )
         save.save_result(
             mod,
-            os.path.join(folder, "result_dispersion.h5"),
+            str(folder / DISPERSION_FILE),
             processed=pr,
             measured=measured,
-            # a synthetic/simulated session's ground truth belongs in every saved
-            # file, as it does in the Retrieve stage's result.h5
             truth=self.state.truth,
             force=True,
         )
-        save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        self.canvas.save_figure(os.path.join(folder, "dispersion.pdf"), dpi=600)
-        self.set_status(f"Saved to {folder}")
+        figure = Figure(figsize=(9, 7), layout="constrained")
+        self._plot(figure, mod, pr)
+        figure.savefig(folder / DISPERSION_FIGURE, dpi=600)
+        return [DISPERSION_FILE, DISPERSION_FIGURE]

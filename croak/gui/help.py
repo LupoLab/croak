@@ -4,31 +4,31 @@ Each stage declares :data:`Stage.HELP` as an ordered list of
 ``(section, [(label, text)])``. The same ``text`` is shown in two places from a
 single source:
 
-* the scrollable summary dialog opened by the wizard header's ``?`` button
+* the scrollable summary dialog opened by Help for this stage (F1, or the ⋯ menu)
   (:class:`HelpDialog`), and
 * the hover tooltip on the matching control, applied by :func:`apply_tooltips`.
 
-Tooltips are matched by the control's ``(group-box title, form label)`` so that
+Tooltips are matched by the control's ``(section title, form label)`` so that
 labels reused across groups (e.g. ``"λ unit"``) stay distinct. Widget labels spell
-a literal ampersand ``&&`` (see :func:`_plain`), while :data:`Stage.HELP` keys are
-written the way the user reads them, so the escape is undone before matching.
+a literal ampersand ``&&`` (see :func:`croak.gui.sheet.plain`), while
+:data:`Stage.HELP` keys are written the way the user reads them, so the escape is
+undone before matching.
 """
 
 from __future__ import annotations
 
 from html import escape
 
-from PyQt6.QtWidgets import (
-    QCheckBox,
+from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QGroupBox,
-    QLabel,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
+
+from .sheet import Section, row_field, row_text
 
 __all__ = ["HelpDialog", "HelpSections", "apply_tooltips", "build_html", "flatten"]
 
@@ -82,41 +82,12 @@ class HelpDialog(QDialog):
         layout.addWidget(buttons)
 
 
-def _plain(text: str) -> str:
-    """Undo Qt's mnemonic escaping, giving the label as the user reads it.
-
-    Qt treats a lone ``&`` in a check box, push button, group-box title or form-row
-    label as a keyboard-mnemonic marker and does not draw it, so a *literal*
-    ampersand must be written ``&&``. Help keys are written unescaped, so strip the
-    escape before comparing.
-
-    Examples
-    --------
-    >>> _plain("Skip filtering && regrid")
-    'Skip filtering & regrid'
-    """
-    return text.replace("&&", "&")
-
-
-def _field_widget(form: QFormLayout, row: int) -> QWidget | None:
-    """The widget in a form row, whether it occupies the field or spans both."""
-    for role in (QFormLayout.ItemRole.FieldRole, QFormLayout.ItemRole.SpanningRole):
-        item = form.itemAt(row, role)
-        if item is not None and item.widget() is not None:
-            return item.widget()
-    return None
-
-
-def _row_label(form: QFormLayout, row: int, field: QWidget) -> str | None:
-    """Label text for a form row: the label column, else a checkbox's own text."""
-    item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
-    if item is not None:
-        label = item.widget()
-        if isinstance(label, QLabel):
-            return _plain(label.text())
-    if isinstance(field, QCheckBox):
-        return _plain(field.text())
-    return None
+def _section_title(form: QFormLayout) -> str:
+    """The title of the section a form row sits in ("" outside any section)."""
+    widget = form.parentWidget()
+    while widget is not None and not isinstance(widget, Section):
+        widget = widget.parentWidget()
+    return widget.section_title if widget is not None else ""
 
 
 def apply_tooltips(
@@ -125,20 +96,17 @@ def apply_tooltips(
     """Set tooltips on ``root``'s form controls from ``help_map``.
 
     Walks every :class:`QFormLayout` under ``root`` and, for each row, looks up
-    ``(enclosing group-box title, row label)`` in ``help_map``; on a hit the
+    ``(enclosing section title, row label)`` in ``help_map``; on a hit the
     field widget's tooltip is set. Returns the set of keys that matched, so
     callers (and tests) can detect help entries with no corresponding control.
     """
     matched: set[tuple[str, str]] = set()
     for form in root.findChildren(QFormLayout):
-        box = form.parentWidget()
-        section = _plain(box.title()) if isinstance(box, QGroupBox) else ""
+        section = _section_title(form)
         for row in range(form.rowCount()):
-            field = _field_widget(form, row)
-            if field is None:
-                continue
-            label = _row_label(form, row, field)
-            if label is None:
+            field = row_field(form, row)
+            label = row_text(form, row)
+            if field is None or not label:
                 continue
             key = (section, label)
             text = help_map.get(key)

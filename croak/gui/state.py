@@ -3,7 +3,7 @@
 ``WizardState`` (a ``QObject``) holds the four stages' parameters and the
 pipeline outputs (``load_data`` → ``tracedata`` → ``result`` → ``processed``),
 emits change signals, and implements cascading invalidation so editing an
-upstream stage clears the downstream results — the wizard can then never show a
+upstream stage clears the downstream results — the window can then never show a
 retrieved pulse that belongs to a superseded set of load/preprocess parameters.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import fields
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 
 from ..session.options import SessionOptions
 from ..session.params import (
@@ -45,18 +45,17 @@ __all__ = [
 
 
 class WizardState(QObject):
-    """Holds wizard parameters and pipeline outputs, with change signals."""
+    """Holds the session's parameters and pipeline outputs, with change signals."""
 
-    stage_changed = pyqtSignal(int)
-    load_data_changed = pyqtSignal()
-    tracedata_changed = pyqtSignal()
-    result_changed = pyqtSignal()
-    uncertainty_changed = pyqtSignal()
-    status = pyqtSignal(str)
-    # Request the wizard to point the current session at a new dataset folder
+    load_data_changed = Signal()
+    tracedata_changed = Signal()
+    result_changed = Signal()
+    uncertainty_changed = Signal()
+    status = Signal(str)
+    # Request the window to point the current session at a new dataset folder
     # (its argument) and replay load → preprocess → retrieve. Emitted by the
-    # Retrieve stage's "Retarget…" button; handled in croak.gui.wizard.Wizard.
-    retarget_requested = pyqtSignal(str)
+    # Retrieve stage's "Retarget…" button; handled in croak.gui.window.MainWindow.
+    retarget_requested = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -75,7 +74,6 @@ class WizardState(QObject):
         self.dispersion = DispersionParams()
         self.uncertainty = UncertaintyParams()
 
-        self._stage = 1
         self.file_datasets: FileDatasets | None = None  # FROG file datasets
         self.load_data: dict | None = None  # lam, tau, trace, lam_spec, Ilam_spec
         self.tracedata: TraceData | None = None
@@ -119,41 +117,13 @@ class WizardState(QObject):
             return self.load_data.get("geometry")
         return None
 
-    # -- navigation ---------------------------------------------------------
-    @property
-    def stage(self) -> int:
-        return self._stage
-
-    @stage.setter
-    def stage(self, value: int) -> None:
-        value = max(1, min(6, value))
-        if value != self._stage:
-            self._stage = value
-            self.stage_changed.emit(value)
-
-    def ready(self, stage: int) -> bool:
-        """Whether the Next button should be enabled for ``stage``.
-
-        Stage order: Load(1) → Marginal check(2) → Preprocess(3) → Retrieve(4) →
-        Dispersion(5) → Uncertainty(6). The marginal-check and preprocess stages
-        only need a loaded trace; the later stages need a completed retrieval.
-        """
-        return {
-            1: self.load_data is not None,
-            2: self.load_data is not None,
-            3: self.load_data is not None,
-            4: self.result is not None,
-            5: self.result is not None,
-            6: True,
-        }.get(stage, False)
-
     # -- outputs with cascading invalidation --------------------------------
     @property
     def has_data(self) -> bool:
         """Whether the session holds work a new session would discard.
 
         True once a trace is loaded (or generated) or a retrieval exists; the
-        wizard asks before leaving such a session for the welcome menu.
+        window asks before a new session replaces it.
         """
         return (
             self.load_data is not None
@@ -213,7 +183,6 @@ class WizardState(QObject):
         self.uncertainty_results = {}
         self.preproc_defaults = None
         self.trace_sig = None
-        self._stage = 1
         self.load_data_changed.emit()
         self.tracedata_changed.emit()
         self.result_changed.emit()
@@ -240,7 +209,7 @@ class WizardState(QObject):
 
         The stage widgets bind to these dataclass *instances* by reference, so we
         copy the parsed field values into the existing objects rather than
-        replacing them (the wizard then rebuilds the controls to reflect them).
+        replacing them (the window then rebuilds the pages to reflect them).
         """
         parsed = SessionOptions.from_dict(options)
         self.entry = parsed.entry

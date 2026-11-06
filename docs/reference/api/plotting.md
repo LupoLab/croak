@@ -8,3 +8,17 @@ and 4-panel composites. See [Post-processing and plotting](../../howto/postproce
 .. automodule:: croak.plotting
    :members:
 ```
+
+## Figures of the GUI's views
+
+```{eval-rst}
+.. automodule:: croak.plotting.export
+   :members:
+```
+
+## The display's spectral axis and range
+
+```{eval-rst}
+.. automodule:: croak.plotting.display
+   :members:
+```

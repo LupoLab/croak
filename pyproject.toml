@@ -4,8 +4,9 @@ version = "0.3.1"
 description = "Complete retrieval of ultrashort laser pulses from FROG traces — amplitude and phase, with dispersive media, geometric smearing and uncertainty"
 readme = "README.md"
 requires-python = ">=3.14"
-license = "MIT"
-license-files = ["LICENSE"]
+# The code is MIT; the window's font, IBM Plex Sans, is under the Open Font License.
+license = "MIT AND OFL-1.1"
+license-files = ["LICENSE", "croak/gui/assets/fonts/LICENSE.txt"]
 authors = [{ name = "John Travers" }, { name = "Christian Brahms" }]
 keywords = [
     "ultrafast",
@@ -47,7 +48,9 @@ dependencies = [
 # scripted pipelines install without Qt: `pip install croak` (or
 # `uv sync --no-dev`). The GUI needs `pip install "croak[gui]"`; launching
 # `croak-gui` without it raises a message saying exactly that.
-gui = ["pyqt6>=6.11.0", "superqt>=0.8.2"]
+# PySide6-Essentials is the Qt modules the window uses (about a third of PySide6);
+# pyqtgraph draws every on-screen plot, matplotlib only the exported figures.
+gui = ["pyside6-essentials>=6.10.1", "pyqtgraph>=0.14", "superqt>=0.8.2"]
 # Global-search retriever (the 'cma-es' algorithm): CMA-ES / Sep-CMA-ES / DE.
 # JAX-native evolution strategies; reuses the existing jax install.
 evo = ["evosax>=0.2.0"]
@@ -90,7 +93,8 @@ dev = [
     # The GUI extra's packages, spelled out: the dev environment always has Qt
     # (the suite includes the GUI tests) even though the runtime dependency is
     # optional. Keep in lockstep with [project.optional-dependencies] gui.
-    "pyqt6>=6.11.0",
+    "pyside6-essentials>=6.10.1",
+    "pyqtgraph>=0.14",
     "superqt>=0.8.2",
     # The evo extra, so the 'cma-es' retriever is tested; lockstep with [evo].
     "evosax>=0.2.0",
@@ -120,6 +124,7 @@ testpaths = ["tests", "croak"]
 addopts = "-ra --strict-markers --strict-config --doctest-modules"
 filterwarnings = ["error"]
 xfail_strict = true
+qt_api = "pyside6"
 
 [tool.ruff]
 target-version = "py314"

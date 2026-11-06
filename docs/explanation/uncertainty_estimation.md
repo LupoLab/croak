@@ -365,8 +365,8 @@ What this does and does not capture:
   optics' own uncertainty. (A `thickness_bootstrap`-style systematic on the propagation
   optics is the natural extension.)
 
-In the GUI (stage 5) tick *"at dispersion-stage point"* to evaluate the bar at the beamline
-point configured in the Dispersion stage.
+In the GUI (the Uncertainty page under Analyse) tick *"at dispersion-stage point"* to
+evaluate the bar at the beamline point configured on the Dispersion page.
 
 ## The noise model
 
