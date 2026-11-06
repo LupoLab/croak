@@ -1,1 +1,0 @@
-The GUI now says when the retrieval grid's λ range cuts off signal that is still in the trace: Prepare shows the share of the trace the edge taper removes and how to widen the range. The warning used to reach only the terminal.

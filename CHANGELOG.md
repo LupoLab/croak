@@ -6,6 +6,42 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-06
+
+### Added
+
+- Two GUI display settings, at the foot of the window, hold for every plot and are remembered between launches: **Spectral axis** draws every spectral plot, maps and curves, against wavelength or frequency, with the density Jacobian, or keeps each on the axis it was computed on; **Log range** sets how far below its peak every logarithmic map reaches (5–120 dB). A map's colour bar can also be dragged to change that map's scale alone. Retrieve's own Spectrum axis control and Check's marginal axis control give way to them. `croak.plotting.display` does the conversion from a script.
+- Every plot and every page of the GUI can be saved as a figure for publication: a plot from its right-click menu (which can also save or copy it as an image), a page with "Export this page as a figure…" (Ctrl+E). Figures are drawn by matplotlib from the data on screen, at a single journal column per plot, as PDF, SVG or PNG; in a vector file the text stays editable and colour maps are rasterized. `croak.plotting.export` draws the same views from a script.
+- On Retrieve, once a retrieval is done, the top bar's primary action is **Analyse**, with **Retrieve again** beside it. Beneath the plots the run's numbers (iteration, error, elapsed time, the retrieved peak wavelength and FWHM, the forward-model extras and the truth errors) are shown large, beside the convergence curve, which follows the whole run; the pulse-parameter table is gone. Home's tiles carry drawings, and **Open a session** is a tile of its own.
+
+### Changed
+
+- The contributor workflow follows solprop's. `CONTRIBUTING.md` and the issue forms set
+  the standard for issues, labels and pull requests. A notable change now adds a
+  `changelog.d/` fragment instead of editing this file, and a rolling draft PR collects
+  the fragments after each merge. `poe check` also runs `codespell` and validates the
+  fragments. A new test keeps the version records in step, and `.zenodo.json` no longer
+  names a stale version. The workflows' actions are pinned by commit, and the release
+  checklist they refer to now exists in the Developer's guide.
+- The GUI has one way to save: **Save session…** now also writes what Analyse holds, the dispersed pulse (`result_dispersion.h5`, `dispersion.pdf`) when a dispersion is set and the uncertainty figure (`uncertainty.pdf`) when an estimate is on screen, and the Dispersion and Uncertainty pages lose their own Save… buttons. Prepare shows five numbers over its maps: the grid's size, time step, time window, wavelength span and the share of the trace its edge taper removes.
+- The GUI runs on PySide6 instead of PyQt6, and the `gui` extra now installs `pyside6-essentials`, `pyqtgraph` and `superqt`. Code that embeds croak's GUI widgets in its own Qt application must create a PySide6 `QApplication`.
+- Retrieve no longer has a ready line under its form: the numbers beneath its plots say how a run goes, its other messages are notices at the foot of the window, and a failed retrieval shows in the advice box over the plots. A slider's value box is now as wide as the numbers it takes, so the slider has the rest of the row, and a range has its two ends either side of one slider (TOD on the synthetic pulse page, among others, had a box wider than its slider).
+
+### Changed (breaking)
+
+- The GUI is redesigned as one workflow window in place of the six-step wizard: Home (start from a measured trace, a simulated scan or a synthetic pulse; open a session; recent sessions), then Data (load the trace), Check (its marginal), Prepare, Retrieve and Analyse (Overview, Traces, Pulse, Diagnostics, Dispersion and Uncertainty pages), with a Home button and one primary action in the top bar, an About page (version, links to the manual, GitHub and PyPI, authors and copyright), and the session's settings or a replay script on request. Plots are interactive pyqtgraph views with hover readouts, zoom and figure export through matplotlib; forms fold by section and say what the focused setting does. `croak.gui.run_wizard` is now `croak.gui.run_gui` and `croak.gui.Wizard` is now `croak.gui.MainWindow`; the `croak-gui` command is unchanged.
+
+### Removed
+
+- The matplotlib helpers that only the old GUI's live preview used are gone: `croak.plotting.RetrievalPageView`, `FrogFilterView`, the `update_*` panel functions (and `update_convergence_curve`), `PlotScale`, `plot_scale`, `scaled_rc` and their constants, and `PanelSpec.update`. The GUI draws on screen with pyqtgraph from the new `croak.plotting.screen` view data; the `draw_*` panels, `plot_retrieval`, `plot_retrieval_page`, `plot_frog_filter` and the other figures are unchanged.
+
+### Fixed
+
+- The GUI now says when the retrieval grid's λ range cuts off signal that is still in the trace: Prepare shows the share of the trace the edge taper removes and how to widen the range. The warning used to reach only the terminal.
+- The help for Retrieve's "Live full-plot preview" gives its real rate: up to four redraws a second, fewer when drawing is slow (it said about once a second).
+- The synthetic generator's spectrum preview is now a wavelength density, as its spectrogram already was.
+- A flat phase no longer fills its axis with rounding noise: phase axes span at least ±1 rad, in the GUI and in croak's figures.
+
 ## [0.3.1] - 2026-10-20
 
 ### Changed
@@ -690,7 +726,8 @@ Added in the run-up to the release:
   materials (missing `SiO2-Franta`); and `croak.solver`'s docstring described
   `Retriever` as the base of two solvers rather than of all of them.
 
-[Unreleased]: https://github.com/LupoLab/croak/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/LupoLab/croak/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/LupoLab/croak/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/LupoLab/croak/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/LupoLab/croak/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/LupoLab/croak/compare/v0.1.0...v0.2.0

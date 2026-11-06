@@ -1,1 +1,0 @@
-A signed linear map in the GUI no longer paints its whole zero background red when its only negative values are rounding noise (Prepare's filtered and regridded traces), and the synthetic generator's spectrum preview is now a wavelength density, as its spectrogram already was. Log axes are labelled at decades only, so a short convergence plot no longer piles its labels up.
