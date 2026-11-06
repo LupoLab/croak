@@ -230,3 +230,25 @@ def test_sheet_progress_strip_clamps_its_bar(qtbot):
     strip.show_progress("Retrieving", -1.0, "")
     assert strip.bar.value() == 0
     assert strip.state.text() == "Retrieving"
+
+
+def test_sheet_combo_boxes_shrink_to_the_column(qtbot):
+    from PySide6.QtWidgets import QComboBox
+
+    from croak.gui.sheet import FORM_WIDTH
+
+    form, plots = _form(qtbot), QWidget()
+    long = QComboBox()
+    long.addItems(["Automatic (centroid phase) from a very long description"])
+    form.add_section("Mode").form.addRow("Initial guess", long)
+    sheet = Sheet(form, plots)
+    qtbot.addWidget(sheet)
+    sheet.resize(NARROW_WIDTH + 400, 700)
+    sheet.show()
+    qtbot.waitExposed(sheet)
+    assert long.sizeAdjustPolicy() == (
+        QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+    )
+    assert form.width() == FORM_WIDTH  # the long item does not widen the column
+    sheet.resize(NARROW_WIDTH - 200, 700)  # stacked: the form spans the sheet
+    qtbot.waitUntil(lambda: form.width() > FORM_WIDTH)

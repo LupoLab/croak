@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QBoxLayout,
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -54,11 +55,19 @@ __all__ = [
     "row_text",
 ]
 
+COMBO_MIN_CHARS = 6
+"""The characters a combo box keeps when the form column squeezes it."""
+
+# Qt's QWIDGETSIZE_MAX, the "no limit" of setMaximumWidth; PySide6 does not
+# export the constant.
+_NO_LIMIT = 16_777_215
+
 NARROW_WIDTH = 1000
 """Below this window width (logical px) a sheet's plots move under its form."""
 
-FORM_MIN_WIDTH = 360
-"""The narrowest the form column may be, logical px."""
+FORM_WIDTH = 340
+"""The form column's width beside the plots, logical px: room for a label and
+its editor, and no more, so the plots get the rest of the window."""
 
 
 def plain(text: str) -> str:
@@ -199,7 +208,7 @@ class Form(QFrame):
     def __init__(self, *, find: bool = False) -> None:
         super().__init__()
         self.setObjectName("form")
-        self.setMinimumWidth(FORM_MIN_WIDTH)
+        self.setMinimumWidth(FORM_WIDTH)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -268,6 +277,20 @@ class Form(QFrame):
                 return
             widget = widget.parentWidget()
 
+    def showEvent(self, event) -> None:  # noqa: N802, ANN001 — Qt override
+        """Let every combo box shrink to the column.
+
+        A combo is as wide as its longest item by default, which would push the
+        fixed-width column into clipping; elided to the column, the full text
+        is in its drop-down. Done on show, so it covers combos filled late.
+        """
+        for box in self.findChildren(QComboBox):
+            box.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            box.setMinimumContentsLength(COMBO_MIN_CHARS)
+        super().showEvent(event)
+
     def filter(self, query: str) -> None:
         """Show only the rows whose label or help contains ``query``."""
         query = query.strip()
@@ -287,8 +310,9 @@ class Sheet(QWidget):
         self.split = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
         self.split.setContentsMargins(0, 0, 0, 0)
         self.split.setSpacing(0)
-        self.split.addWidget(form, stretch=2)
-        self.split.addWidget(plots, stretch=3)
+        self.split.addWidget(form)
+        self.split.addWidget(plots, stretch=1)
+        form.setMaximumWidth(FORM_WIDTH)
 
     @property
     def narrow(self) -> bool:
@@ -303,6 +327,9 @@ class Sheet(QWidget):
                 if narrow
                 else QBoxLayout.Direction.LeftToRight
             )
+            # Stacked, the form spans the window; beside the plots it keeps
+            # its fixed width.
+            self.form.setMaximumWidth(_NO_LIMIT if narrow else FORM_WIDTH)
         super().resizeEvent(event)
 
 
