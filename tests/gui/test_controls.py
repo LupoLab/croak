@@ -28,3 +28,15 @@ def test_widget_factories_connect_the_change_handler(qapp):
     k = check("on", False, on_change=seen.append)
     k.setChecked(True)
     assert seen == [4, 0.5, "b", True]
+
+
+def test_controls_collapsible_draws_its_chevrons_from_svg(qtbot):
+    from PySide6.QtWidgets import QLabel
+
+    from croak.gui.controls import collapsible
+
+    strip = collapsible("Read-out", QLabel("x"))
+    qtbot.addWidget(strip)
+    # Real icons, not superqt's text arrows painted into an empty pixmap.
+    for icon in (strip.expandedIcon(), strip.collapsedIcon()):
+        assert not icon.pixmap(12, 12).isNull()

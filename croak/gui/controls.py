@@ -7,6 +7,7 @@ build a spin box, combo or check box already bound to a callback, and
 
 from __future__ import annotations
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,6 +20,7 @@ from superqt import QCollapsible
 
 from . import settings
 from .sheet import Section
+from .theme import ASSETS
 
 __all__ = [
     "collapsible",
@@ -61,7 +63,14 @@ def collapsible(
     -------
     superqt.QCollapsible
     """
-    strip = QCollapsible(title)
+    # Icons, not superqt's default "▼"/"▲" strings: it draws those into a
+    # pixmap sized by the font's *point* size, which is -1 for a pixel-sized
+    # font, and Qt then complains that it cannot paint on the empty pixmap.
+    strip = QCollapsible(
+        title,
+        expandedIcon=QIcon(str(ASSETS / "chevron.svg")),
+        collapsedIcon=QIcon(str(ASSETS / "chevron-right.svg")),
+    )
     strip.setContent(content)
     strip.setDuration(120)  # visible but brief
     if settings_key is not None:
