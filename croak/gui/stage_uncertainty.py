@@ -267,8 +267,15 @@ class StageUncertainty(RunControls, Stage):
 
     def save_extras(self, folder: Path) -> list[str]:
         """Write the figure of the estimate on screen (Save session appends every
-        estimate to its ``result.h5``); nothing if none is drawn yet."""
-        if self._shown is None:
+        estimate to its ``result.h5``).
+
+        Nothing if none is drawn, or if the one drawn no longer holds: a new
+        retrieval clears the session's estimates
+        (:meth:`~croak.gui.state.WizardState.set_result`), and its figure would
+        then sit beside a ``result.h5`` without it.
+        """
+        current = self.state.uncertainty_results.values()
+        if not any(estimate is self._shown for estimate in current):
             return []
         figure = plotting.plot_uncertainty(
             self._shown, truth=_truth_fwhm(self.state.truth)

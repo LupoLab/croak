@@ -184,6 +184,18 @@ def test_save_extras_writes_the_figure_on_screen(stage, retrieval, tmp_path, dra
     assert (tmp_path / "uncertainty.pdf").exists() == drawn
 
 
+def test_save_extras_skips_an_estimate_a_new_retrieval_cleared(
+    stage, retrieval, tmp_path
+):
+    """Regression: the figure drawn before a new retrieval is not saved with it."""
+    stage.state.set_result(retrieval)
+    stage.state.set_uncertainty_result(_uresult("parametric", 0.05e-15))
+    stage._draw(stage.state.uncertainty_result)
+    stage.state.set_result(retrieval)  # a new retrieval clears the estimates
+    assert stage.save_extras(tmp_path) == []
+    assert not (tmp_path / "uncertainty.pdf").exists()
+
+
 class _FakeWorker(QObject):
     """Stands in for UncertaintyWorker: emits what the test scripts on start()."""
 

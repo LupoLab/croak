@@ -699,8 +699,12 @@ class StageDispersion(Stage):
         power, and with a synthetic or simulated session's known truth, as the
         session's ``result.h5`` is.
         """
-        if self._base is None or not self._applied():
+        if self._base is None or self.state.result is None or not self._applied():
             return []
+        # The page takes its copy of the spectrum when it is shown; a retrieval
+        # run since then (Save session can be reached from any page) would
+        # otherwise pair the old pulse with the new result's grid and error.
+        self._base = self.state.result.spectrum.copy()
         mod = self._modified()
         measured = self.state.tracedata.trace if self.state.tracedata else None
         pr = process_result(
