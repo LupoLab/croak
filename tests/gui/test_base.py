@@ -1,13 +1,15 @@
-"""The Stage base page: help dialog, entry-page hooks and the shared width."""
+"""The Stage base page: help dialog, entry-page hooks and the sheet layout."""
 
 from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from croak.gui import settings
+from PySide6.QtWidgets import QLabel, QLineEdit
+
 from croak.gui.base import Stage
+from croak.gui.controls import group
 from croak.gui.state import WizardState
 
 
@@ -35,25 +37,32 @@ def test_stage_help_dialog_is_reused(qtbot):
 def test_stage_default_hooks(qtbot):
     stage = Stage(WizardState())
     qtbot.addWidget(stage)
-    assert stage.next_label() == "Next →"
     assert stage.can_advance() is True
     assert stage.advance() is None
     assert stage.on_enter() is None
 
 
-def test_stage_shows_with_the_shared_controls_width(qtbot):
-    settings.set_controls_width(300)
-    stage = Stage(WizardState())
+def test_stage_builds_on_the_sheet_layout(qtbot):
+    stage = _HelpedStage(WizardState())
     qtbot.addWidget(stage)
-    stage.resize(1200, 600)
-    stage.show()
-    qtbot.waitExposed(stage)
-    assert stage.splitter.sizes()[0] == 300
-    # Showing again with the width already applied changes nothing.
-    stage.hide()
-    stage.show()
-    assert stage.splitter.sizes()[0] == 300
-    # A rested divider drag is remembered for every stage.
-    stage.splitter.setSizes([280, 900])
-    stage._save_controls_width()
-    assert settings.controls_width() == 280
+    # Sections go in the form's column; the ready line is the status.
+    assert stage.controls is stage.form.content
+    assert stage.status_label is stage.form.ready
+    stage.set_status("Loaded.")
+    assert stage.form.ready.text() == "Loaded." and stage.form.ready.state == "ok"
+    stage.set_status("Failed: no file", "error")
+    assert stage.form.ready.property("error") is True
+    plot, strip = QLabel("plot"), QLabel("strip")
+    stage.set_plot_area(plot, strip)
+    assert stage.isAncestorOf(plot) and stage.isAncestorOf(strip)
+
+
+def test_stage_help_reaches_the_section_rows(qtbot):
+    stage = _HelpedStage(WizardState())
+    qtbot.addWidget(stage)
+    section, form = group("Section")
+    field = QLineEdit()
+    form.addRow("Label", field)
+    stage.controls.addWidget(section)
+    assert stage.apply_help() == {("Section", "Label")}
+    assert field.toolTip() == "Text"

@@ -33,6 +33,7 @@ __all__ = [
     "result_from_saved",
     "save_uncertainty",
     "save_options",
+    "format_options",
     "load_options",
 ]
 
@@ -390,18 +391,30 @@ def _croak_version() -> str:
         return "unknown"
 
 
-def save_options(options: dict[str, Any], path: str) -> str:
-    """Write GUI session options to a TOML file.
+def format_options(options: dict[str, Any]) -> str:
+    """Return session options as the TOML text :func:`save_options` writes.
 
-    A ``croak_version`` / ``options_version`` header is written first so older
-    files can be reloaded (and migrated, if ever needed) gracefully. Nested
-    dicts (one per stage) become TOML tables; numpy values are coerced.
+    A ``croak_version`` / ``options_version`` header comes first so older files
+    can be reloaded (and migrated, if ever needed) gracefully. Nested dicts (one
+    per stage) become TOML tables; numpy values are coerced and ``None`` values
+    omitted.
+
+    Examples
+    --------
+    >>> text = format_options({"load": {"energy_j": 1e-6, "frog_path": None}})
+    >>> "[load]" in text and "frog_path" not in text
+    True
     """
     # scalar header keys must precede the table sections in TOML
     data = {"croak_version": _croak_version(), "options_version": OPTIONS_VERSION}
     data.update(_tomlify(options))
-    with open(path, "wb") as f:
-        tomli_w.dump(data, f)
+    return tomli_w.dumps(data)
+
+
+def save_options(options: dict[str, Any], path: str) -> str:
+    """Write GUI session options to a TOML file (see :func:`format_options`)."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(format_options(options))
     return path
 
 

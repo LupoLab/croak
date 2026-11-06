@@ -90,7 +90,7 @@ fit the extras from a **good pulse estimate**, not a cold start. Two ways:
    than restarting from the priors (a spectrum that was retrieved jointly with a
    non-zero $\tau_0$ is otherwise re-fitted against a differently-referenced
    delay axis). The GUI does this for you: *Reuse previous result* seeds every
-   extra that is **still being fitted**, and says which in the status line. An
+   extra that is **still being fitted**, and says which on the ready line. An
    extra whose fit box you have unticked keeps the value you set — an unticked
    box means "hold this where I put it", and the model is evaluated there.
 
@@ -142,7 +142,8 @@ compare with repeated fits or a suitable bootstrap.
 
 ## In the GUI
 
-The retrieve stage has an **Extra fit parameters** group with *Fit medium
+The Retrieve stage has an **Extra fit parameters** section (folded by default;
+click its title to open it) with *Fit medium
 thickness*, *Fit τ₀ delay offset*, *Fit smearing width* and *Two-phase polish*.
 *Fit smearing width* is enabled only when *Enable geometrical smearing* is on
 (see [Geometric smearing](geometric_smearing.md)). *Fit medium thickness*

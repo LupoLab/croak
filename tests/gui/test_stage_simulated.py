@@ -1,7 +1,8 @@
 """Tests for the simulated-scan entry page (:mod:`croak.gui.stage_simulated`).
 
-The page lives inside a :class:`~croak.gui.wizard.Wizard` (it calls back into
-it to relabel and advance), so each test drives ``w.simulated``.
+The page lives on the window's Data page (Retrieve adopts the scan's geometry
+and the Data page follows where it goes), so each test drives ``w.simulated``
+through :class:`gui_session.Driver`.
 """
 
 from __future__ import annotations
@@ -10,22 +11,19 @@ import h5py
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QFileDialog
+from gui_session import Driver
+from PySide6.QtWidgets import QFileDialog
 
 from croak.gui import stage_simulated
-from croak.gui.wizard import Wizard
 from croak.io import SIMULATED_WINDOW_KEYS
 from croak.session.params import SimulatedLoadParams
 
 
 @pytest.fixture
 def wizard(qtbot):
-    w = Wizard()
-    qtbot.addWidget(w)
-    w.load_simulated()
-    return w
+    return Driver(qtbot, "simulated")
 
 
 @pytest.fixture
@@ -52,9 +50,9 @@ def test_stage_simulated_on_enter_previews_the_chosen_file(wizard, simulated_sca
     assert sim.can_advance()
     # a legacy file has no thickness slices: the generic prompt
     assert sim.status_label.text() == (
-        "Review the trace, then Load & continue to filter it."
+        "Review the trace, then Continue to check and filter it."
     )
-    titles = [ax.get_title() for ax in sim.canvas.figure.axes]
+    titles = [view.title.text() for view in sim.views.values()]
     assert "Simulated FROG trace (lin)" in titles
 
 
@@ -77,11 +75,11 @@ def test_stage_simulated_unreadable_file_falls_back_and_reports(wizard, junk_h5)
 def test_stage_simulated_advance_reports_load_failure(wizard, junk_h5):
     sim = wizard.simulated
     sim.path_edit.setText(junk_h5)
-    stage_before = wizard.state.stage
+    stage_before = wizard.stage_number
     sim.advance()
     assert sim.status_label.text().startswith("Load failed:")
     assert wizard.state.load_data is None
-    assert wizard.state.stage == stage_before
+    assert wizard.stage_number == stage_before
 
 
 def test_stage_simulated_raw_load_failure_stays_on_the_page(
@@ -102,7 +100,7 @@ def test_stage_simulated_raw_load_failure_stays_on_the_page(
     sim.advance()
     assert sim.status_label.text() == "Raw load failed: no native grid"
     assert wizard.state.tracedata is None
-    assert wizard.stack.currentWidget() is sim
+    assert wizard.current_page() is sim
 
 
 def test_stage_simulated_advance_without_geometry_note(
@@ -116,7 +114,7 @@ def test_stage_simulated_advance_without_geometry_note(
     sim._populate_file_options(simulated_scan_h5)
     sim.set_status("before")
     sim.advance()
-    assert wizard.stack.currentWidget() is wizard.stages[1]
+    assert wizard.current_page() is wizard.stages[1]
     assert sim.status_label.text() == "before"
 
 
@@ -221,10 +219,9 @@ def test_stage_simulated_draw_handles_a_blank_trace_and_spectrum(wizard):
     lam = np.linspace(700e-9, 900e-9, 6)
     sim = wizard.simulated
     sim._draw(_sim_data(lam, np.zeros((6, 4)), lam, np.zeros(6)))
-    axd = {ax.get_title(): ax for ax in sim.canvas.figure.axes}
-    assert "Simulated FROG trace (lin)" in axd
-    legend = sim.canvas.figure.axes[3].get_legend()
-    assert [t.get_text() for t in legend.get_texts()] == ["trace marginal", "input"]
+    marginal = sim.views["spectral"].plot
+    assert sim.views["lin"].title.text() == "Simulated FROG trace (lin)"
+    assert [c.name for c in marginal.curves] == ["trace marginal", "input"]
 
 
 def test_stage_simulated_draw_skips_a_spectrum_without_intensity(wizard):
@@ -232,4 +229,4 @@ def test_stage_simulated_draw_skips_a_spectrum_without_intensity(wizard):
     trace = np.outer(np.hanning(6), np.hanning(4))
     sim = wizard.simulated
     sim._draw(_sim_data(lam, trace, lam_spec=lam, Ilam_spec=None))
-    assert sim.canvas.figure.axes[3].get_legend() is None
+    assert [c.name for c in sim.views["spectral"].plot.curves] == ["trace marginal"]

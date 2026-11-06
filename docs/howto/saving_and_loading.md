@@ -78,10 +78,11 @@ from croak.save import load_result, result_from_saved
 result = result_from_saved(load_result("retrieval.h5"))
 ```
 
-The GUI's **Load previous retrieval** uses exactly this: it replays the cheap
+The GUI's **Open a session…** uses exactly this: it replays the cheap
 load + preprocess steps and then rehydrates the saved `result.h5` onto the matching
-grid, only re-running the solver if the file is absent or the grid no longer
-matches.
+grid, only re-running the solver if the file is absent, cannot be read, or was not
+fitted to exactly the trace the replay produced
+({func}`croak.session.files.result_mismatch`).
 
 ## Session options → TOML
 
@@ -118,7 +119,8 @@ entry = "simulated"
 [uncertainty]
 ```
 
-`entry` names the **stage-1 loader the trace came from** — `"experimental"`,
+`entry` names the **loader the trace came from** (the first step of the GUI's
+Data stage) — `"experimental"`,
 `"simulated"` or `"synthetic"` — and so which of `[load]` / `[simulated]` is the
 live one; the other is written at its defaults. Without it a simulated session
 would be indistinguishable from an experimental one with an empty file path, and

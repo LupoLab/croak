@@ -24,24 +24,25 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TypedDict
 
-from PyQt6 import sip
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+import shiboken6
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QPushButton, QWidget
 
-from .. import io, plotting
+from .. import io
+from ..plotting.screen import FILTER_PANELS, filter_views
 from ..preprocess import suggested_tau_exclude
 from ..session import pipeline
 from .base import Stage
-from .canvas import (
-    MplCanvas,
+from .controls import (
     add_wide_row,
     check,
     combo,
     dspin,
     group,
     spin,
-    with_toolbar,
 )
+from .sheet import DerivedGrid
+from .view_panel import ViewPanel
 from .widgets import RangeControl, SciSpinBox
 from .worker import PreprocessWorker
 
@@ -57,6 +58,28 @@ class _RangeKW(TypedDict):
 
 
 _RANGE_KW: _RangeKW = {"decimals": 1, "step": 0.1, "slider_scale": 10.0}
+
+TAPER_ADVICE_LEVEL = 0.01
+"""The fraction of the trace the regrid's edge taper may remove before Prepare
+says so: :func:`croak.preprocess.regrid`'s default ``taper_warn_level``, so the
+page warns exactly when the library does."""
+
+NUMBERS = (
+    ("Grid", "Frequency samples × delay samples of the retrieval grid."),
+    ("Δt", "The grid's time step: the shortest feature it can show."),
+    ("Time window", "The grid's time span, N × Δt: the longest pulse it can hold."),
+    (
+        "λ span",
+        "The pulse's wavelength range the grid covers (λ range under Grid); an "
+        "SHG trace's signal lies at half these wavelengths.",
+    ),
+    (
+        "Taper loss",
+        "The share of the trace the grid's edge taper removes; above 1 % the "
+        "λ range clips the trace.",
+    ),
+)
+"""The numbers over Prepare's maps: name and tooltip."""
 
 
 class StagePreprocess(Stage):
@@ -199,7 +222,6 @@ class StagePreprocess(Stage):
         self._seeding = False
         # Off-thread preprocessing: the plotting redraw (not the math) is the
         # bottleneck, but both used to block the UI thread on every change.
-        self._view = plotting.FrogFilterView()
         self._req_id = 0  # bumped per recompute; stale worker results are ignored
         self._workers: list[PreprocessWorker] = []
         self._pending: tuple | None = None  # (params, data) for the exact refine
@@ -407,11 +429,38 @@ class StagePreprocess(Stage):
         )
         self.reset_btn.clicked.connect(self._reset_defaults)
         self.controls.addWidget(self.reset_btn)
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
-        self.canvas = MplCanvas(figsize=(9, 5))
-        self.set_plot_area(with_toolbar(self.canvas))
+        # The filter preview: measured, filtered and regridded traces in dB and
+        # linear. The wavelength-domain maps share their axes, as do all six
+        # delay axes, so a zoom on one follows on the others.
+        self.views = {
+            key: ViewPanel("map", signed=not db)
+            for key, _title, _which, _domain, db in FILTER_PANELS
+        }
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        for index, view in enumerate(self.views.values()):
+            grid.addWidget(view, index // 3, index % 3)
+        first = self.views["measured_db"].plot
+        for key, view in self.views.items():
+            if key == "measured_db":
+                continue
+            view.plot.setYLink(first)
+            if not key.startswith("regridded"):
+                view.plot.setXLink(first)
+        self.views["regridded_lin"].plot.setXLink(self.views["regridded_db"].plot)
+        plots = QWidget()
+        plots.setLayout(grid)
+        # Over the maps, what the grid settings give: the numbers to read while
+        # moving the λ range and trange sliders (see _show_numbers).
+        self.numbers = DerivedGrid(columns=len(NUMBERS))
+        for name, tip in NUMBERS:
+            self.numbers.add(name, tip)
+        self.body.addWidget(self.numbers)
+        self.set_plot_area(plots)
 
         self.apply_help()
 
@@ -621,7 +670,7 @@ class StagePreprocess(Stage):
             try:
                 td = pipeline.build_tracedata(params, data)  # exact, full-resolution
             except Exception as exc:
-                self.set_status(f"Preprocess failed: {exc}")
+                self.set_status(f"Preprocess failed: {exc}", "error")
                 return
             self._show_tracedata(td)
             return
@@ -643,36 +692,56 @@ class StagePreprocess(Stage):
         """Drop our reference to a finished worker (kept alive while running)."""
         if worker in self._workers:
             self._workers.remove(worker)
-        # The worker is parented to this stage, so when the wizard rebuilds its
+        # The worker is parented to this stage, so when the window rebuilds its
         # stages (``deleteLater`` on each) between the thread finishing and this
         # queued slot running, Qt has already destroyed it with its parent.
-        if not sip.isdeleted(worker):
+        if shiboken6.isValid(worker):
             worker.deleteLater()
+
+    def _show_numbers(self, td) -> None:
+        """Show what the grid gives: its size, step, window, band and taper loss."""
+        grid = td.grid
+        lost = td.taper_loss
+        self.numbers.set("Grid", f"{grid.n} × {td.delays.size}")
+        self.numbers.set("Δt", f"{grid.dt / 1e-15:.3g} fs")
+        self.numbers.set("Time window", f"{grid.n * grid.dt / 1e-15:.4g} fs")
+        self.numbers.set(
+            "λ span", f"{td.lam_min / 1e-9:.0f}–{td.lam_max / 1e-9:.0f} nm"
+        )
+        self.numbers.set(
+            "Taper loss",
+            f"{lost:.1%}" if lost >= 0.001 else "< 0.1%",
+            "warn" if lost > TAPER_ADVICE_LEVEL else "ok",
+        )
 
     def _show_tracedata(self, td):
         """Store and draw a freshly computed trace (main thread)."""
         self.state.set_tracedata(td)
-        if self._view.attached:
-            # Fast path: the artists exist, so push the data and repaint.
-            self._view.update(td)
-            self.canvas.draw_idle()
+        self._show_numbers(td)
+        for key, view in filter_views(td).items():
+            self.views[key].show_view(view)
+        grid = f"Regridded to {td.grid.n} × {td.delays.size}."
+        if td.taper_loss > TAPER_ADVICE_LEVEL:
+            self.set_status(f"{grid} The λ grid clips the trace.", "warn")
+            self._advise_taper(td)
         else:
-            self.canvas.render(self._replot_view)
-        self.set_status(
-            f"Regridded to {td.grid.n}×{td.delays.size}. Proceed to Retrieve."
-        )
+            self.set_status(f"{grid} Proceed to Retrieve.")
+            self.advice.clear()
 
-    def _replot_view(self, fig) -> None:
-        """(Re)build the filter view in ``fig`` and fill it from the current trace.
+    def _advise_taper(self, td):
+        """Say that the λ grid cuts live signal, and what to do about it.
 
-        Handed to :meth:`~croak.gui.canvas.MplCanvas.render`, which re-runs it when
-        a resize changes the text density; the view is rebuilt on the cleared
-        figure and refilled from ``state.tracedata`` (nothing to fill if none yet).
+        The library's own warning goes to the console, where a GUI user never
+        sees it; the clipped signal is discarded and the retrieved field is left
+        free at those frequencies, so the page says it where the user looks.
         """
-        self._view.attach(fig)
-        td = self.state.tracedata
-        if td is not None:
-            self._view.update(td)
+        self.advice.say(
+            f"The λ grid removes {td.taper_loss:.0%} of the trace",
+            f"The grid ({td.lam_min / 1e-9:.0f}–{td.lam_max / 1e-9:.0f} nm) ends "
+            "where the trace still has signal, so its edge taper discards that "
+            "signal and leaves the retrieved field unconstrained there. Widen the "
+            "λ range (nm) under Grid until the trace decays inside it.",
+        )
 
     def _on_preprocess_done(self, td, req_id, was_fast):
         if req_id != self._req_id:
@@ -692,4 +761,5 @@ class StagePreprocess(Stage):
     def _on_preprocess_failed(self, message, req_id):
         if req_id != self._req_id:
             return
-        self.set_status(f"Preprocess failed: {message}")
+        self.set_status(f"Preprocess failed: {message}", "error")
+        self.numbers.clear()  # the last grid's numbers no longer hold

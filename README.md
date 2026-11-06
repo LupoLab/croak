@@ -25,7 +25,7 @@ the PNPS (parameterised nonlinear process spectra) class of measurements,
 currently focused on FROG: the SHG, SD and PG/transient-grating geometries, ten
 solvers over a single physical forward model, and the workflow around them
 (loading, cleaning, retrieval, post-processing, dispersion tuning, uncertainty,
-plotting and saving). The library is headless (NumPy/SciPy/JAX); a PyQt6 GUI is
+plotting and saving). The library is headless (NumPy/SciPy/JAX); a Qt GUI (PySide6) is
 optional.
 
 What distinguishes croak from a classic FROG code is the forward model.
@@ -56,7 +56,7 @@ methods and the validation are described in two papers in preparation (see
 the [capabilities overview](https://croak.readthedocs.io/en/latest/reference/features.html)
 lists everything the package does.
 
-![The wizard after a retrieval: measured and retrieved traces, residuals, the retrieved pulse and spectrum, and a numeric read-out.](docs/_static/gui_retrieve.png)
+![The GUI after a retrieval: measured and retrieved traces, the retrieved pulse and spectrum, and the run's numbers beside its convergence.](docs/_static/gui_retrieve.png)
 
 ## Install
 
@@ -96,7 +96,7 @@ uv run croak-gui
 <details>
 <summary><b>Platform notes</b>: read this if the install fails</summary>
 
-The binary dependencies (`jax`, `nlopt`, `finufft`, `pyqt6`) do not publish
+The binary dependencies (`jax`, `nlopt`, `finufft`, `pyside6-essentials`) do not publish
 wheels for every platform. Where a wheel is missing, pip/uv falls back to
 building from source, which needs CMake and a C++ toolchain.
 
@@ -131,7 +131,7 @@ Prefer plain pip? `python3.14 -m venv .venv && . .venv/bin/activate && pip insta
 The [installation guide](https://croak.readthedocs.io/en/latest/getting_started/installation.html)
 covers all of this in more detail.
 
-Optional extras: `croak[gui]` (the wizard) and
+Optional extras: `croak[gui]` (the graphical interface) and
 `croak[evo]` (the cma-es global solver; pulls in `evosax` and its
 `flax`/`optax` dependency tree). In a clone the same extras are
 `uv sync --extra gui` etc.
@@ -233,9 +233,12 @@ from the underlying propagation physics.
 
 ## GUI
 
-A PyQt6 wizard (Load → Marginal check → Preprocess → Retrieve → Dispersion →
-Uncertainty) drives the same library functions, with embedded plots, threaded
-retrieval and a live preview:
+A PySide6 window drives the same library functions. A session starts on Home
+from a measured trace, a simulated scan or a synthetic pulse, and runs through
+Data → Check (the trace's marginal) → Prepare → Retrieve → Analyse (the
+retrieval's panels, dispersion tuning and uncertainty), with interactive plots,
+threaded retrieval, a live preview, and any plot or page exported as a vector
+figure for publication:
 
 ```bash
 uv run croak-gui          # or: uv run python -m croak.gui

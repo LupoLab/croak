@@ -10,9 +10,9 @@ import h5py
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QFileDialog, QPushButton
+from PySide6.QtWidgets import QFileDialog, QPushButton
 
 from croak.gui import stage_load
 from croak.gui.stage_load import StageLoad
@@ -386,11 +386,11 @@ def test_stage_load_draw_handles_position_scans_and_out_of_band_data(stage):
         "trace": np.zeros((6, 5)),
     }
     stage._draw(data)
-    ax = stage.trace_canvas.figure.axes[0]
-    assert ax.get_title() == "Measured trace"
-    # τ = 2z/c: ±3 µm of stage travel is ±20 fs of delay (the mesh adds half a
-    # 10 fs cell either side), not the ±3e-6 a raw position axis would give
-    lo, hi = ax.get_xlim()
+    view = stage.trace_view
+    assert view.title.text() == "Measured trace"
+    # τ = 2z/c: ±3 µm of stage travel is ±20 fs of delay (each sample is a
+    # 10 fs pixel centred on its delay), not the ±3e-6 a raw position axis gives
+    lo, hi = view.plot.box.viewRange()[0]
     assert lo == pytest.approx(-25.0, abs=0.1) and hi == pytest.approx(25.0, abs=0.1)
 
 
@@ -401,14 +401,9 @@ def test_stage_load_draw_handles_an_empty_trace(stage):
         "input_unit": "delay",
         "trace": np.zeros((0, 3)),
     }
-    called = []
-    monkey = stage.trace_canvas.render
-    stage.trace_canvas.render = lambda fn: called.append(fn)
-    try:
-        stage._draw(data)
-    finally:
-        stage.trace_canvas.render = monkey
-    assert len(called) == 1
+    stage._draw(data)
+    assert stage.trace_view.plot.data is None  # said, not drawn
+    assert stage.trace_view.plot.message.isVisible()
 
 
 def test_stage_load_signature_ignores_reverse_trace(stage):

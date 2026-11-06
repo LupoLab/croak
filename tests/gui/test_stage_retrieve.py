@@ -15,15 +15,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog
 
 from croak.gui import stage_retrieve
 from croak.gui.stage_load import seed_preproc_defaults
 from croak.gui.stage_retrieve import StageRetrieve
 from croak.gui.state import WizardState
-from croak.processing import TruthPulse
 from croak.session.params import RetrieveParams
 from croak.session.pipeline import assemble_load_data, build_tracedata, run_retrieval
 
@@ -55,6 +54,9 @@ def run(tmp_path_factory):
 def stage(qtbot):
     s = StageRetrieve(WizardState())
     qtbot.addWidget(s)
+    # What the page says goes out as notices; keep them to read back.
+    s.said = []
+    s.message.connect(s.said.append)
     return s
 
 
@@ -226,13 +228,14 @@ def test_stage_retrieve_geometry_without_mask_says_so(stage):
 # -- running -------------------------------------------------------------------
 def test_stage_retrieve_run_without_a_trace(stage):
     stage._run()
-    assert stage.status_label.text() == "No trace to retrieve."
+    assert stage.said == ["No trace to retrieve."]
+    assert stage.status_label.isHidden()  # Retrieve has no ready line
 
 
 def test_stage_retrieve_truth_init_needs_a_complex_truth(with_trace):
     with_trace.state.retrieve.truth_init = True
     with_trace._run()
-    assert with_trace.status_label.text().startswith(
+    assert with_trace.said[-1].startswith(
         "Truth initialisation needs a known complex field"
     )
     assert with_trace._worker is None
@@ -264,16 +267,16 @@ def test_stage_retrieve_reuse_without_a_compatible_result(with_trace, monkeypatc
     monkeypatch.setattr(stage_retrieve, "RetrievalWorker", _Worker)
     with_trace.state.retrieve.reuse_result = True
     with_trace._run()
-    assert with_trace.status_label.text() == (
+    assert with_trace.said[-1] == (
         "No compatible previous result to reuse; using the default guess."
     )
     assert with_trace._worker.kwargs["guess_override"] is None
     # a result on the same grid but with nothing extra to seed says nothing
     with_trace.state.result = run[3]
-    with_trace.set_status("")
+    with_trace.said.clear()
     with_trace._run()
     assert with_trace._worker.kwargs["extras_seed"] is run[3]
-    assert with_trace.status_label.text() == ""
+    assert with_trace.said == []
     with_trace._stop()
     assert with_trace._worker.stop_requested
 
@@ -296,14 +299,13 @@ def test_stage_retrieve_seeded_extras_names_thickness_and_smearing(stage, run):
 # -- completion, preview and read-out ------------------------------------------
 def test_stage_retrieve_preview_without_trace_is_ignored(stage, run):
     stage._on_preview(run[3])
-    assert not stage._live_full
+    assert stage.pages.mode == "empty"
 
 
 def test_stage_retrieve_preview_without_worker_still_shows(with_trace, run):
     with_trace._worker = None
     with_trace._on_preview(run[3])
-    assert with_trace._live_full
-    assert with_trace.status_label.text().endswith("(live preview)")
+    assert with_trace.pages.mode == "panels"
 
 
 def test_stage_retrieve_preview_reports_its_cost_to_the_worker(with_trace, run):
@@ -314,8 +316,11 @@ def test_stage_retrieve_preview_reports_its_cost_to_the_worker(with_trace, run):
 
 def test_stage_retrieve_convergence_waits_for_errors(stage, monkeypatch):
     shown = []
-    monkeypatch.setattr(stage.pages, "show_progress", shown.append)
-    stage._live_full = False
+    monkeypatch.setattr(
+        stage.convergence,
+        "show_view",
+        lambda view: shown.append(list(view.curves[0].y)),
+    )
     stage._errors = []
     stage._draw_convergence()  # nothing to plot yet
     assert shown == []
@@ -327,21 +332,8 @@ def test_stage_retrieve_convergence_waits_for_errors(stage, monkeypatch):
 def test_stage_retrieve_stopped_run_is_kept_and_labelled(with_trace, run):
     with_trace._on_stopped(run[3], 1.25)
     assert with_trace.state.result is not None
-    assert with_trace.save_btn.isEnabled()
-    status = with_trace.status_label.text()
-    assert status.startswith("Stopped. R = ")
-    assert status.endswith("1.25 s")
-
-
-def test_stage_retrieve_status_lists_fitted_extras(with_trace, run):
-    p = with_trace.state.retrieve
-    p.smearing = True
-    fitted = replace(run[3], thickness=12e-6, tau0=2e-15, smear_scale=1.1)
-    with_trace._on_finished(fitted, 0.5)
-    status = with_trace.status_label.text()
-    assert "thickness 12.00 µm" in status
-    assert "τ₀ 2.00 fs" in status
-    assert "smearing σ" in status and "(×1.100)" in status
+    assert not with_trace.busy()
+    assert with_trace.said[-1] == "Stopped: the run's latest result is kept."
 
 
 def test_stage_retrieve_update_view_needs_result_and_trace(stage, run):
@@ -351,6 +343,12 @@ def test_stage_retrieve_update_view_needs_result_and_trace(stage, run):
     assert stage.state.result is None
     with pytest.raises(RuntimeError, match="no trace data"):
         stage._plot_data(run[3], None)
+
+
+def test_stage_retrieve_smear_width_is_none_without_a_kernel(stage):
+    stage.state.retrieve.smearing = False  # switched off after the run
+    td = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
+    assert stage._smear_width_fs(1.1, td) is None
 
 
 def test_stage_retrieve_smear_width_is_none_for_shg(stage):
@@ -372,92 +370,89 @@ def test_stage_retrieve_elapsed_clock_ticks(stage, monkeypatch):
 def test_stage_retrieve_formatters_show_a_dash_when_undefined(value):
     assert StageRetrieve._nm(value) == DASH
     assert StageRetrieve._fs(value) == DASH
-    assert StageRetrieve._power(value, 1.0) == DASH
 
 
-def test_stage_retrieve_curve_readout_without_truth_spectrum(
+def test_stage_retrieve_pulse_readout_dashes_what_is_undefined(
     with_trace, run, monkeypatch
 ):
     with_trace._on_finished(run[3], 0.5)
-    pr = with_trace.state.processed
-    t = np.linspace(-50e-15, 50e-15, 101)
-    # intensity only: no spectrum on the truth
-    truth = TruthPulse(t=t, It=np.exp(-((t / 5e-15) ** 2)), fwhm=8.3e-15)
-    cells = {}
-    monkeypatch.setattr(
-        with_trace.readout, "set_cells", lambda row, values: cells.update({row: values})
-    )
-    with_trace._update_curve_readout(pr, truth)
-    # without a known spectrum the truth row carries temporal cells only
-    assert set(cells["truth"]) == {"fwhm", "peak_power"}
+    pr = replace(with_trace.state.processed, fwhm_retr=float("nan"))
+    monkeypatch.setattr(stage_retrieve, "peak_wavelength", lambda *a: None)
+    with_trace._update_pulse_readout(pr)
+    assert with_trace.readout.text("lam_peak") == DASH
+    assert with_trace.readout.text("fwhm") == DASH
 
 
 def test_stage_retrieve_extras_readout_marks_fitted_values(with_trace, run):
     p = with_trace.state.retrieve
     p.smearing = True
-    seen = {}
-    with_trace.readout.set_scalars = lambda values: seen.update(values)
+    readout = with_trace.readout
+
+    def shown(key):
+        return readout.text(key), readout.name(key)
+
     fitted = replace(run[3], thickness=12e-6, tau0=2e-15, smear_scale=1.1)
     with_trace._update_extras_readout(fitted)
-    assert seen["thickness"] == "12.00 µm (fit)"
-    assert seen["tau0"] == "2.00 fs (fit)"
-    assert seen["smearing"].endswith("(×1.100, fit)")
+    assert shown("thickness") == ("12.00 µm", "Thickness · fit")
+    assert shown("tau0") == ("2.00 fs", "τ₀ · fit")
+    assert readout.text("smearing").endswith(" fs")
+    assert readout.name("smearing") == "Smearing · ×1.100 fit"
     # a kernel the trace cannot carry (SHG) falls back to the bare factor
     with_trace.state.tracedata = replace(run[2], interaction="shg")
     with_trace._update_extras_readout(fitted)
-    assert seen["smearing"] == "×1.100 (fit)"
+    assert shown("smearing") == ("×1.100", "Smearing · fit")
     # nothing fitted, no slab: dashes and the nominal fixed values
     p.dispersive = False
     p.smearing = False
     with_trace._update_extras_readout(None)
-    assert seen["thickness"] == DASH
-    assert seen["tau0"] == "0.00 fs (fixed)"
-    assert seen["smearing"] == DASH
+    assert shown("thickness") == (DASH, "Thickness")
+    assert shown("tau0") == ("0.00 fs", "τ₀ · fixed")
+    assert shown("smearing") == (DASH, "Smearing")
 
 
 # -- retarget and save ---------------------------------------------------------
 def test_stage_retrieve_retarget_emits_the_chosen_folder(stage, monkeypatch, qtbot):
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "")
     stage._retarget()
-    assert stage.status_label.text() == ""
+    assert stage.said == []
     monkeypatch.setattr(
         QFileDialog, "getExistingDirectory", lambda *a, **k: "/data/next"
     )
     with qtbot.waitSignal(stage.state.retarget_requested) as blocker:
         stage._retarget()
     assert blocker.args == ["/data/next"]
-    assert stage.status_label.text() == "Retargeting to /data/next …"
-
-
-def test_stage_retrieve_save_needs_a_result_and_a_folder(
-    with_trace, monkeypatch, run, tmp_path
-):
-    calls = []
-    monkeypatch.setattr(
-        QFileDialog,
-        "getExistingDirectory",
-        lambda *a, **k: calls.append(1) or "",
-    )
-    with_trace._save()  # no result: the dialog never opens
-    assert calls == []
-    with_trace._on_finished(run[3], 0.5)
-    with_trace._save()  # cancelled
-    assert calls == [1]
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_stage_retrieve_smear_summary_after_the_kernel_is_switched_off(stage):
-    stage.state.retrieve.smearing = False
-    td = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
-    assert stage._smear_summary(1.1, td) == "smearing ×1.100"
+    assert stage.said == ["Retargeting to /data/next …"]
 
 
 @pytest.mark.parametrize(
-    ("message", "status"), [("stopped", "Stopped."), ("diverged", "Failed: diverged")]
+    ("message", "status", "advised"),
+    [("stopped", "Stopped.", False), ("diverged", "Failed: diverged", True)],
 )
-def test_stage_retrieve_failure_reenables_run(stage, message, status):
-    stage.run_btn.setEnabled(False)
-    stage.stop_btn.setEnabled(True)
-    stage._on_failed(message)
-    assert stage.run_btn.isEnabled() and not stage.stop_btn.isEnabled()
-    assert stage.status_label.text() == status
+def test_stage_retrieve_failure_ends_the_run(
+    with_trace, monkeypatch, message, status, advised
+):
+    with_trace.set_running(True)
+    with_trace._on_failed(message)
+    assert not with_trace.busy()
+    assert with_trace.said[-1] == status
+    # a failure stays over the plots until the next run starts
+    assert with_trace.advice.isHidden() is not advised
+    monkeypatch.setattr(stage_retrieve, "RetrievalWorker", _Worker)
+    with_trace._run()
+    assert with_trace.advice.isHidden()
+
+
+def test_retrieve_form_finds_a_setting_by_name_or_help(qtbot):
+    stage = StageRetrieve(WizardState())
+    qtbot.addWidget(stage)
+    stage.show()
+    assert stage.form.find is not None
+    stage.form.find.setText("regularisation")
+    shown = [s.section_title for s in stage.form.sections if not s.isHidden()]
+    assert "Regularisation" in shown and "Solver" not in shown
+    regularisation = next(
+        s for s in stage.form.sections if s.section_title == "Regularisation"
+    )
+    assert not regularisation.body.isHidden()  # unfolded to show the matches
+    stage.form.find.setText("")
+    assert regularisation.folded and regularisation.body.isHidden()

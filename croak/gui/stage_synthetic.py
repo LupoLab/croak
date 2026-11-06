@@ -17,7 +17,8 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from PyQt6.QtCore import QTimer
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QGridLayout, QWidget
 
 from .. import dispersion
 from ..constants import C
@@ -25,20 +26,20 @@ from ..forward import maketrace
 from ..grid import Grid
 from ..interactions import INTERACTIONS, get_interaction
 from ..materials import MATERIALS
+from ..plotting.screen import pulse_field_views, raw_trace_map
 from ..processing import TruthPulse
 from ..pulses import gaussian_pulse, sech_pulse
 from .base import Stage
-from .canvas import (
-    MplCanvas,
+from .controls import (
     add_wide_row,
     check,
     combo,
     dspin,
     group,
     spin,
-    with_toolbar,
 )
 from .stage_load import seed_preproc_defaults
+from .view_panel import ViewPanel
 from .widgets import RangeControl, ValueControl
 
 # dispersion slider ranges follow StageDispersion (fs² / fs³ / fs⁴)
@@ -51,9 +52,8 @@ _SHAPES = ["Gaussian", "Sech²"]
 class StageSynthetic(Stage):
     """Synthetic-pulse / synthetic-FROG generator (reached from the menu)."""
 
-    def __init__(self, state, wizard):
+    def __init__(self, state):
         super().__init__(state)
-        self.wizard = wizard
         self._last = None  # cache of the last computed (grid, ew, omega0)
 
         # debounce rapid slider changes into one recompute
@@ -172,15 +172,26 @@ class StageSynthetic(Stage):
         add_wide_row(form, "Poisson counts", self.noise_pois)
         self.controls.addWidget(box)
 
-        # Navigation (Back / "Generate →") lives in the shared wizard footer, via
-        # the entry-page hooks below.
-        self.controls.addWidget(self.status_label)
+        # Continue lives in the window's top bar; the Data page calls advance.
         self.controls.addStretch(1)
 
         self._seed_sampling()
 
-        self.canvas = MplCanvas(figsize=(9, 7))
-        self.set_plot_area(with_toolbar(self.canvas))
+        self.views = {
+            "temporal": ViewPanel("line", right=True),
+            "spectral": ViewPanel("line", right=True),
+            "spectrogram": ViewPanel("map"),
+            "trace": ViewPanel("map", signed=True),
+        }
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        for index, view in enumerate(self.views.values()):
+            grid.addWidget(view, index // 2, index % 2)
+        plots = QWidget()
+        plots.setLayout(grid)
+        self.set_plot_area(plots)
 
     # -- lifecycle ----------------------------------------------------------
     def on_enter(self):
@@ -433,119 +444,57 @@ class StageSynthetic(Stage):
             self.set_status(f"Generation failed: {exc}")
             return
         self._last = (grid, ew, omega0)
-        # show the trace as it will be handed on (with any noise applied)
-        self._draw(grid, ew, omega0, lam_sig, delays, self._add_noise(trace))
-        self.set_status("Adjust parameters, then Generate to run retrieval.")
+        # Show the trace as Continue hands it on: sampled onto the λ window, with
+        # any noise. The raw trace spans the whole simulation grid, far wider
+        # than the signal, and drawn as it is it shows a featureless stripe.
+        lam, meas = self._measured(lam_sig, delays, trace)
+        if meas.max() <= 0:
+            self.set_status(
+                "Trace is empty in the chosen λ window; widen the range.", "warn"
+            )
+            return
+        self._draw(grid, ew, omega0, lam, delays, meas / meas.max())
+        self.set_status("Adjust the pulse and the trace, then Continue to check it.")
+
+    def _measured(self, lam_sig, delays, trace):
+        """Sample the trace onto the user's λ window, as a spectrometer would.
+
+        Returns ``(lam, trace)``: the window's wavelengths (m) and the trace on
+        them, with the chosen noise; zero outside the simulated band.
+        """
+        lo, hi = self._wl[0] * 1e-9, self._wl[1] * 1e-9
+        lam = np.linspace(lo, hi, int(self.nwl.value()))
+        meas = np.empty((lam.size, delays.size))
+        for j in range(delays.size):
+            meas[:, j] = np.interp(lam, lam_sig, trace[:, j], left=0.0, right=0.0)
+        return lam, self._add_noise(meas)
 
     def _draw(self, grid, ew, omega0, lam_sig, delays, trace):
-        def plot(fig):
-            axd = fig.subplot_mosaic("ab\ncd")
-            self._plot_temporal(axd["a"], grid, ew)
-            self._plot_spectral(axd["b"], grid, ew, omega0)
-            self._plot_spectrogram(axd["c"], grid, ew, omega0)
-            self._plot_frog(axd["d"], lam_sig, delays, trace)
-
-        self.canvas.render(plot)
-
-    @staticmethod
-    def _masked_phase(intensity, field, frac=1e-3):
-        phase = np.unwrap(np.angle(field))
-        mask = intensity < intensity.max() * frac
-        phase = phase - phase[int(np.argmax(intensity))]
-        phase[mask] = np.nan
-        return phase
-
-    def _plot_temporal(self, ax, grid, ew):
-        Et = grid.ifft(ew)
-        inten = np.abs(Et) ** 2
-        inten = inten / inten.max() if inten.max() > 0 else inten
-        t = grid.t / 1e-15
-        ax.plot(t, inten, c="C0")
-        axp = ax.twinx()
-        axp.plot(t, self._masked_phase(inten, Et), c="C1", lw=1)
-        axp.set_ylabel("Phase (rad)", color="C1")
-        # zoom to the pulse
-        sig = t[inten > 1e-3]
-        if sig.size:
-            pad = 0.2 * (sig.max() - sig.min() + 1e-9)
-            ax.set_xlim(sig.min() - pad, sig.max() + pad)
-        ax.set_xlabel("Time (fs)")
-        ax.set_ylabel("Intensity")
-        ax.set_title("Temporal")
-
-    def _plot_spectral(self, ax, grid, ew, omega0):
-        inten = np.abs(ew) ** 2
-        inten = inten / inten.max() if inten.max() > 0 else inten
-        omega_abs = grid.omega + omega0
-        pos = omega_abs > 0
-        lam = 2 * math.pi * C / omega_abs[pos] / 1e-9
-        order = np.argsort(lam)
-        lam = lam[order]
-        Ip = inten[pos][order]
-        phase = self._masked_phase(inten, ew)[pos][order]
-        ax.plot(lam, Ip, c="C0")
-        axp = ax.twinx()
-        axp.plot(lam, phase, c="C1", lw=1)
-        axp.set_ylabel("Phase (rad)", color="C1")
-        sig = lam[Ip > 1e-3]
-        if sig.size:
-            pad = 0.2 * (sig.max() - sig.min() + 1e-9)
-            ax.set_xlim(sig.min() - pad, sig.max() + pad)
-        ax.set_xlabel("Wavelength (nm)")
-        ax.set_ylabel("Intensity")
-        ax.set_title("Spectral")
-
-    def _plot_spectrogram(self, ax, grid, ew, omega0, n_t=160):
-        """A Gabor spectrogram of the field (time × wavelength)."""
-        Et = grid.ifft(ew)
-        t = grid.t
-        inten = np.abs(Et) ** 2
-        sig = t[inten > inten.max() * 1e-3] if inten.max() > 0 else t
-        tmin = sig.min() - 0.3 * (sig.max() - sig.min() + 1e-15)
-        tmax = sig.max() + 0.3 * (sig.max() - sig.min() + 1e-15)
-        tcs = np.linspace(tmin, tmax, n_t)
-        fw = max((tmax - tmin) / 30.0, grid.dt * 4)
-        S = np.empty((grid.n, n_t))
-        for i, tc in enumerate(tcs):
-            gate = np.exp(-0.5 * ((t - tc) / fw) ** 2)
-            sp = np.fft.fftshift(np.fft.fft(np.fft.ifftshift(Et * gate)))
-            S[:, i] = np.abs(sp) ** 2
-        omega_abs = grid.omega + omega0
-        pos = omega_abs > 0
-        S = S[pos] * (omega_abs[pos] ** 2)[:, None]
-        lam = 2 * math.pi * C / omega_abs[pos] / 1e-9
-        order = np.argsort(lam)
-        S = S[order]
-        lam = lam[order]
-        S = S / S.max() if S.max() > 0 else S
-        ax.pcolormesh(tcs / 1e-15, lam, S, shading="auto")
-        lam_sig = lam[(S.max(axis=1) > 1e-2)]
-        if lam_sig.size:
-            ax.set_ylim(lam_sig.min(), lam_sig.max())
-        ax.set_xlabel("Time (fs)")
-        ax.set_ylabel("Wavelength (nm)")
-        ax.set_title("Spectrogram")
-
-    def _plot_frog(self, ax, lam_sig, delays, trace):
-        ax.pcolormesh(delays / 1e-15, lam_sig / 1e-9, trace, shading="auto")
-        sig = lam_sig[(trace.max(axis=1) > 1e-2)] / 1e-9
-        if sig.size:
-            ax.set_ylim(sig.min(), sig.max())
-        ax.set_xlabel("Delay (fs)")
-        ax.set_ylabel("Wavelength (nm)")
-        ax.set_title("Synthetic FROG trace")
+        """Show the pulse, its spectrum and spectrogram, and its trace."""
+        temporal, spectral, gram = pulse_field_views(grid, ew, omega0)
+        self.views["temporal"].show_view(temporal)
+        self.views["spectral"].show_view(spectral)
+        self.views["spectrogram"].show_view(gram)
+        self.views["trace"].show_view(
+            raw_trace_map(
+                delays / 1e-15,
+                lam_sig / 1e-9,
+                trace,
+                # a synthetic trace has no out-of-band noise: trust all of it
+                (0.0, float("inf")),
+                title="Synthetic FROG trace",
+            )
+        )
 
     # -- generate (the entry-page forward action) ---------------------------
-    def next_label(self) -> str:
-        return "Generate →"
 
     def advance(self):
         """Build the synthetic trace from the current settings and move on.
 
-        Wired to the wizard footer's forward button. On success the trace (and the
-        generating field, as the known ground truth) is put on the shared state and
-        the wizard advances to the marginal-check stage; on failure the reason is
-        shown in the status label and the page stays put.
+        The Data page's Continue calls it. On success the trace (and the
+        generating field, as the known ground truth) is put on the shared state
+        and :attr:`advanced` sends the session to the marginal check; on failure
+        the reason is shown in the status label and the page stays put.
         """
         try:
             grid, ew, omega0 = self._pulse()
@@ -554,13 +503,7 @@ class StageSynthetic(Stage):
             self.set_status(f"Generation failed: {exc}")
             return
         interaction = self.interaction.currentText()
-        # sample onto the user's measurement wavelength axis (emulate a spectrometer)
-        lo, hi = self._wl[0] * 1e-9, self._wl[1] * 1e-9
-        lam_user = np.linspace(lo, hi, int(self.nwl.value()))
-        meas = np.empty((lam_user.size, delays.size))
-        for j in range(delays.size):
-            meas[:, j] = np.interp(lam_user, lam_sig, trace[:, j], left=0.0, right=0.0)
-        meas = self._add_noise(meas)
+        lam_user, meas = self._measured(lam_sig, delays, trace)
         m = meas.max()
         if m <= 0:
             self.set_status("Trace is empty in the chosen λ window; widen the range.")
@@ -583,4 +526,4 @@ class StageSynthetic(Stage):
         self.state.load.interaction = interaction
         self.state.set_load_data(data)
         seed_preproc_defaults(self.state)
-        self.wizard.enter_marginal_from_synthetic()
+        self.advanced.emit("check")

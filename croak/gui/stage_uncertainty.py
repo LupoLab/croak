@@ -11,11 +11,10 @@ systematic that dominates short dispersive-retrieval pulses.
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QFileDialog,
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
@@ -23,11 +22,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import plotting, save
+from .. import plotting
+from ..plotting.screen import uncertainty_views
 from ..processing import TruthPulse
-from ..uncertainty import combine_uncertainties
-from .base import Stage
-from .canvas import MplCanvas, check, combo, dspin, group, spin, with_toolbar
+from ..session.files import UNCERTAINTY_FIGURE
+from ..uncertainty import UncertaintyResult, combine_uncertainties
+from .base import RunControls, Stage
+from .controls import check, combo, dspin, group, spin
+from .view_panel import ViewPanel
 
 _METHODS = ["parametric", "delay", "frequency", "thickness", "covariance"]
 _NOISE_SOURCES = ["residual", "manual"]
@@ -39,7 +41,7 @@ def _truth_fwhm(truth: TruthPulse | None) -> float | None:
     return None if truth is None else truth.fwhm
 
 
-class StageUncertainty(Stage):
+class StageUncertainty(RunControls, Stage):
     """Estimate and display the statistical uncertainty of the retrieved FWHM."""
 
     HELP_TITLE = "Uncertainty"
@@ -122,51 +124,40 @@ class StageUncertainty(Stage):
         form.addRow("Interval", self.interval)
         self.controls.addWidget(box)
 
-        row = QWidget()
-        rl = QHBoxLayout(row)
-        rl.setContentsMargins(0, 0, 0, 0)
-        self.run_btn = QPushButton("Estimate")
-        self.run_btn.clicked.connect(self._run)
-        self.stop_btn = QPushButton("Stop")
-        self.stop_btn.clicked.connect(self._stop)
-        self.stop_btn.setEnabled(False)
-        rl.addWidget(self.run_btn)
-        rl.addWidget(self.stop_btn)
-        self.controls.addWidget(row)
-
         # Retained estimates: each completed run is kept so several independent
-        # contributions can be combined into a total before saving. Tick the ones to
-        # combine (don't mix redundant statistical estimators); click one to view it.
+        # contributions can be combined into a total (Save session keeps them all).
+        # Tick the ones to combine (don't mix redundant statistical estimators);
+        # click one to view it.
         est_box, est_form = group("Estimates")
         self.est_list = QListWidget()
         self.est_list.setMaximumHeight(110)
         self.est_list.currentItemChanged.connect(self._on_select_estimate)
         self.est_list.itemChanged.connect(lambda _item: self._sync_enabled())
         est_form.addRow(self.est_list)
-        est_row = QWidget()
-        erl = QHBoxLayout(est_row)
-        erl.setContentsMargins(0, 0, 0, 0)
         self.combine_btn = QPushButton("Combine ticked")
         self.combine_btn.setToolTip(
             "Combine the ticked independent estimates in quadrature into a total."
         )
         self.combine_btn.clicked.connect(self._combine)
-        self.save_btn = QPushButton("Save…")
-        self.save_btn.setToolTip(
-            "Append all estimates (intervals + temporal bands) to result.h5."
-        )
-        self.save_btn.clicked.connect(self._save)
-        erl.addWidget(self.combine_btn)
-        erl.addWidget(self.save_btn)
-        est_form.addRow(est_row)
+        est_form.addRow(self.combine_btn)
         self.controls.addWidget(est_box)
 
         self.controls.addStretch(1)
-        self.controls.addWidget(self.status_label)
         self._sync_enabled()
 
-        self.canvas = MplCanvas(figsize=(11, 4.5))
-        self.set_plot_area(with_toolbar(self.canvas))
+        # Up to three panels side by side: a histogram (or FWHM and error against
+        # thickness) and the temporal confidence band; unused ones are hidden.
+        self.views = [ViewPanel("line") for _ in range(3)]
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(14)
+        for view in self.views:
+            row.addWidget(view)
+            view.hide()
+        plots = QWidget()
+        plots.setLayout(row)
+        self.set_plot_area(plots)
+        self._shown: UncertaintyResult | None = None
         self.apply_help()
 
     # -- control bindings ---------------------------------------------------
@@ -208,7 +199,6 @@ class StageUncertainty(Stage):
         self.noise_sigma.setEnabled(needs_noise and u.noise_source == "manual")
         self.thickness_sigma.setEnabled(u.method == "thickness")
         self.combine_btn.setEnabled(len(self._checked_methods()) >= 2)
-        self.save_btn.setEnabled(bool(self.state.uncertainty_results))
 
     # -- retained estimates -------------------------------------------------
     def _label(self, method: str, u) -> str:
@@ -275,38 +265,28 @@ class StageUncertainty(Stage):
         self._draw(combined)
         self.set_status(combined.summary())
 
-    def _save(self):
-        if self.state.result is None or not self.state.uncertainty_results:
-            self.set_status("Run an estimate first.")
-            return
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
-        if not folder:
-            return
-        path = os.path.join(folder, "result.h5")
-        save.save_result(
-            self.state.result,
-            path,
-            processed=self.state.processed,
-            truth=self.state.truth,
-            force=True,
-        )
-        save.save_uncertainty(self.state.uncertainty_results, path, force=True)
-        save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        saved = "result.h5 (+uncertainty), options.toml"
-        # Estimates restored from a saved session may not have been plotted yet;
-        # the PDF documents the figure on screen, so there is nothing to export.
-        if self.canvas.rendered:
-            self.canvas.save_figure(os.path.join(folder, "uncertainty.pdf"), dpi=300)
-            saved += ", uncertainty.pdf"
-        self.set_status(f"Saved {saved} to {folder}")
+    def save_extras(self, folder: Path) -> list[str]:
+        """Write the figure of the estimate on screen (Save session appends every
+        estimate to its ``result.h5``).
+
+        Nothing if none is drawn, or if the one drawn no longer holds: a new
+        retrieval clears the session's estimates
+        (:meth:`~croak.gui.state.WizardState.set_result`), and its figure would
+        then sit beside a ``result.h5`` without it.
+        """
+        shown = self._shown
+        current = self.state.uncertainty_results.values()
+        if shown is None or not any(estimate is shown for estimate in current):
+            return []
+        figure = plotting.plot_uncertainty(shown, truth=_truth_fwhm(self.state.truth))
+        figure.savefig(folder / UNCERTAINTY_FIGURE, dpi=300)
+        return [UNCERTAINTY_FIGURE]
 
     # -- lifecycle ----------------------------------------------------------
     def on_enter(self):
         if self.state.result is None:
-            self.run_btn.setEnabled(False)
             self.set_status("Retrieve a pulse first.")
             return
-        self.run_btn.setEnabled(True)
         self._refresh_estimates()
         if self.state.uncertainty_result is not None:
             self._draw(self.state.uncertainty_result)
@@ -319,12 +299,11 @@ class StageUncertainty(Stage):
         if self.state.result is None or self.state.tracedata is None:
             self.set_status("Retrieve a pulse first.")
             return
-        # Import here so the rest of the GUI imports even if PyQt-less envs build
+        # Import here so the rest of the GUI imports even if Qt-less envs build
         # the worker lazily; the worker pulls in the (heavier) solver stack.
         from .worker import UncertaintyWorker
 
-        self.run_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
+        self.set_running(True)
         self.set_status("Estimating…")
         self._worker = UncertaintyWorker(
             self.state.result,
@@ -342,27 +321,38 @@ class StageUncertainty(Stage):
         if self._worker is not None:
             self._worker.request_stop()
 
+    def act(self, kind: str) -> bool:
+        """Estimate or stop from the window's primary action (never moves on)."""
+        if kind == "estimate":
+            self._run()
+            return False
+        if kind == "stop-estimate":
+            self._stop()
+            return False
+        return super().act(kind)
+
     def _on_progress(self, done, total, error):
         self.set_status(f"replicate {done}/{total}:  R = {error:.4%}")
 
     def _on_finished(self, uresult):
-        self.run_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.set_running(False)
         self.state.set_uncertainty_result(uresult)
         self._refresh_estimates()
         self._draw(uresult)
         self.set_status(uresult.summary())
 
     def _on_failed(self, message):
-        self.run_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.set_running(False)
         if message == "stopped":
             self.set_status("Stopped.")
         else:
             self.set_status(f"Uncertainty estimation failed: {message}")
 
     def _draw(self, uresult):
-        truth = _truth_fwhm(self.state.truth)
-        self.canvas.render(
-            lambda fig: plotting.plot_uncertainty(uresult, truth=truth, fig=fig)
-        )
+        views = uncertainty_views(uresult, truth=_truth_fwhm(self.state.truth))
+        for panel, view in zip(self.views, views, strict=False):
+            panel.show_view(view)
+            panel.show()
+        for panel in self.views[len(views) :]:
+            panel.hide()
+        self._shown = uresult

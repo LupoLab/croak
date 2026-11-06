@@ -11,11 +11,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from croak.gui import stage_marginal_check
+from croak.gui.display import set_display
 from croak.gui.stage_marginal_check import StageMarginalCheck, _peak_norm
 from croak.gui.state import WizardState
+from croak.plotting.display import Display
 from croak.session.pipeline import assemble_load_data
 
 LAM = np.linspace(700e-9, 900e-9, 64)
@@ -41,7 +43,7 @@ def _data(interaction="pg", *, spectrum=True, trace=None, input_unit="delay"):
 
 @pytest.fixture
 def stage(qtbot):
-    s = StageMarginalCheck(WizardState(), None)
+    s = StageMarginalCheck(WizardState())
     qtbot.addWidget(s)
     return s
 
@@ -52,9 +54,9 @@ def _enter(stage, data, entry="experimental"):
     stage.on_enter()
 
 
-def _legend(canvas):
-    legend = canvas.figure.axes[0].get_legend()
-    return [t.get_text() for t in legend.get_texts()]
+def _legend(view):
+    """The names of the curves the marginal view shows."""
+    return [c.name for c in view.plot.curves]
 
 
 @pytest.fixture
@@ -79,7 +81,7 @@ def test_stage_marginal_check_without_data_asks_for_a_trace(stage):
     stage.on_enter()
     assert stage.status_label.text() == "Load a trace first."
     stage._draw()  # nothing to draw
-    assert stage.trace_canvas.figure.axes == []
+    assert stage.trace_view.plot.data is None
 
 
 def test_stage_marginal_check_measured_trace_defaults_and_controls(stage):
@@ -92,7 +94,7 @@ def test_stage_marginal_check_measured_trace_defaults_and_controls(stage):
     assert stage.exp_spin.value() == pytest.approx(3.5)
     assert stage.auto_btn.isEnabled()
     assert stage.status_label.text().startswith("PG marginal check")
-    assert "trace marginal" in _legend(stage.marg_canvas)
+    assert "trace marginal" in _legend(stage.marg_view)
 
 
 def test_stage_marginal_check_trust_is_kept_for_the_same_trace(stage):
@@ -136,27 +138,28 @@ def test_stage_marginal_check_shg_correction_needs_a_spectrum(stage):
     assert stage.marginal_correct_check.isEnabled()
     stage.marginal_correct_check.setChecked(True)
     assert stage.state.preproc.marginal_correct is True
-    assert "trace marginal (corrected)" in _legend(stage.marg_canvas)
+    assert "trace marginal (corrected)" in _legend(stage.marg_view)
     assert "(exact)" in stage.status_label.text()  # SHG predicts the width exactly
 
 
 # -- display ------------------------------------------------------------------
 def test_stage_marginal_check_wavelength_axis_and_log_scale(stage):
     _enter(stage, _data())
-    stage.axis_combo.setCurrentText("wavelength")
+    set_display(Display(axis="wavelength"))
     stage.scale_combo.setCurrentText("log")
-    ax = stage.marg_canvas.figure.axes[0]
-    assert ax.get_xlabel() == "Wavelength (nm)"
-    assert ax.get_yscale() == "log"
-    assert ax.get_xlim() == pytest.approx(stage._trust_nm)
+    plot = stage.marg_view.plot
+    assert plot.item.getAxis("bottom").labelText == "Wavelength (nm)"
+    assert plot.log_y
+    assert plot.box.viewRange()[0] == pytest.approx(stage._trust_nm)
+    # the log window is 1e-3 … 1.5, in decades
+    assert plot.box.viewRange()[1] == pytest.approx([-3.0, np.log10(1.5)])
 
 
 def test_stage_marginal_check_position_scan_and_blank_trace(stage):
     # A blank, position-scanned trace: the image has no in-band signal to
     # zoom to and the marginal has too few positive samples for its moments.
     _enter(stage, _data(trace=np.zeros((LAM.size, 21)), input_unit="position"))
-    ax = stage.trace_canvas.figure.axes[0]
-    assert ax.get_title() == "Measured trace"
+    assert stage.trace_view.title.text() == "Measured trace"
     assert stage.status_label.text() == (
         "No independent spectrum: showing the trace marginal only."
     )
@@ -165,8 +168,8 @@ def test_stage_marginal_check_position_scan_and_blank_trace(stage):
 def test_stage_marginal_check_trace_outside_trust_scales_to_all_of_it(stage):
     _enter(stage, _data(), entry="synthetic")
     stage._on_trust(100.0, 200.0)  # no sample in band
-    ax = stage.trace_canvas.figure.axes[0]
-    assert ax.get_title() == "Measured trace"
+    assert stage.trace_view.title.text() == "Measured trace"
+    assert stage.trace_view.plot.data is not None
 
 
 # -- prediction edge cases ------------------------------------------------------
@@ -206,7 +209,7 @@ def test_stage_marginal_check_width_bracket_flags(stage, sigma_meas, flag):
         "width_is_hard": False,
         "rms_width": 2.0,
     }
-    stage._annotate_checks(None, 801.0, sigma_meas, pred, "pg")
+    stage._annotate_checks(801.0, sigma_meas, pred, "pg")
     text = stage.status_label.text()
     assert text.startswith("PG marginal check")
     assert "(Δ +1.0 nm, hard)" in text
@@ -224,7 +227,7 @@ def test_stage_marginal_check_sd_reports_only_the_lower_bound(stage, sigma_meas,
         "width_is_hard": False,
         "rms_width": 2.0,
     }
-    stage._annotate_checks(None, 800.0, sigma_meas, pred, "sd")
+    stage._annotate_checks(800.0, sigma_meas, pred, "sd")
     text = stage.status_label.text()
     assert "TL/soft" in text
     assert text.endswith(f"(σ_S) {mark}")

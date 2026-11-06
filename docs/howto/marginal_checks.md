@@ -97,9 +97,9 @@ collection effects.
 
 ## In the GUI
 
-All of the above is interactive on the wizard's **Marginal check** stage, which
-sits between the data loaders and preprocessing for the experimental, simulated
-and synthetic entry paths. It overlays the predicted marginal on the measured
+All of the above is interactive on the GUI's **Check the marginal** step, the
+second step of the Data stage, which sits between the data loaders and Prepare
+for measured, simulated and synthetic sessions. It overlays the predicted marginal on the measured
 one, marks the predicted vs measured centroid, reports the width-bracket check,
 and exposes the trust region, a log/linear toggle and the `(λ/µm)^exp` correction
 with an `Auto` (centroid-matching) button. The **SHG marginal correction** also

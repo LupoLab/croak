@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from PyQt6.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal
 
 from ..session import pipeline
 
@@ -47,8 +47,8 @@ class PreprocessWorker(QThread):
         An error message and the originating ``request_id``.
     """
 
-    finished_ok = pyqtSignal(object, int, bool)
-    failed = pyqtSignal(str, int)
+    finished_ok = Signal(object, int, bool)
+    failed = Signal(str, int)
 
     def __init__(self, params, data, request_id, parent=None, *, fast=False):
         super().__init__(parent)
@@ -110,11 +110,11 @@ class RetrievalWorker(QThread):
     #: Python-heavy solver.
     PREVIEW_DUTY = 0.25
 
-    progress = pyqtSignal(int, float, float)
-    preview = pyqtSignal(object)
-    finished_ok = pyqtSignal(object, float)
-    stopped = pyqtSignal(object, float)
-    failed = pyqtSignal(str)
+    progress = Signal(int, float, float)
+    preview = Signal(object)
+    finished_ok = Signal(object, float)
+    stopped = Signal(object, float)
+    failed = Signal(str)
 
     def __init__(
         self,
@@ -236,9 +236,9 @@ class UncertaintyWorker(QThread):
         An error message on failure (excluding a user Stop).
     """
 
-    progress = pyqtSignal(int, int, float)
-    finished_ok = pyqtSignal(object)
-    failed = pyqtSignal(str)
+    progress = Signal(int, int, float)
+    finished_ok = Signal(object)
+    failed = Signal(str)
 
     def __init__(
         self, result, tracedata, retrieve_params, uparams, dispersion=None, parent=None

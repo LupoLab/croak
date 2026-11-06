@@ -17,10 +17,11 @@ interaction; the simulated angular-frequency density is divided by
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -35,21 +36,17 @@ from ..io import (
     read_simulated_window_keys,
     read_simulated_z_positions,
 )
-from ..maths import wlfreq
-from ..plotting import cmap_white, signed_pcolormesh
+from ..plotting.screen import simulated_trace_views
 from ..session.params import SimulatedLoadParams
 from ..session.pipeline import (
     assemble_simulated_load_data,
     assemble_simulated_tracedata,
 )
 from .base import Stage
-from .canvas import MplCanvas, add_wide_row, check, combo, group, with_toolbar
+from .controls import add_wide_row, check, combo, group
 from .stage_load import seed_preproc_defaults
+from .view_panel import ViewPanel
 from .widgets import RangeControl
-
-# Angular frequency (rad/s) -> ordinary frequency (PHz), matching the
-# marginal-check stage's frequency axis so the two previews read identically.
-_TWO_PI_PHZ = 2.0 * np.pi * 1e15
 
 # TG-FROG keeps the carrier (no doubling), so only the χ³ interactions apply.
 _INTERACTIONS = ["pg", "sd"]
@@ -175,22 +172,24 @@ class StageSimulated(Stage):
                     "preprocess (filtering + regrid) stages. Fully raw: no "
                     "third-order correction; the window/thickness, delay-sign and "
                     "known-spectrum choices still apply. Use it to sanity-check the "
-                    "retrieval free of any preprocessing doubt — Back from Retrieve "
-                    "reaches Preprocess for a regridded comparison.",
+                    "retrieval free of any preprocessing doubt. For a regridded "
+                    "comparison, untick it here and Continue again.",
                 ),
             ],
         ),
     ]
 
-    def __init__(self, state, wizard):
+    def __init__(self, state, adopt_geometry):
         super().__init__(state)
-        self.wizard = wizard
+        # Retrieve's StageRetrieve.apply_simulated_geometry: adopt the file's
+        # slab thickness and mask on an interactive load (see advance).
+        self.adopt_geometry = adopt_geometry
         self._defaults = SimulatedLoadParams()
         # the path the file-driven selectors (trace window + thickness) were last
         # populated for, so re-entering the stage keeps the user's choices
         self._options_path: str | None = None
         # Nothing can be loaded until a file previews successfully; drives the
-        # wizard footer's forward button (see can_advance).
+        # Data page's Continue (see can_advance).
         self._can_load = False
 
         # debounce rapid control changes into one reload/preview
@@ -281,7 +280,7 @@ class StageSimulated(Stage):
         add_wide_row(form, "load λ band (nm)", self.band)
         # Skip the marginal-check + preprocess stages and load the as-simulated
         # ω-density trace on its native grid straight into the retrieval. "&&" is
-        # Qt's escape for a literal ampersand in a widget label (see help._plain).
+        # Qt's escape for a literal ampersand in a widget label (see sheet.plain).
         self.raw_direct = check(
             "Skip filtering && regrid (raw → retrieval)",
             self._defaults.raw_direct,
@@ -290,13 +289,24 @@ class StageSimulated(Stage):
         form.addRow(self.raw_direct)
         self.controls.addWidget(box)
 
-        # Navigation (Back / "Load & continue →") and Help live in the shared
-        # wizard chrome, via the entry-page hooks below.
-        self.controls.addWidget(self.status_label)
+        # Continue (which calls advance) and Help live in the window's top bar.
         self.controls.addStretch(1)
 
-        self.canvas = MplCanvas(figsize=(9, 7))
-        self.set_plot_area(with_toolbar(self.canvas))
+        self.views = {
+            "lin": ViewPanel("map", signed=True),
+            "db": ViewPanel("map"),
+            "delay": ViewPanel("line"),
+            "spectral": ViewPanel("line"),
+        }
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        for index, view in enumerate(self.views.values()):
+            grid.addWidget(view, index // 2, index % 2)
+        plots = QWidget()
+        plots.setLayout(grid)
+        self.set_plot_area(plots)
 
         self.apply_help()
 
@@ -460,13 +470,13 @@ class StageSimulated(Stage):
 
     def _on_raw_direct(self, _checked: bool) -> None:
         # Only changes what Load does (not the preview), so just relabel the
-        # wizard's forward button (see next_label).
-        self.wizard.refresh_nav()
+        # forward action.
+        self.changed.emit()
 
     def _set_can_load(self, can: bool) -> None:
-        """Record whether a trace previewed, and refresh the wizard's Next button."""
+        """Record whether a trace previewed, and refresh the window's Continue."""
         self._can_load = can
-        self.wizard.refresh_nav()
+        self.changed.emit()
 
     def _pick_file(self):
         fn, _ = QFileDialog.getOpenFileName(
@@ -526,89 +536,19 @@ class StageSimulated(Stage):
         if self.thickness.isEnabled():
             self.set_status(
                 f"Loaded the {self.thickness.currentText()} slice — review the "
-                "trace, then Load & continue to filter it."
+                "trace, then Continue to check and filter it."
             )
         else:
-            self.set_status("Review the trace, then Load & continue to filter it.")
+            self.set_status("Review the trace, then Continue to check and filter it.")
 
     def _draw(self, data):
-        # The simulation file stores an ω-density; the loader divides it by λ² so
-        # it can ride the (spectrometer) wavelength pipeline. Here we display the
-        # file-native ω-density on a frequency axis (×λ², ν = ω/2π) so the preview
-        # matches the file, the marginal-check screen and the retrieval — see
-        # stage_marginal_check.py. λ ascends as ν descends, so reorder to ascending ν.
-        lam = data["lam"]  # m, ascending
-        delays = data["scanaxis"] / 1e-15
-        freq = wlfreq(lam) / _TWO_PI_PHZ  # PHz, descending in lam order
-        order = np.argsort(freq)  # -> ascending frequency
-        freq = freq[order]
-        trace = (data["trace"] * lam[:, None] ** 2)[order]  # ω-density
-        # Re-normalise to unit peak: ×λ² rescales the (unit-peak λ-density) trace
-        # to a tiny absolute level, which the dB view (log10 ∈ [−tracedb, 0])
-        # would otherwise clip entirely.
-        peak = float(np.nanmax(np.abs(trace)))
-        if peak > 0:
-            trace = trace / peak
-        # rows with signal set the frequency limits; the peak row always
-        # qualifies, so this is never empty (a blank trace shows its full range)
-        sig = freq[trace.max(axis=1) > 1e-2] if peak > 0 else freq
-
-        def plot(fig):
-            axd = fig.subplot_mosaic("ab\ncd")
-            # linear and dB views with the filtering-stage colour scheme (white→viridis
-            # positive, white→red negative). Simulated traces carry no detector noise,
-            # so the linear vmax is the full-range peak (no trust window needed).
-            cmap_pos = cmap_white("viridis")
-            signed_pcolormesh(
-                axd["a"],
-                delays,
-                freq,
-                trace,
-                db=False,
-                cmap_pos=cmap_pos,
-                vmax=1.0 if peak > 0 else None,
-            )
-            axd["a"].set_title("Simulated FROG trace (lin)")
-            signed_pcolormesh(
-                axd["b"], delays, freq, trace, db=True, tracedb=40.0, cmap_pos=cmap_pos
-            )
-            axd["b"].set_title("Simulated FROG trace (dB)")
-            for key in ("a", "b"):
-                axd[key].set_xlabel("Delay (fs)")
-                axd[key].set_ylabel("Frequency (PHz)")
-                axd[key].set_ylim(sig.min(), sig.max())
-            # delay marginal
-            tmarg = trace.sum(axis=0)
-            tmarg = tmarg / tmarg.max() if tmarg.max() > 0 else tmarg
-            axd["c"].plot(delays, tmarg, c="C0")
-            axd["c"].set_xlabel("Delay (fs)")
-            axd["c"].set_ylabel("Delay marginal")
-            # spectral marginal (ω-density) + the known input spectrum, if provided
-            wmarg = trace.sum(axis=1)
-            wmarg = wmarg / wmarg.max() if wmarg.max() > 0 else wmarg
-            axd["d"].plot(freq, wmarg, c="C0", label="trace marginal")
-            if data["lam_spec"] is not None and data["Ilam_spec"] is not None:
-                lam_s = data["lam_spec"]
-                f_s = wlfreq(lam_s) / _TWO_PI_PHZ
-                os_ = np.argsort(f_s)
-                spec = (data["Ilam_spec"] * lam_s**2)[os_]  # ω-density
-                spec = spec / spec.max() if spec.max() > 0 else spec
-                axd["d"].plot(f_s[os_], spec, c="C1", lw=1, label="input")
-                axd["d"].legend(fontsize="small")
-            axd["d"].set_xlabel("Frequency (PHz)")
-            axd["d"].set_ylabel("Spectral marginal (ω-density)")
-            axd["d"].set_xlim(sig.min(), sig.max())
-
-        self.canvas.render(plot)
+        """Preview the scan: linear and dB maps, delay and spectral marginals."""
+        for view, shown in zip(
+            self.views.values(), simulated_trace_views(data), strict=True
+        ):
+            view.show_view(shown)
 
     # -- load (the entry-page forward action) -------------------------------
-    def next_label(self) -> str:
-        # "Skip filtering & regrid" changes where Load lands, so say so. The "&&"
-        # is Qt's escape for a literal ampersand in a button label (a single "&"
-        # is swallowed as a mnemonic marker, rendering "Load  continue →").
-        if self.raw_direct.isChecked():
-            return "Load raw → Retrieve →"
-        return "Load && continue →"
 
     def can_advance(self) -> bool:
         return self._can_load
@@ -616,11 +556,11 @@ class StageSimulated(Stage):
     def advance(self):
         """Load the chosen simulated scan and hand it to the next stage.
 
-        Wired to the wizard footer's forward button. Normally the trace goes into
+        The Data page's Continue calls it. Normally the trace goes into
         the marginal-check stage; with "Skip filtering & regrid" ticked the
-        as-simulated trace is built on its native grid and the wizard jumps
-        straight to Retrieve. On failure the reason is shown in the status label
-        and the page stays put.
+        as-simulated trace is built on its native grid and the session goes
+        straight to Retrieve (:attr:`advanced` says which). On failure the reason
+        is shown in the status label and the page stays put.
         """
         params = self._params()
         try:
@@ -643,20 +583,20 @@ class StageSimulated(Stage):
         # chosen slice, mask hole diameter and spacing). Only on this
         # interactive path: a restored session keeps its own saved retrieval
         # settings, which the user may have chosen deliberately.
-        note = self.wizard.stages[3].apply_simulated_geometry(self.state.geometry)
+        note = self.adopt_geometry(self.state.geometry)
         if note:
             self.set_status(note)
         if params.raw_direct:
             # Build the as-simulated trace on its native grid and go straight to
             # retrieval, skipping the marginal-check + preprocess stages. The
-            # normal load_data above stays set (it carries the truth overlay and
-            # lets Back re-run the regrid path for a comparison).
+            # normal load_data above stays set (it carries the truth overlay, and
+            # unticking the option re-runs the regridded path for a comparison).
             try:
                 td = assemble_simulated_tracedata(params)
             except Exception as exc:
                 self.set_status(f"Raw load failed: {exc}")
                 return
             self.state.set_tracedata(td)
-            self.wizard.enter_retrieve_from_simulated()
+            self.advanced.emit("retrieve")
         else:
-            self.wizard.enter_marginal_from_simulated()
+            self.advanced.emit("check")

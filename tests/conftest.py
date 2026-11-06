@@ -389,7 +389,7 @@ def isolated_settings(request):
     """
     if "gui" not in request.path.parent.parts[-1:]:
         return
-    from PyQt6.QtCore import QSettings
+    from PySide6.QtCore import QSettings
 
     tmp_path = request.getfixturevalue("tmp_path")
     QSettings.setPath(

@@ -35,7 +35,7 @@ through AD.
 
 ## The mascot
 
-The mascot was not renamed. The wizard's icon is still a toad, which — given what
+The mascot was not renamed. The GUI's icon is still a toad, which — given what
 toads are known for — remains approximately correct.
 
 ```{note}

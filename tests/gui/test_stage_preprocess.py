@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6 import sip
+import shiboken6
 
 from croak.gui import stage_preprocess
 from croak.gui.stage_load import seed_preproc_defaults
@@ -135,12 +135,14 @@ def test_stage_preprocess_on_enter_computes_once(loaded):
     assert loaded.status_label.text().startswith("Regridded to")
     loaded.on_enter()  # a trace exists: re-seeds the widgets, no recompute
     assert loaded.state.tracedata is td
-    # a recompute with the view already built updates the artists in place
-    assert loaded._view.attached
-    figure_axes = list(loaded.canvas.figure.axes)
+    # a recompute redraws the same six maps
+    plots = [view.plot for view in loaded.views.values()]
+    assert all(plot.data is not None for plot in plots)
     loaded.apply(block=True)
     assert loaded.state.tracedata is not td
-    assert loaded.canvas.figure.axes == figure_axes
+    assert [view.plot for view in loaded.views.values()] == plots
+    titles = [view.title.text() for view in loaded.views.values()]
+    assert titles[0] == "Measured (dB)" and titles[-1] == "Regridded (lin)"
 
 
 def test_stage_preprocess_reset_restores_defaults(loaded):
@@ -169,6 +171,7 @@ def test_stage_preprocess_ignores_superseded_and_reports_failed_results(loaded):
     assert loaded.status_label.text() == ""
     loaded._on_preprocess_failed("new error", 5)
     assert loaded.status_label.text() == "Preprocess failed: new error"
+    assert loaded.numbers.values["Grid"].text() == "–"  # no grid to describe
 
 
 def test_stage_preprocess_fast_result_without_pending_does_not_refine(loaded):
@@ -179,18 +182,12 @@ def test_stage_preprocess_fast_result_without_pending_does_not_refine(loaded):
     assert loaded._workers == []
 
 
-def test_stage_preprocess_replot_without_a_trace_only_attaches(loaded):
-    loaded.canvas.render(loaded._replot_view)
-    assert loaded._view.attached
-    assert loaded.state.tracedata is None
-
-
 def test_stage_preprocess_discard_worker_tolerates_destroyed_workers(loaded):
     worker = stage_preprocess.PreprocessWorker(
         loaded.state.preproc, loaded.state.load_data, 1, parent=loaded
     )
     loaded._workers.append(worker)
-    sip.delete(worker)  # destroyed with its stage before the queued slot ran
+    shiboken6.delete(worker)  # destroyed with its stage before the queued slot ran
     loaded._discard_worker(worker)
     assert loaded._workers == []
     # a worker no longer tracked (and still alive) is just scheduled for deletion
@@ -198,7 +195,7 @@ def test_stage_preprocess_discard_worker_tolerates_destroyed_workers(loaded):
         loaded.state.preproc, loaded.state.load_data, 2, parent=loaded
     )
     loaded._discard_worker(other)
-    assert not sip.isdeleted(other)
+    assert shiboken6.isValid(other)
 
 
 def test_stage_preprocess_baseline_toggle_gates_its_controls(stage):
@@ -214,3 +211,41 @@ def test_stage_preprocess_baseline_toggle_gates_its_controls(stage):
         stage.baseline_check.setChecked(checked)
         assert stage.state.preproc.baseline is checked
         assert all(w.isEnabled() is checked for w in dependents)
+
+
+def test_stage_preprocess_advises_when_the_grid_clips_the_trace(loaded):
+    from dataclasses import replace
+
+    loaded.on_enter()
+    td = loaded.state.tracedata
+    assert loaded.advice.isHidden()  # the seeded grid leaves room to spare
+    # Just over the library's own warning level: the page says so too.
+    clipped = replace(td, taper_loss=stage_preprocess.TAPER_ADVICE_LEVEL + 0.6)
+    loaded._show_tracedata(clipped)
+    assert loaded.status_label.state == "warn"
+    assert not loaded.advice.isHidden()
+    assert loaded.advice.title.text() == "The λ grid removes 61% of the trace"
+    assert "λ range (nm)" in loaded.advice.text.text()
+    loaded._show_tracedata(td)  # widened again: the advice goes
+    assert loaded.advice.isHidden()
+    assert loaded.status_label.text().endswith("Proceed to Retrieve.")
+
+
+def test_stage_preprocess_numbers_describe_the_grid(loaded):
+    from dataclasses import replace
+
+    loaded.on_enter()
+    td = loaded.state.tracedata
+    numbers = loaded.numbers.values
+    assert numbers["Grid"].text() == f"{td.grid.n} × {td.delays.size}"
+    assert numbers["Δt"].text() == f"{td.grid.dt / 1e-15:.3g} fs"
+    window = float(numbers["Time window"].text().removesuffix(" fs"))
+    # .4g formatting: equal to four significant figures
+    assert window == pytest.approx(td.grid.n * td.grid.dt / 1e-15, rel=1e-3)
+    assert numbers["λ span"].text().endswith(" nm")
+    assert numbers["Taper loss"].property("warn") is not True
+    loaded._show_tracedata(replace(td, taper_loss=0.25))
+    assert numbers["Taper loss"].text() == "25.0%"
+    assert numbers["Taper loss"].property("warn") is True
+    loaded._show_tracedata(replace(td, taper_loss=0.0))
+    assert numbers["Taper loss"].text() == "< 0.1%"

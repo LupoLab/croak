@@ -2,7 +2,7 @@
   <title>croak</title>
   <!-- Application icon: a flat, front-facing toad on the wizard's header blue
        (the package was called `toad` before release — see docs/reference/naming)
-       (#22324a, see croak/gui/wizard.py). Built only from rounded rectangles,
+       (#22324a, the original window header). Built only from rounded rectangles,
        ellipses and circles with generous spacing, so it stays legible when the
        Dock or taskbar renders it at 16 px. -->
   <rect width="256" height="256" rx="56" fill="#22324a"/>

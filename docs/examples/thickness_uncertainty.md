@@ -118,7 +118,7 @@ The central thickness is `options.retrieve.thickness_um`, and the retrieval must
 be dispersive. To call {func}`croak.thickness_bootstrap` directly, pass it
 `session.result` and `session.tracedata.trace`, with the material, quadrature
 `npoints` and `algorithm` the retrieval used. In the GUI the same estimate is
-stage 5 with method "thickness". See [saving and loading](../howto/saving_and_loading.md).
+the Uncertainty page under Analyse, with method "thickness". See [saving and loading](../howto/saving_and_loading.md).
 
 ### Limits
 

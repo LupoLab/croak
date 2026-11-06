@@ -5,29 +5,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from matplotlib.figure import Figure
 
-from croak.grid import Grid
 from croak.gui.stage_synthetic import StageSynthetic
 from croak.gui.state import WizardState
 
 
-class _Wizard:
-    """The one wizard hook the generator calls on success."""
-
-    def __init__(self):
-        self.entered = 0
-
-    def enter_marginal_from_synthetic(self):
-        self.entered += 1
-
-
 @pytest.fixture
 def stage(qtbot):
-    widget = StageSynthetic(WizardState(), _Wizard())
+    widget = StageSynthetic(WizardState())
     qtbot.addWidget(widget)
+    # Count where the generator says the session goes on success.
+    widget.went = []
+    widget.advanced.connect(widget.went.append)
     # Small, fast settings: a coarse trace is plenty to exercise the logic.
     widget.ndelay.setValue(32)
     widget.nwl.setValue(64)
@@ -132,7 +123,7 @@ def test_preview_failure_is_reported(stage, monkeypatch):
     monkeypatch.setattr(stage, "_pulse", fail)
     stage.on_enter()
     assert stage.status_label.text() == "Generation failed: bad grid"
-    assert not stage.canvas.rendered
+    assert stage.views["trace"].plot.data is None  # nothing drawn
 
 
 def test_generate_failure_stays_on_the_page(stage, monkeypatch):
@@ -142,7 +133,7 @@ def test_generate_failure_stays_on_the_page(stage, monkeypatch):
     monkeypatch.setattr(stage, "_pulse", fail)
     stage.advance()
     assert stage.status_label.text() == "Generation failed: bad grid"
-    assert stage.wizard.entered == 0
+    assert stage.went == []
 
 
 def test_generate_with_an_empty_window_asks_to_widen_it(stage):
@@ -150,38 +141,18 @@ def test_generate_with_an_empty_window_asks_to_widen_it(stage):
     stage._wl = (100.0, 150.0)  # below every wavelength the grid represents
     stage.advance()
     assert "widen the range" in stage.status_label.text()
-    assert stage.wizard.entered == 0
+    assert stage.went == []
     assert stage.state.load_data is None
 
 
 def test_generate_hands_the_trace_and_truth_on(stage):
-    assert stage.next_label() == "Generate →"
     stage.advance()
-    assert stage.wizard.entered == 1
+    assert stage.went == ["check"]
     data = stage.state.load_data
     assert data["trace"].shape == (64, 32)
     assert data["trace"].max() == pytest.approx(1.0)
     assert data["truth"] is not None
     assert stage.state.load.interaction == stage.interaction.currentText()
-
-
-def test_plot_helpers_tolerate_an_empty_field(stage):
-    grid = Grid(64, dt=1e-15)
-    zeros = np.zeros(grid.n, dtype=complex)
-    fig = Figure()
-    ax = fig.add_subplot()
-    stage._plot_temporal(ax, grid, zeros)
-    stage._plot_spectral(fig.add_subplot(), grid, zeros, 2.35e15)
-    # Nothing above threshold: no zoom, the axis spans the whole window.
-    lo, hi = ax.get_xlim()
-    assert lo <= grid.t.min() / 1e-15 and hi >= grid.t.max() / 1e-15
-    spec_ax = fig.add_subplot()
-    stage._plot_spectrogram(spec_ax, grid, zeros, 2.35e15, n_t=8)
-    assert spec_ax.get_title() == "Spectrogram"
-    trace = np.zeros((10, 5))
-    frog_ax = fig.add_subplot()
-    stage._plot_frog(frog_ax, np.linspace(7e-7, 9e-7, 10), np.arange(5.0), trace)
-    assert frog_ax.get_title() == "Synthetic FROG trace"
 
 
 def test_additive_noise_alone(stage):
@@ -191,10 +162,30 @@ def test_additive_noise_alone(stage):
     assert noisy.min() >= 0.0 and noisy.max() == pytest.approx(1.0)
 
 
+def test_preview_draws_the_trace_continue_hands_on(stage):
+    stage.on_enter()
+    shown = stage.views["trace"].plot
+    stage.advance()
+    lam_nm = stage.state.load_data["lam"] / 1e-9
+    # The λ window's own samples, not the whole simulation grid, in which the
+    # signal band was one or two rows of a featureless stripe.
+    assert shown.data.shape == stage.state.load_data["trace"].shape
+    assert shown.y_axis[0] == pytest.approx(lam_nm[0])
+    assert shown.y_axis[-1] == pytest.approx(lam_nm[-1])
+
+
+def test_preview_with_an_empty_window_asks_to_widen_it(stage):
+    stage.interaction.setCurrentText("pg")
+    stage._wl = (100.0, 150.0)  # below every wavelength the grid represents
+    stage.on_enter()
+    assert "widen the range" in stage.status_label.text()
+    assert stage.status_label.state == "warn"
+
+
 def test_preview_draws_the_four_panels(stage):
     stage.on_enter()
-    assert stage.canvas.rendered
-    titles = {ax.get_title() for ax in stage.canvas.figure.axes}
-    assert {"Temporal", "Spectral", "Spectrogram", "Synthetic FROG trace"} <= titles
-    assert stage.status_label.text().startswith("Adjust parameters")
+    titles = {view.title.text() for view in stage.views.values()}
+    assert titles == {"Temporal", "Spectral", "Spectrogram", "Synthetic FROG trace"}
+    assert stage.views["trace"].plot.data is not None
+    assert stage.status_label.text().startswith("Adjust the pulse")
     assert stage._last is not None

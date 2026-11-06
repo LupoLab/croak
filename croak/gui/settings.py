@@ -1,13 +1,14 @@
-"""Persistent user preferences: window geometry, control-column width, folded strips.
+"""Persistent user preferences: window geometry, folded sections, recent sessions.
 
-The wizard remembers how its user last arranged it — the un-maximised window
-size and position, the width of the control column, which auxiliary strips were
-folded — so a small-screen user sets things up once. Values live in a
-:class:`~PyQt6.QtCore.QSettings` store in INI format under the user scope, keyed
+The window remembers how its user last arranged it — the un-maximised window
+size and position, which sections and strips were folded, the spectral axis —
+and the sessions last saved or opened, so a small-screen user sets things up
+once. Values live in a
+:class:`~PySide6.QtCore.QSettings` store in INI format under the user scope, keyed
 by the organisation and application names from :mod:`.branding`; passing those
 explicitly means the store is the same whether or not
 :func:`~croak.gui.branding.apply_identity` has run (the tests build a
-:class:`~croak.gui.wizard.Wizard` without it).
+:class:`~croak.gui.window.MainWindow` without it).
 
 Every function opens a short-lived ``QSettings``, reads or writes one value and
 syncs, so the side effects stay at the edges and the module keeps no state. Only
@@ -19,45 +20,46 @@ real preferences.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QByteArray, QSettings, QSize
-from PyQt6.QtGui import QGuiApplication
-from PyQt6.QtWidgets import QWidget
+import json
+
+from PySide6.QtCore import QByteArray, QSettings, QSize
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QWidget
 
 from .branding import APP_NAME, ORGANISATION_NAME
+from .workflow import remember_recent
 
 __all__ = [
     "KEY_WINDOW_GEOMETRY",
-    "KEY_CONTROLS_WIDTH",
     "DEFAULT_WINDOW_SIZE",
-    "DEFAULT_CONTROLS_WIDTH",
     "SCREEN_FILL",
     "user_settings",
     "fit_to_screen",
     "restore_window",
     "save_window",
-    "controls_width",
-    "set_controls_width",
     "value",
     "set_value",
     "text",
     "set_text",
+    "KEY_RECENT_SESSIONS",
+    "recent_sessions",
+    "remember_session",
 ]
 
 #: Settings key holding ``QWidget.saveGeometry()`` of the main window.
 KEY_WINDOW_GEOMETRY = "window/geometry"
-#: Settings key holding the control column's width in logical pixels.
-KEY_CONTROLS_WIDTH = "stage/controls_width"
+#: Settings key holding the recently saved or opened sessions (``options.toml``
+#: paths, newest first) as JSON text.
+KEY_RECENT_SESSIONS = "home/recent_sessions"
 #: First-run window size (logical px) before clamping to the screen; large enough
 #: for the plot pages at full text density on a 1920x1080 display.
 DEFAULT_WINDOW_SIZE = QSize(1500, 950)
-#: First-run width (logical px) of the control column on every stage.
-DEFAULT_CONTROLS_WIDTH = 315
 #: Fraction of the screen's available area a first-run window may fill.
 SCREEN_FILL = 0.9
 
 
 def user_settings() -> QSettings:
-    """Open the wizard's settings store (INI, user scope, explicit names)."""
+    """Open the GUI's settings store (INI, user scope, explicit names)."""
     return QSettings(
         QSettings.Format.IniFormat,
         QSettings.Scope.UserScope,
@@ -126,18 +128,6 @@ def save_window(window: QWidget) -> None:
     store.sync()
 
 
-def controls_width() -> int:
-    """The remembered control-column width (logical px), else the default."""
-    return int(user_settings().value(KEY_CONTROLS_WIDTH, DEFAULT_CONTROLS_WIDTH, int))
-
-
-def set_controls_width(px: int) -> None:
-    """Remember the control-column width (logical px) for every stage and launch."""
-    store = user_settings()
-    store.setValue(KEY_CONTROLS_WIDTH, int(px))
-    store.sync()
-
-
 def value(key: str, default: bool) -> bool:
     """Read a remembered flag (e.g. whether a strip is expanded)."""
     return bool(user_settings().value(key, default, bool))
@@ -160,3 +150,26 @@ def set_text(key: str, choice: str) -> None:
     store = user_settings()
     store.setValue(key, str(choice))
     store.sync()
+
+
+def recent_sessions() -> list[str]:
+    """The recently saved or opened sessions' ``options.toml`` paths, newest first.
+
+    Stored as JSON text: an INI list of one item reads back as a bare string, and
+    a hand-edited or corrupt value reads as no history rather than an error.
+    """
+    raw = text(KEY_RECENT_SESSIONS, "[]")
+    try:
+        paths = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(paths, list):
+        return []
+    return [p for p in paths if isinstance(p, str)]
+
+
+def remember_session(path: str) -> list[str]:
+    """Put ``path`` first in the recent sessions and return the new list."""
+    paths = remember_recent(recent_sessions(), path)
+    set_text(KEY_RECENT_SESSIONS, json.dumps(paths))
+    return paths

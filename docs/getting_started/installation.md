@@ -62,7 +62,7 @@ activate it, then `pip install -e .`. For work on croak itself, continue with th
 
 ## Supported platforms
 
-croak's binary dependencies (`jax`, `nlopt`, `finufft` and, for the GUI, `pyqt6`)
+croak's binary dependencies (`jax`, `nlopt`, `finufft` and, for the GUI, `pyside6-essentials`)
 publish wheels for a limited set of platforms. Where a wheel is missing, the
 installer falls back to building from source, which needs CMake and a C++
 toolchain.
@@ -141,7 +141,7 @@ list current driver and hardware requirements.
 | Delay filtering | `finufft` |
 | Data and sessions | `h5py`, `tomli-w` |
 | Plotting and progress | `matplotlib`, `tqdm` |
-| GUI (`gui` extra) | `pyqt6`, `superqt` |
+| GUI (`gui` extra) | `pyside6-essentials`, `pyqtgraph`, `superqt` |
 
 Importing `croak` does not import Qt. The library and session replay work without
 the graphical interface.

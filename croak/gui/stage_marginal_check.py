@@ -27,8 +27,8 @@ frequency centroid matches the measured one.
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QSplitter, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSplitter, QWidget
 
 from .. import io
 from ..marginal_checks import (
@@ -38,7 +38,7 @@ from ..marginal_checks import (
     rms_width,
 )
 from ..maths import planck_taper, wlfreq
-from ..plotting import cmap_white, signed_pcolormesh
+from ..plotting.screen import CurveView, LineView, raw_trace_map
 from ..preprocess import (
     omega_to_lambda_density,
     resample_spectrum,
@@ -46,7 +46,10 @@ from ..preprocess import (
 )
 from ..session.pipeline import assemble_load_data, assemble_simulated_load_data
 from .base import Stage
-from .canvas import MplCanvas, add_wide_row, check, combo, dspin, group, with_toolbar
+from .controls import add_wide_row, check, combo, dspin, group
+from .display import current as current_display
+from .display import hub as display_hub
+from .view_panel import ViewPanel
 from .widgets import RangeControl
 
 # Number of uniform angular-frequency samples used to resample the independent
@@ -73,7 +76,11 @@ class StageMarginalCheck(Stage):
         "shape, centroid and width flags calibration, spectral-response, scatter "
         "and detector-nonlinearity problems. Tune the (λ/µm)^exp third-order "
         "efficiency correction here; 'Auto' matches the marginal centroid to the "
-        "prediction."
+        "prediction. The marginals are drawn against frequency, the physically "
+        "correct space, unless the display at the foot of the window asks for "
+        "wavelength: there the predicted marginal becomes a wavelength density "
+        "(×1/λ²), which blue-shifts a broad (e.g. transform-limited) marginal "
+        "even when its frequency centroid matches the measured one."
     )
     HELP = [
         (
@@ -95,16 +102,6 @@ class StageMarginalCheck(Stage):
         (
             "Display",
             [
-                (
-                    "marginal axis",
-                    "Plot the marginals against frequency or wavelength. Frequency "
-                    "(the default) is the physically correct space: the marginal is "
-                    "a frequency density and the centroid/width identities live "
-                    "there. On a wavelength axis the predicted marginal is converted "
-                    "to a wavelength density (×1/λ²), which blue-shifts a broad "
-                    "(e.g. transform-limited) marginal even when its frequency "
-                    "centroid matches the measured one — visually misleading.",
-                ),
                 (
                     "marginal scale",
                     "Plot the marginal comparison on a linear or logarithmic "
@@ -147,9 +144,8 @@ class StageMarginalCheck(Stage):
         ),
     ]
 
-    def __init__(self, state, wizard):
+    def __init__(self, state):
         super().__init__(state)
-        self.wizard = wizard
         # Measured default; re-seeded per trace in on_enter (full range for the
         # noise-free simulated/synthetic traces, 190–1000 nm for measured).
         self._trust_nm = (190.0, 1000.0)
@@ -164,10 +160,6 @@ class StageMarginalCheck(Stage):
 
         # -- display --
         box, form = group("Display")
-        self.axis_combo = combo(
-            ["frequency", "wavelength"], "frequency", self._on_scale
-        )
-        form.addRow("marginal axis", self.axis_combo)
         self.scale_combo = combo(["linear", "log"], "linear", self._on_scale)
         form.addRow("marginal scale", self.scale_combo)
         self.controls.addWidget(box)
@@ -212,20 +204,21 @@ class StageMarginalCheck(Stage):
         form.addRow(self.marginal_correct_check)
         self.controls.addWidget(box)
 
-        self.controls.addWidget(self.status_label)
         self.controls.addStretch(1)
 
         # Trace above, marginal comparison below, on a draggable divider so a
         # short display can give either plot the height (equal split by default).
-        self.trace_canvas = MplCanvas()
-        self.marg_canvas = MplCanvas()
+        self.trace_view = ViewPanel("map", signed=True)
+        self.marg_view = ViewPanel("line")
         self.plot_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.plot_splitter.addWidget(with_toolbar(self.trace_canvas))
-        self.plot_splitter.addWidget(with_toolbar(self.marg_canvas))
+        self.plot_splitter.addWidget(self.trace_view)
+        self.plot_splitter.addWidget(self.marg_view)
         self.plot_splitter.setStretchFactor(0, 1)
         self.plot_splitter.setStretchFactor(1, 1)
         self.plot_splitter.setChildrenCollapsible(True)
         self.set_plot_area(self.plot_splitter)
+        # The marginals are built on the display's axis (see _marginal_view).
+        display_hub().changed.connect(self._draw)
 
         self.apply_help()
 
@@ -432,58 +425,30 @@ class StageMarginalCheck(Stage):
         self._draw_marginal(lam, lam_nm, trace, in_band, data)
 
     def _draw_trace(self, tau_fs, lam_nm, trace, in_band) -> None:
-        """Trace image with the preprocess-page colour scheme and trust-scaled vmax."""
-        self.trace_canvas.render(
-            lambda fig: self._plot_trace(
-                fig.add_subplot(111), tau_fs, lam_nm, trace, in_band
-            )
-        )
-
-    @staticmethod
-    def _plot_trace(ax, tau_fs, lam_nm, trace, in_band) -> None:
-        """Draw the trace image into ``ax`` (the body of :meth:`_draw_trace`)."""
-        # Scale to the in-trust-region peak so amplified out-of-band noise (the
-        # (λ/µm)^exp tilt blows up the long-λ tail) cannot wash out the signal.
-        band = trace[in_band] if np.any(in_band) else trace
-        vmax = float(np.nanmax(np.abs(band))) if band.size else 1.0
-        signed_pcolormesh(
-            ax,
-            tau_fs,
-            lam_nm,
-            trace,
-            db=False,
-            cmap_pos=cmap_white("viridis"),
-            vmax=vmax if vmax > 0 else None,
-        )
-        # Clip the wavelength axis to the in-band signal so the view tracks it.
-        sig = lam_nm[in_band & (trace.max(axis=1) > 1e-2 * (vmax or 1.0))]
-        if sig.size:
-            ax.set_ylim(sig.min(), sig.max())
-        ax.set_xlabel("Delay (fs)")
-        ax.set_ylabel("Wavelength (nm)")
-        ax.set_title("Measured trace")
+        """Trace image, scaled by the trust region (see ``raw_trace_map``)."""
+        del in_band  # the map recomputes the band from the trust region
+        self.trace_view.show_view(raw_trace_map(tau_fs, lam_nm, trace, self._trust_nm))
 
     def _draw_marginal(self, lam, lam_nm, trace, in_band, data) -> None:
-        """Trace marginal against the spectrum (see :meth:`_plot_marginal`)."""
-        self.marg_canvas.render(
-            lambda fig: self._plot_marginal(
-                fig.add_subplot(111), lam, lam_nm, trace, in_band, data
-            )
-        )
+        """Draw the trace marginal against the spectrum and the prediction."""
+        self.marg_view.show_view(self._marginal_view(lam, lam_nm, trace, in_band, data))
 
-    def _plot_marginal(self, ax, lam, lam_nm, trace, in_band, data) -> None:
-        """Draw the marginal comparison into ``ax``; reads the display combos live."""
+    def _marginal_view(self, lam, lam_nm, trace, in_band, data) -> LineView:
+        """Build the marginal comparison; reads the display combos live."""
         lo, hi = self._trust_nm  # nm
         log = self.scale_combo.currentText() == "log"
-        freq = self.axis_combo.currentText() == "frequency"
+        # Frequency, the space the marginal identities live in, unless the
+        # display asks for wavelength; built here on either axis, so the
+        # display's own conversion leaves it as it is.
+        freq = current_display().axis != "wavelength"
 
         # Marginals are frequency densities. On the frequency axis we plot the
         # ω-density vs ν=ω/2π (undistorted). On the wavelength axis we plot the
         # λ-density vs λ; the λ Jacobian (×1/λ²) then blue-shifts a broad marginal
-        # even when its frequency centroid matches — see the 'marginal axis' help.
-        # When the SHG marginal correction is active, dim the raw marginal and
-        # overlay the corrected one (which, by construction, equals the predicted
-        # SHG autoconvolution — see _draw the dashed C0 curve below).
+        # even when its frequency centroid matches — see the page's help.
+        # When the SHG marginal correction is active, the raw marginal is drawn
+        # faint and the corrected one (which, by construction, equals the
+        # predicted SHG autoconvolution) is overlaid in the trace colour, dashed.
         correcting = self.marginal_correct_check.isChecked() and (
             self._marginal_correct_available(data)
         )
@@ -492,14 +457,14 @@ class StageMarginalCheck(Stage):
             x_meas, y_meas = wlfreq(lam) / _TWO_PI_PHZ, marg * lam**2
         else:
             x_meas, y_meas = lam_nm, marg
-        ax.plot(
-            x_meas,
-            _peak_norm(y_meas, in_band),
-            label="trace marginal",
-            c="C0",
-            alpha=0.45 if correcting else 1.0,
-        )
-
+        curves = [
+            CurveView(
+                np.asarray(x_meas, float),
+                _peak_norm(y_meas, in_band),
+                "faint" if correcting else "retrieved",
+                "trace marginal",
+            )
+        ]
         interaction = data["interaction"]
         pred = None
         if data.get("Ilam_spec") is not None:
@@ -510,7 +475,14 @@ class StageMarginalCheck(Stage):
                 x_sp, y_sp = wlfreq(lam_spec) / _TWO_PI_PHZ, Ilam_spec * lam_spec**2
             else:
                 x_sp, y_sp = lam_spec / 1e-9, Ilam_spec
-            ax.plot(x_sp, _peak_norm(y_sp, sl_band), label="spectrum", c="C1", lw=1)
+            curves.append(
+                CurveView(
+                    np.asarray(x_sp, float),
+                    _peak_norm(y_sp, sl_band),
+                    "measured",
+                    "spectrum",
+                )
+            )
             pred = self._predict(lam_spec, Ilam_spec, interaction)
             if pred is not None:
                 if freq:
@@ -519,53 +491,38 @@ class StageMarginalCheck(Stage):
                 else:
                     x_pr, y_pr = pred["lam_nm"], pred["marg_lam"]
                     pb = (x_pr >= lo) & (x_pr <= hi)
-                ax.plot(x_pr, _peak_norm(y_pr, pb), label="predicted", c="C3", ls="--")
+                predicted = _peak_norm(y_pr, pb)
+                curves.append(CurveView(x_pr, predicted, "predicted", "predicted"))
                 if correcting:
-                    # the correction makes the trace marginal equal the predicted
-                    # SHG autoconvolution; show that snap in the trace colour.
-                    ax.plot(
-                        x_pr,
-                        _peak_norm(y_pr, pb),
-                        c="C0",
-                        ls="--",
-                        lw=1.5,
-                        label="trace marginal (corrected)",
+                    curves.append(
+                        CurveView(
+                            x_pr, predicted, "corrected", "trace marginal (corrected)"
+                        )
                     )
 
-        # Centroid check: vertical lines. The spectrum centroid (C1) sits on the
-        # predicted-marginal centroid (C3) for PG/TG/SD, but at half it for SHG
-        # (whose marginal is centred at 2ω̄_S).
+        # Centroid check: vertical rules. The spectrum centroid sits on the
+        # predicted-marginal centroid for PG/TG/SD, but at half it for SHG (whose
+        # marginal is centred at 2ω̄_S).
         c_meas_nm, sigma_meas = self._measured_moments(lam, marg, in_band)
         to_x = (lambda nm: float(wlfreq(nm * 1e-9) / _TWO_PI_PHZ)) if freq else float
+        marks = []
         if c_meas_nm is not None:
-            ax.axvline(to_x(c_meas_nm), c="C0", ls=":", lw=1, label="meas centroid")
+            marks.append((to_x(c_meas_nm), "retrieved"))
         if pred is not None:
-            ax.axvline(
-                to_x(pred["spectrum_centroid_nm"]),
-                c="C1",
-                ls="--",
-                lw=1,
-                label="spec centroid",
-            )
-            ax.axvline(
-                to_x(pred["centroid_nm"]), c="C3", ls=":", lw=1, label="pred centroid"
-            )
+            marks.append((to_x(pred["spectrum_centroid_nm"]), "measured"))
+            marks.append((to_x(pred["centroid_nm"]), "predicted"))
 
-        self._annotate_checks(ax, c_meas_nm, sigma_meas, pred, interaction)
-
-        if log:
-            ax.set_yscale("log")
-            ax.set_ylim(1e-3, 1.5)
-        else:
-            ax.set_ylim(0.0, 1.1)
-        if freq:
-            ax.set_xlim(self._f_lo(), self._f_hi())
-            ax.set_xlabel("Frequency (PHz)")
-        else:
-            ax.set_xlim(lo, hi)
-            ax.set_xlabel("Wavelength (nm)")
-        ax.set_ylabel("Intensity (a.u.)")
-        ax.legend(fontsize="small")
+        self._annotate_checks(c_meas_nm, sigma_meas, pred, interaction)
+        return LineView(
+            curves=tuple(curves),
+            title="Marginal against the spectrum",
+            xlabel="Frequency (PHz)" if freq else "Wavelength (nm)",
+            ylabel="Intensity (a.u.)",
+            xrange=(self._f_lo(), self._f_hi()) if freq else (lo, hi),
+            yrange=(1e-3, 1.5) if log else (0.0, 1.1),
+            log_y=log,
+            marks=tuple(marks),
+        )
 
     def _f_lo(self) -> float:
         """Low frequency edge (PHz) of the trust region (from its long-λ bound)."""
@@ -654,8 +611,8 @@ class StageMarginalCheck(Stage):
         c = centroid(omega, weights)
         return float(wlfreq(c) / 1e-9), rms_width(omega, weights)
 
-    def _annotate_checks(self, ax, c_meas_nm, sigma_meas, pred, interaction) -> None:
-        """Write the numeric centroid/width QC summary to the status line + plot."""
+    def _annotate_checks(self, c_meas_nm, sigma_meas, pred, interaction) -> None:
+        """Write the numeric centroid/width QC summary to the ready line."""
         if pred is None or c_meas_nm is None:
             self.set_status("No independent spectrum: showing the trace marginal only.")
             return

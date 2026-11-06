@@ -102,7 +102,8 @@ print(f"peak power     = {pr.peak_power/1e6:.1f} MW")
 print(f"TL peak power  = {pr.peak_power_tl/1e6:.1f} MW")  # the maximum achievable
 ```
 
-In the GUI's Dispersion stage this is shown live as you tune the sliders. See
+On the GUI's Dispersion page (under Analyse) this is shown live as you tune the
+sliders. See
 [Post-processing](../howto/postprocessing.md#absolute-power-and-peak-power).
 
 ## Other knobs
