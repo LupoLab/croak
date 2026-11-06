@@ -274,12 +274,11 @@ class StageUncertainty(RunControls, Stage):
         (:meth:`~croak.gui.state.WizardState.set_result`), and its figure would
         then sit beside a ``result.h5`` without it.
         """
+        shown = self._shown
         current = self.state.uncertainty_results.values()
-        if not any(estimate is self._shown for estimate in current):
+        if shown is None or not any(estimate is shown for estimate in current):
             return []
-        figure = plotting.plot_uncertainty(
-            self._shown, truth=_truth_fwhm(self.state.truth)
-        )
+        figure = plotting.plot_uncertainty(shown, truth=_truth_fwhm(self.state.truth))
         figure.savefig(folder / UNCERTAINTY_FIGURE, dpi=300)
         return [UNCERTAINTY_FIGURE]
 
