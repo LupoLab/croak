@@ -11,6 +11,7 @@ Pulse, Diagnostics), then Dispersion and Uncertainty.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from typing import cast
 
 from matplotlib.figure import Figure
@@ -271,6 +272,12 @@ class AnalysePage(PageBase):
 
     def figure_name(self) -> str:
         return self.pages[self.key].figure_name()
+
+    def save_extras(self, folder: Path) -> list[str]:
+        written: list[str] = []
+        for page in self.pages.values():
+            written += page.save_extras(folder)
+        return written
 
 
 def default_pages(state: WizardState) -> Mapping[Place, PageBase]:

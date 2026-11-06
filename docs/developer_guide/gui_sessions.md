@@ -120,7 +120,8 @@ pages and the exported figures share the panel names and layouts
 ({data}`~croak.plotting.RETRIEVAL_PAGES`). A live retrieval calls
 `RetrievalPanels.set_data` on the plots it already has, which replaces their data
 without rebuilding the widgets. The figures of Analyse's result pages, the
-pages' **Save…** buttons and a saved session's `retrieval.pdf` go through the
+dispersion and uncertainty figures a saved session holds and its
+`retrieval.pdf` go through the
 matplotlib `draw_*` and `plot_*` functions. Every other figure — a plot's
 **Export this plot as a figure…**, or **Export this page as a figure…** on a page
 without a figure of its own — is drawn from the screen views themselves by

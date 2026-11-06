@@ -11,11 +11,10 @@ systematic that dominates short dispersive-retrieval pulses.
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFileDialog,
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
@@ -23,9 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import plotting, save
+from .. import plotting
 from ..plotting.screen import uncertainty_views
 from ..processing import TruthPulse
+from ..session.files import UNCERTAINTY_FIGURE
 from ..uncertainty import UncertaintyResult, combine_uncertainties
 from .base import RunControls, Stage
 from .controls import check, combo, dspin, group, spin
@@ -125,30 +125,21 @@ class StageUncertainty(RunControls, Stage):
         self.controls.addWidget(box)
 
         # Retained estimates: each completed run is kept so several independent
-        # contributions can be combined into a total before saving. Tick the ones to
-        # combine (don't mix redundant statistical estimators); click one to view it.
+        # contributions can be combined into a total (Save session keeps them all).
+        # Tick the ones to combine (don't mix redundant statistical estimators);
+        # click one to view it.
         est_box, est_form = group("Estimates")
         self.est_list = QListWidget()
         self.est_list.setMaximumHeight(110)
         self.est_list.currentItemChanged.connect(self._on_select_estimate)
         self.est_list.itemChanged.connect(lambda _item: self._sync_enabled())
         est_form.addRow(self.est_list)
-        est_row = QWidget()
-        erl = QHBoxLayout(est_row)
-        erl.setContentsMargins(0, 0, 0, 0)
         self.combine_btn = QPushButton("Combine ticked")
         self.combine_btn.setToolTip(
             "Combine the ticked independent estimates in quadrature into a total."
         )
         self.combine_btn.clicked.connect(self._combine)
-        self.save_btn = QPushButton("Save…")
-        self.save_btn.setToolTip(
-            "Append all estimates (intervals + temporal bands) to result.h5."
-        )
-        self.save_btn.clicked.connect(self._save)
-        erl.addWidget(self.combine_btn)
-        erl.addWidget(self.save_btn)
-        est_form.addRow(est_row)
+        est_form.addRow(self.combine_btn)
         self.controls.addWidget(est_box)
 
         self.controls.addStretch(1)
@@ -208,7 +199,6 @@ class StageUncertainty(RunControls, Stage):
         self.noise_sigma.setEnabled(needs_noise and u.noise_source == "manual")
         self.thickness_sigma.setEnabled(u.method == "thickness")
         self.combine_btn.setEnabled(len(self._checked_methods()) >= 2)
-        self.save_btn.setEnabled(bool(self.state.uncertainty_results))
 
     # -- retained estimates -------------------------------------------------
     def _label(self, method: str, u) -> str:
@@ -275,33 +265,16 @@ class StageUncertainty(RunControls, Stage):
         self._draw(combined)
         self.set_status(combined.summary())
 
-    def _save(self):
-        if self.state.result is None or not self.state.uncertainty_results:
-            self.set_status("Run an estimate first.")
-            return
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
-        if not folder:
-            return
-        path = os.path.join(folder, "result.h5")
-        save.save_result(
-            self.state.result,
-            path,
-            processed=self.state.processed,
-            truth=self.state.truth,
-            force=True,
+    def save_extras(self, folder: Path) -> list[str]:
+        """Write the figure of the estimate on screen (Save session appends every
+        estimate to its ``result.h5``); nothing if none is drawn yet."""
+        if self._shown is None:
+            return []
+        figure = plotting.plot_uncertainty(
+            self._shown, truth=_truth_fwhm(self.state.truth)
         )
-        save.save_uncertainty(self.state.uncertainty_results, path, force=True)
-        save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        saved = "result.h5 (+uncertainty), options.toml"
-        # Estimates restored from a saved session may not have been plotted yet;
-        # the PDF documents the figure on screen, so there is nothing to export.
-        if self._shown is not None:
-            figure = plotting.plot_uncertainty(
-                self._shown, truth=_truth_fwhm(self.state.truth)
-            )
-            figure.savefig(os.path.join(folder, "uncertainty.pdf"), dpi=300)
-            saved += ", uncertainty.pdf"
-        self.set_status(f"Saved {saved} to {folder}")
+        figure.savefig(folder / UNCERTAINTY_FIGURE, dpi=300)
+        return [UNCERTAINTY_FIGURE]
 
     # -- lifecycle ----------------------------------------------------------
     def on_enter(self):

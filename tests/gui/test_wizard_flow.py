@@ -1609,43 +1609,36 @@ def test_stage6_combine_estimates(qtbot):
     assert stage.est_list.count() == 3  # combined now listed too
 
 
-def test_stage6_save_appends_uncertainty(qtbot, tmp_path, monkeypatch):
-    """The stage-6 Save writes the intervals (and bands) into result.h5."""
+def test_save_session_appends_uncertainty_and_its_figure(qtbot, tmp_path, monkeypatch):
+    """Save session writes the intervals (and bands) into result.h5, and the
+    figure of the estimate on screen."""
     from PySide6.QtWidgets import QFileDialog
 
     import croak
-    from croak.maths import wlfreq
 
     w = Driver(qtbot)
+    _run_synthetic_retrieval(w, qtbot)
     stage = w.stages[5]
-    g = croak.Grid(48, dt=0.6e-15)
-    ew = croak.gaussian_pulse(g, 7e-15)
-    delays = np.linspace(-30e-15, 30e-15, 30)
-    trace = croak.maketrace(g.omega, delays, ew, "pg")
-    res = croak.retrieve(
-        trace,
-        g.omega,
-        delays,
-        "pg",
-        guess=ew,
-        omega0=float(wlfreq(800e-9)),
-        maxiters=30,
-    )
-    w.state.set_result(res, croak.process_result(res, measured=trace))
     rng = np.random.default_rng(1)
     w.state.set_uncertainty_result(_uresult("parametric", 0.05e-15, rng))
     w.state.set_uncertainty_result(_uresult("thickness", 0.12e-15, rng))
     stage._refresh_estimates()
+    stage._draw(w.state.uncertainty_result)
 
     monkeypatch.setattr(
         QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path)
     )
-    stage._save()
+    written = w.win.save_session()
 
     data = croak.save.load_result(str(tmp_path / "result.h5"))
     assert set(data["uncertainty"]) == {"parametric", "thickness"}
     assert "band_median" in data["uncertainty"]["thickness"]
-    assert (tmp_path / "options.toml").exists()
+    assert written == [
+        "result.h5",
+        "options.toml",
+        "retrieval.pdf",
+        "uncertainty.pdf",
+    ]
 
 
 def test_preprocess_reseeds_every_control_on_entry(qtbot):

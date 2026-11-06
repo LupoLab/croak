@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import h5py
 import numpy as np
 import pytest
 
@@ -174,40 +173,15 @@ def test_combine_failure_is_reported(stage, monkeypatch):
     assert stage.status_label.text() == "Combine failed: incompatible bands"
 
 
-def test_save_needs_an_estimate(stage):
-    stage._save()
-    assert stage.status_label.text() == "Run an estimate first."
-
-
-def test_save_cancelled_writes_nothing(stage, retrieval, monkeypatch, tmp_path):
-    stage.state.set_result(retrieval)
-    stage.state.set_uncertainty_result(_uresult("parametric", 0.05e-15))
-    monkeypatch.setattr(
-        su.QFileDialog, "getExistingDirectory", staticmethod(lambda *a: "")
-    )
-    stage._save()
-    assert list(tmp_path.iterdir()) == []
-
-
 @pytest.mark.parametrize("drawn", [False, True])
-def test_save_writes_result_options_and_the_figure_if_drawn(
-    stage, retrieval, monkeypatch, tmp_path, drawn
-):
+def test_save_extras_writes_the_figure_on_screen(stage, retrieval, tmp_path, drawn):
     stage.state.set_result(retrieval)
     stage.state.set_uncertainty_result(_uresult("parametric", 0.05e-15))
     if drawn:
         stage._draw(stage.state.uncertainty_result)
-    monkeypatch.setattr(
-        su.QFileDialog,
-        "getExistingDirectory",
-        staticmethod(lambda *a: str(tmp_path)),
-    )
-    stage._save()
-    assert (tmp_path / "options.toml").exists()
-    with h5py.File(tmp_path / "result.h5", "r") as f:
-        assert len(f.keys()) > 0
+    expected = ["uncertainty.pdf"] if drawn else []
+    assert stage.save_extras(tmp_path) == expected
     assert (tmp_path / "uncertainty.pdf").exists() == drawn
-    assert stage.status_label.text().startswith("Saved result.h5")
 
 
 class _FakeWorker(QObject):

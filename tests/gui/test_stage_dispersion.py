@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -85,12 +87,12 @@ def test_without_a_result_everything_is_inert(qtbot):
     for action in (
         stage._auto_taylor,
         stage._auto_gas,
-        stage._save,
         lambda: stage._auto_material("SiO2"),
         lambda: stage._auto_row(stage.mirror_stack.add_row()),
     ):
         action()
     assert stage.views["spectrogram"].plot.data is None  # nothing drawn
+    assert stage.save_extras(Path("unused")) == []  # nothing to save
     with pytest.raises(RuntimeError, match="no retrieval result"):
         stage._modified()
     with pytest.raises(RuntimeError, match="no retrieval result"):
@@ -236,23 +238,11 @@ def test_saved_settings_are_restored_on_entry(qtbot, chirped_result):
 # -- save ------------------------------------------------------------------------
 
 
-def test_save_cancelled_writes_nothing(stage, monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        sd.QFileDialog, "getExistingDirectory", staticmethod(lambda *a: "")
-    )
-    stage._save()
+def test_save_extras_writes_the_dispersed_pulse_only_when_applied(stage, tmp_path):
+    assert stage.save_extras(tmp_path) == []  # no dispersion set: nothing added
     assert list(tmp_path.iterdir()) == []
-
-
-def test_save_writes_result_options_and_figure(stage, monkeypatch, tmp_path):
     stage.gdd.set_value(-20.0)
-    monkeypatch.setattr(
-        sd.QFileDialog,
-        "getExistingDirectory",
-        staticmethod(lambda *a: str(tmp_path)),
-    )
-    stage._save()
-    for name in ("result_dispersion.h5", "options.toml", "dispersion.pdf"):
-        assert (tmp_path / name).exists()
-    assert "gdd_fs2 = -20.0" in (tmp_path / "options.toml").read_text()
-    assert stage.status_label.text() == f"Saved to {tmp_path}"
+    written = stage.save_extras(tmp_path)
+    assert written == ["result_dispersion.h5", "dispersion.pdf"]
+    for name in written:
+        assert (tmp_path / name).stat().st_size > 0

@@ -1,4 +1,4 @@
-"""Stage 4 — tune residual dispersion (GDD/TOD/FOD, material) and save.
+"""Analyse ▸ Dispersion — tune residual dispersion (GDD/TOD/FOD, material).
 
 GDD/TOD/FOD and material thicknesses use slider + spin-box controls (default 0).
 The auto-tuners maximise the absolute temporal
@@ -8,13 +8,12 @@ default).
 
 from __future__ import annotations
 
-import os
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import (
-    QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -31,6 +30,7 @@ from ..plotting.screen import (
     temporal_view_of,
 )
 from ..processing import process_result, spectrogram
+from ..session.files import DISPERSION_FIGURE, DISPERSION_FILE
 from .base import Stage
 from .controls import add_wide_row, combo, group
 from .mirror_stack import MirrorStack
@@ -256,16 +256,11 @@ class StageDispersion(Stage):
         form.addRow("TL peak power", self.peak_tl_label)
         self.controls.addWidget(box)
 
-        btns = QWidget()
-        bl = QHBoxLayout(btns)
-        bl.setContentsMargins(0, 0, 0, 0)
+        # Save session writes the dispersed pulse (save_extras); only Reset
+        # stays here.
         reset = QPushButton("Reset")
         reset.clicked.connect(self._reset)
-        save_btn = QPushButton("Save…")
-        save_btn.clicked.connect(self._save)
-        bl.addWidget(reset)
-        bl.addWidget(save_btn)
-        self.controls.addWidget(btns)
+        self.controls.addWidget(reset)
         self.controls.addStretch(1)
 
         self.views = {
@@ -691,31 +686,35 @@ class StageDispersion(Stage):
         self._unregister_gas()
         self._changed()
 
-    def _save(self):
-        if self.state.result is None:
-            return
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
-        if not folder:
-            return
+    def _applied(self) -> bool:
+        """Whether any dispersion is set (a Taylor term, a material, a mirror)."""
+        mats, bounces = self._extra_dispersion()
+        taylor = (self.gdd.value(), self.tod.value(), self.fod.value())
+        return any(taylor) or bool(mats) or bool(bounces)
+
+    def save_extras(self, folder: Path) -> list[str]:
+        """Write the dispersed pulse and its figure, if a dispersion is applied.
+
+        The pulse is processed with the pulse energy, so the file carries peak
+        power, and with a synthetic or simulated session's known truth, as the
+        session's ``result.h5`` is.
+        """
+        if self._base is None or not self._applied():
+            return []
         mod = self._modified()
-        self._sync_to_params()  # ensure the saved options.toml captures dispersion
         measured = self.state.tracedata.trace if self.state.tracedata else None
-        # Process with the pulse energy so the saved HDF5 carries peak power.
         pr = process_result(
             mod, measured=measured, energy=self.state.load.energy_j or None
         )
         save.save_result(
             mod,
-            os.path.join(folder, "result_dispersion.h5"),
+            str(folder / DISPERSION_FILE),
             processed=pr,
             measured=measured,
-            # a synthetic/simulated session's ground truth belongs in every saved
-            # file, as it does in the Retrieve stage's result.h5
             truth=self.state.truth,
             force=True,
         )
-        save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
         figure = Figure(figsize=(9, 7), layout="constrained")
         self._plot(figure, mod, pr)
-        figure.savefig(os.path.join(folder, "dispersion.pdf"), dpi=600)
-        self.set_status(f"Saved to {folder}")
+        figure.savefig(folder / DISPERSION_FIGURE, dpi=600)
+        return [DISPERSION_FILE, DISPERSION_FIGURE]

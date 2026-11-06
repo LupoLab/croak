@@ -10,6 +10,7 @@ stage's plots. Pages made of other pages
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Signal
@@ -73,6 +74,14 @@ class PageBase(QWidget):
     def page_key(self) -> str:
         """Which sub-page is shown, for pages that have several (default: "")."""
         return ""
+
+    def save_extras(self, folder: Path) -> list[str]:
+        """Write what the page adds to a saved session into ``folder``.
+
+        Called by Save session after the session's own files; returns the names
+        of the files written (by default none).
+        """
+        return []
 
     def act(self, kind: str) -> bool:
         """Do the primary action ``kind``; return whether the window moves on.

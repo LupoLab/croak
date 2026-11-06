@@ -579,6 +579,8 @@ class MainWindow(QMainWindow):
             uncertainty=self.state.uncertainty_results,
             overview=self.pages[Stage.RETRIEVE].overview(),
         )
+        # What Analyse's pages add: the dispersed pulse, the uncertainty figure.
+        written += self.pages[Stage.ANALYSE].save_extras(Path(folder))
         self.session_path = str(Path(folder) / session_files.OPTIONS_FILE)
         settings.remember_session(self.session_path)
         self.notify(f"Saved {', '.join(written)} in {folder}")

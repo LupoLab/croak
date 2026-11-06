@@ -2,7 +2,10 @@
 
 A saved session is a folder holding ``options.toml`` (the settings, enough to
 replay it), ``result.h5`` (the retrieval, with any uncertainty estimates
-appended) and ``retrieval.pdf`` (the twelve-panel overview). Reopening one
+appended) and ``retrieval.pdf`` (the twelve-panel overview). The GUI adds what
+its Analyse pages hold: the dispersed pulse and its figure when a dispersion is
+applied (:data:`DISPERSION_FILE`, :data:`DISPERSION_FIGURE`) and the uncertainty
+figure on screen (:data:`UNCERTAINTY_FIGURE`). Reopening one
 replays the settings and reuses ``result.h5`` only when it was fitted to the
 trace the replay produces (:func:`result_mismatch`).
 """
@@ -26,10 +29,13 @@ if TYPE_CHECKING:
     from .params import RetrieveParams
 
 __all__ = [
+    "DISPERSION_FIGURE",
+    "DISPERSION_FILE",
     "OPTIONS_FILE",
     "OVERVIEW_DPI",
     "OVERVIEW_FILE",
     "RESULT_FILE",
+    "UNCERTAINTY_FIGURE",
     "result_mismatch",
     "save_session",
 ]
@@ -42,6 +48,12 @@ OVERVIEW_FILE = "retrieval.pdf"
 """The overview figure of a saved session."""
 OVERVIEW_DPI = 600
 """The overview's resolution: its trace maps are rasterised inside the PDF."""
+DISPERSION_FILE = "result_dispersion.h5"
+"""The retrieved pulse with the GUI's dispersion applied."""
+DISPERSION_FIGURE = "dispersion.pdf"
+"""The GUI's dispersion figure."""
+UNCERTAINTY_FIGURE = "uncertainty.pdf"
+"""The GUI's figure of the uncertainty estimate on screen."""
 
 # Relative tolerance for "the same array": both sides are stored exactly as the
 # retrieval saw them, so only floating-point round-off may differ.

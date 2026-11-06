@@ -260,7 +260,8 @@ croak.save_uncertainty({"parametric": stat, "thickness": thickness, "combined": 
 ```
 
 In the GUI's **Uncertainty** stage each run is retained in a list; tick the independent
-ones, click **Combine ticked**, then **Save…** to write them all into ``result.h5``.
+ones, click **Combine ticked**, then **Save session…** (⋯ menu) to write them all into
+``result.h5``, with the figure on screen as ``uncertainty.pdf``.
 
 ## Calibrating the interval (is it really 68 %?)
 
