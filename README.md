@@ -56,7 +56,7 @@ methods and the validation are described in two papers in preparation (see
 the [capabilities overview](https://croak.readthedocs.io/en/latest/reference/features.html)
 lists everything the package does.
 
-![The wizard after a retrieval: measured and retrieved traces, residuals, the retrieved pulse and spectrum, and a numeric read-out.](docs/_static/gui_retrieve.png)
+![The GUI after a retrieval: measured and retrieved traces, the retrieved pulse and spectrum, and the run's numbers beside its convergence.](docs/_static/gui_retrieve.png)
 
 ## Install
 

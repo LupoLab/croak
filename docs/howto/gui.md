@@ -47,8 +47,8 @@ rest of the window to its plots; when the window is narrower than 1000 pixels
 the plots move below the settings instead. The
 settings are grouped in sections that fold, and Retrieve's
 advanced sections start folded, so a laptop screen shows the settings you use
-most without scrolling. The numeric read-out beneath Retrieve's plots folds away
-with a click on its header, and returns the height to the plots.
+most without scrolling. Beneath Retrieve's plots, the run's numbers and its
+convergence share one short strip.
 
 Plot text stays at the same size whatever the window size. Exported figures
 (see [Figures for publication](#figures-for-publication)) and the files a
@@ -71,8 +71,8 @@ the macOS menu bar. Two platform details remain:
 
 ## Home
 
-Home is where a session starts. It offers three tiles, one for each kind of
-data:
+Home is where a session starts. Its first three tiles each start a session
+from one kind of data:
 
 - **Measured trace** — load a FROG measurement from HDF5 or NPZ, with its
   independent spectrum, backgrounds and calibration curves.
@@ -81,8 +81,8 @@ data:
 - **Synthetic trace** — generate a trace from a pulse you specify, with
   dispersion and noise, and test a retrieval against the known answer.
 
-Beneath the tiles, **Open a session…** reopens a saved session from its
-`options.toml` (see [Sessions](#sessions)), and **About croak** opens the About
+The fourth tile, **Open a session**, reopens a saved session from its
+`options.toml` (see [Sessions](#sessions)). Beneath the tiles, **About croak** opens the About
 page: the version, links to this manual, the source on GitHub, the package on
 PyPI and the issue tracker, the authors, and the copyright and licences. The **Recent sessions** list on the
 right holds the last six sessions you saved or opened, named by their folder,
@@ -104,7 +104,8 @@ The top bar carries, from left to right:
   its stage buttons are still there, so you can go back to it;
 - the five stage buttons **Data · Check · Prepare · Retrieve · Analyse**. A
   stage that cannot be opened yet is greyed out, and its tooltip says why;
-- the **primary action**, the one button that moves the session on;
+- the **primary action**, the button that moves the session on, and on
+  Retrieve, once a retrieval is done, **Retrieve again** beside it;
 - the **⋯** menu: **Save session…**, **Open a session…**, **Export this page as
   a figure…**, **Show the settings (options.toml)**, **Show as a Python
   script**, **Help for this stage** and **About croak**.
@@ -114,8 +115,9 @@ session… and Export this page as a figure…, with the platform's Open and Sav
 shortcuts and Ctrl+E, ⌘E on macOS), **View** (the settings and the script) and
 **Help** (Help for this stage, F1 on Windows and Linux, ⌘? on macOS, and About
 croak, which macOS moves to the application menu). Passing notices, such as "Saved …" or why a stage cannot open,
-appear in a status bar at the foot of the window, which hides again when there
-is nothing to say.
+appear at the foot of the window, which also holds the
+[display settings](#display-spectral-axis-and-log-range) while a session is
+open, and hides on Home when there is nothing to say.
 
 ### The route
 
@@ -145,7 +147,7 @@ The primary action follows the stage:
 | Data | **Continue**: load or generate the trace and go on to Check |
 | Check | **Continue** to Prepare |
 | Prepare | **Continue** to Retrieve |
-| Retrieve | **Retrieve**, **Stop** while it runs, then **Retrieve again** |
+| Retrieve | **Retrieve**, **Stop** while it runs, then **Analyse**, with **Retrieve again** beside it |
 | Analyse | **Save** (the session); on the Uncertainty page **Estimate**, or **Stop** while it runs |
 
 The action is greyed out until it can be done: Continue on Data, for example,
@@ -172,7 +174,11 @@ Every plot shares the same handling:
 - **Hover** to show a crosshair and a read-out: the position, and the value
   of the map or of each curve under the pointer.
 - **Scroll** to zoom about the pointer, and **drag** to pan.
-- **Double-click** to return to the view the data were first shown with.
+- **Double-click** to return to the view the data were first shown with, and
+  a map to its colour scale.
+- **Drag a colour bar's ends** (or the bar itself) to change that map's colour
+  scale on its own, for example to look further down a logarithmic trace. A
+  signed map keeps its white at zero wherever the scale is dragged.
 
 Plots that share an axis are linked, so zooming one zooms its partners: the
 trace maps on Prepare, and the measured and retrieved traces on Retrieve and
@@ -181,6 +187,33 @@ so no detail is lost where the samples are densest. A logarithmic (dB) trace
 shows the positive part of the signal; negative samples, left by background
 subtraction, show on the linear maps, which run from white to viridis for
 positive values and from white to red for negative ones.
+
+### Display: spectral axis and log range
+
+Two settings at the foot of the window hold for every plot on every page. They
+are remembered between launches and stay until you change them or click
+**Reset**:
+
+- **Spectral axis**: **As computed** keeps each plot on the axis its data were
+  computed on — wavelength for a loaded trace and the generator's previews,
+  frequency for the prepared trace and the retrieval. **Wavelength** or
+  **Frequency** draws every spectral plot, maps and curves alike, against that
+  axis, with ν = c/λ. An intensity is a density per unit of its axis, so it
+  takes the Jacobian too, $I_\nu = I_\lambda\,\lambda^2/c$ and
+  $I_\lambda = I_\nu\,\nu^2/c$: a broad spectrum changes shape, not only
+  position. Phases and filter factors only move. Each plot keeps its peak, and a
+  map is resampled onto an even grid on the new axis, for drawing only
+  ({mod}`croak.plotting.display`).
+- **Log range**: how far below its peak every logarithmic (dB) map reaches,
+  from 5 to 120 dB (30 dB by default). A dragged colour bar overrides it for one
+  map until that map is next drawn.
+
+Exported figures follow both: a plot or page exported from the screen is drawn
+as shown, and croak's own figures of a result (Analyse's Overview, Traces, Pulse
+and Diagnostics pages, and the `retrieval.pdf` a saved session holds) take the
+log range and draw their spectrum on the chosen axis. Their trace maps are
+always against frequency, so with the display on wavelength Analyse's pages
+are exported as they are shown instead.
 
 **Right-click** a plot for its own menu: **Export this plot as a figure…**,
 **Save as an image…** (a PNG of the plot as it is on screen) and **Copy as an
@@ -280,10 +313,8 @@ model; the [marginal guide](marginal_checks.md) states its assumptions. The page
 overlays the predicted marginal, marks the predicted vs measured **centroid**,
 reports the **width-bracket** check, and exposes the spectral **trust region**
 (defaults to 190–1000 nm for a measured trace, or the full loaded range for the
-noise-free simulated/synthetic traces), a **frequency/wavelength** axis toggle
-(default frequency, the space the retrieval works in; the wavelength view
-applies the $1/\lambda^2$ density Jacobian, which shifts a broad marginal towards
-the blue), a **log/linear** marginal toggle (default linear, peak-normalised)
+noise-free simulated/synthetic traces), a **log/linear** marginal toggle (default
+linear, peak-normalised)
 and the **3rd-order** `(λ/µm)^exp` efficiency correction. Its **Auto** button
 picks the exponent whose corrected-marginal centroid matches the prediction
 ({func}`~croak.marginal_checks.auto_third_order_exponent`). The **SHG marginal
@@ -294,6 +325,12 @@ an SHG trace with an independent spectrum, and previews the snap onto the
 prediction live (the correction itself is applied in Prepare). All three kinds
 of session pass through this stage, except a raw simulated scan; see
 [Marginal consistency checks](marginal_checks.md).
+
+The marginals are drawn against frequency, the space the retrieval works in,
+unless the [display](#display-spectral-axis-and-log-range) asks for wavelength.
+The wavelength view applies the $1/\lambda^2$ density Jacobian to the predicted
+marginal, which shifts a broad marginal towards the blue even when its
+frequency centroid matches.
 
 ### Prepare
 
@@ -328,7 +365,7 @@ of panels are on [Analyse](#analyse).
 
 The form's sections, in order, are the solver and its mode, the forward-model
 sections (*Dispersive propagation*, *Geometrical smearing*), the advanced
-sections, *Post-filter (applied to result)* and *Display*. The advanced sections —
+sections and *Post-filter (applied to result)*. The advanced sections —
 *Chromatic focal mixture (advanced)*, *Extra fit parameters*, *Regularisation*
 and *Global search (cma-es)* — start folded, and whether each is open is
 remembered between launches. Below them are **Reset** (the default retrieval
@@ -336,24 +373,18 @@ settings) and **Retarget to new dataset…** (see [Sessions](#sessions)). A run
 starts and stops from the top bar's **Retrieve** and **Stop**, and **Save
 session…** saves it.
 
-The **Display** section's **Spectrum axis** draws the spectrum panel against
-**frequency** (PHz, the default — the space the retrieval works in) or
-**wavelength** (nm, the spectrometer's axis, carrying the $1/\lambda^2$ density
-Jacobian); both are unit-peak densities in their own variable, the choice is
-remembered, and exported figures follow it.
-
 By default **Live full-plot preview** redraws the overview as the run converges.
 Previews arrive at most four times a second, and less often on a machine where
 presenting one is slow: the GUI measures what each preview costs and stretches
 the interval so that presenting stays below about a quarter of the wall-clock
-time, so the preview never starves the solver. Until the first preview arrives,
-the convergence curve is shown instead, redrawn at up to ten frames a second
-however fast the solver iterates. Later snapshots update the existing curves and
+time, so the preview never starves the solver. The convergence curve beside the
+numbers follows the run, redrawn at up to ten frames a second however fast the
+solver iterates. Later snapshots update the existing curves and
 images in place, so nothing shifts between frames. Pressing **Stop** halts the
 run at that point and leaves the latest result on screen as a (non-converged)
 result you can inspect, save or post-filter. Untick **Live full-plot preview** to
-fall back to the cheaper trace-error-vs-iteration curve (the full overview is
-still drawn once the run finishes). Every solver supports the preview, including
+leave the overview until the run finishes, with only the convergence curve
+moving. Every solver supports the preview, including
 `copra`/`copra-jax` and the COPRA warm-up of `warm-lbfgs`, which is 300
 iterations by default. `warm-lbfgs` runs **both** stages on one convergence
 curve; the convergence panel on Analyse's Diagnostics page marks the handover
@@ -377,28 +408,21 @@ retrieved and transform-limited pulses. When its complex field is available,
 dotted truth-phase lines appear in both time and spectrum panels and are named
 in their legends. The truth arrays are also written into the saved `result.h5`.
 
-Beneath the plots sits a **numeric read-out** that updates as the run
-converges; click its header to fold it away and give the plots its height
-(remembered between launches). Its *Pulse parameters* table has one row per
-curve in the figure, labelled to match the legends — `R` (retrieved), `M` (the
-independent measured spectrum), `TL` (transform-limited) and `truth` — and four
-columns: peak wavelength, spectral FWHM, temporal FWHM and peak power. Cells
-that are not defined show an en dash rather than a misleading number: the
-measured spectrum carries no phase, so it has no temporal envelope; the
-transform-limited pulse is the retrieved $|E(\omega)|$ with the phase removed,
-so its spectrum *is* the retrieved one and is reported once, on the `R` row. The
-peak-power column needs a measured **pulse energy** (set it on the measured
-loader or on the Dispersion page) and shares one SI prefix, shown in its header,
-so the values compare at a glance.
+Beneath the plots, the run's **numbers** sit beside its **convergence**, the
+error against iteration on a log scale (the whole history once the run ends,
+with the hand-overs between a solver's stages marked). The first row tracks the
+run and its pulse: `Iteration`, `Error R` and `Elapsed`, then the retrieved
+spectrum's peak wavelength `λ peak` and the pulse's `FWHM`. The second row shows
+the forward model's extra parameters, `τ₀`, `Thickness` and `Smearing`, each
+named **fit** or **fixed** so it is clear whether the retriever was free to move
+it (a smearing width also carries its factor on the nominal kernel). The run
+counters tick every iteration; the peak wavelength and FWHM refresh with the live
+full-plot preview, so with that preview turned off they stay blank until the run
+finishes. A number that is not defined shows an en dash. The transform-limited
+and known FWHMs, and the peak powers once a pulse energy is set, are in the
+retrieved pulse's legend.
 
-Below the table, `Iteration`, `Elapsed` and `Error R` track the run itself, and
-`τ₀`, `Thickness` and `Smearing` show the forward model's extra parameters, each
-marked **(fit)** or **(fixed)** so it is clear whether the retriever was free to
-move it. The three run counters tick every iteration; the table refreshes with
-the live full-plot preview, so with that preview turned off it stays blank until
-the run finishes.
-
-The last line, `ε(Iₜ)`, `ε(I𝜔)` and `ε(E𝜔)`, appears when the trace came from a
+The last three, `ε(Iₜ)`, `ε(I𝜔)` and `ε(E𝜔)`, are filled when the trace came from a
 synthetic or simulated session and so has a **known** pulse: the temporal
 intensity, spectral intensity and complex-field errors against it
 ({mod}`croak.truth_metrics`). They answer a different question from the

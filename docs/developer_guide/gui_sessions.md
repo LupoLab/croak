@@ -45,8 +45,8 @@ tested without a window.
 | Module | Holds |
 |---|---|
 | `window` | `MainWindow`: top bar, stage stack, drawer, menus, and the session actions (new, open, replay, retarget, save) |
-| `workflow` | the route as pure rules: `Stage`, `Progress`, `blocked_reason`, `next_stage`, `primary_action`, `remember_recent` |
-| `home` | Home: the entry tiles, Open a session…, About croak and the recent sessions |
+| `workflow` | the route as pure rules: `Stage`, `Progress`, `blocked_reason`, `next_stage`, `primary_action`, `secondary_action`, `remember_recent` |
+| `home` | Home: the entry tiles and Open a session (each with its drawing from `assets/tiles`), About croak and the recent sessions |
 | `about` | About: the version, links, authors and copyright, from the package metadata |
 | `pages` | `default_pages` (the page factory), `DataPage` (the entry's loader, and a reopened session's restore) and `AnalysePage` (the rail) |
 | `stage` | `PageBase`, the hooks the window reads, and `StagePage`, a page that is a sheet |
@@ -54,11 +54,12 @@ tested without a window.
 | `sheet` | the sheet's parts: `Form`, `Section`, `ReadyLine`, `Segments`, `AdviceBox`, `DerivedGrid`, `ProgressStrip` and `Sheet` itself |
 | `stage_load`, `stage_simulated`, `stage_synthetic` | the three loaders (Data) |
 | `stage_marginal_check`, `stage_preprocess`, `stage_retrieve`, `stage_dispersion`, `stage_uncertainty` | the other stage pages |
-| `view_panel` | `ViewPanel`, a titled plot of one screen view with its right-click menu, and the figure export of a plot or a page (`page_figure`, `export_figure`) |
+| `view_panel` | `ViewPanel`, a titled plot of one screen view, drawn as the display settings show it, with its right-click menu, and the figure export of a plot or a page (`page_figure`, `export_figure`) |
+| `display` | the display settings every plot follows (spectral axis, logarithmic range): `current`, `set_display`, the `hub` that tells the plots, and `DisplayBar` at the foot of the window |
 | `retrieval_views` | the retrieval's panels on screen (`RetrievalPanels`) and Analyse's result pages (`ResultPage`, with Export and Pop out) |
 | `plots` | the pyqtgraph views: `Plot`, `MapPlot`, `LinePlot`, the colour maps and the hover readers |
 | `theme` | the palette, type scale, style sheet and the role helpers (`label`, `button`, `frame`, `set_flag`) |
-| `controls`, `widgets`, `readout`, `mirror_stack` | form builders, slider/spin-box composites, Retrieve's numeric read-out, Dispersion's mirror stack |
+| `controls`, `widgets`, `readout`, `mirror_stack` | form builders, slider/spin-box composites, Retrieve's numbers, Dispersion's mirror stack |
 | `help` | per-stage help: the dialog and the tooltips, from one `HELP` list |
 | `state` | `WizardState`: the parameters and pipeline outputs, with cascading invalidation |
 | `worker` | the `QThread` workers for preprocessing, retrieval and uncertainty |
@@ -142,8 +143,9 @@ a quarter of the wall-clock time on a slow machine.
 ## Remembered preferences
 
 `croak.gui.settings` keeps the window geometry, each folding section's state
-(sections with a `settings_key`), the read-out strip, Retrieve's spectrum axis
-and the recent sessions in a `QSettings` INI store, opening a short-lived store
+(sections with a `settings_key`), the display settings (`display/spectral_axis`
+and `display/db_range`, read and written by `croak.gui.display`) and the recent
+sessions in a `QSettings` INI store, opening a short-lived store
 for every read or write. It always names the organisation and application
 explicitly, which is what lets the test suite redirect the store to a per-test
 directory with `QSettings.setPath` (`tests/conftest.py`).

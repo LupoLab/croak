@@ -183,8 +183,8 @@ def make_gui_screenshots(folder: Path) -> list[Path]:
     Follows the route a user takes: Home, a synthetic trace (Continue generates
     it and opens Check, Continue again prepares it), then Retrieve. A
     synthetic session is used deliberately — it carries the known ground truth,
-    so the read-out's ``truth`` row is populated and the plots gain the truth
-    overlay.
+    so the truth errors beneath the plots are filled and the plots gain the
+    truth overlay.
     """
     from PySide6.QtWidgets import QApplication
 

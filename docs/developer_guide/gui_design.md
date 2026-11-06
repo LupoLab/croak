@@ -36,11 +36,18 @@ applications read alike.
   focus, and in the page's help dialog.
 - **Say it where it happens.** Whether a stage can go on is on its ready line,
   at the foot of the form; a passing notice (saved, copied, why a stage is
-  closed) goes to the status bar, which hides when it is empty. Modal dialogs are
+  closed) goes to the foot of the window, which hides on Home when it is empty.
+  Modal dialogs are
   for choosing files and for confirming that work will be discarded.
-- **Remember arrangement, not results.** The window's size, folded sections,
-  the read-out strip and display choices persist between launches; computed
-  results persist only in saved sessions.
+- **Remember arrangement, not results.** The window's size, folded sections
+  and the display settings persist between launches; computed results persist
+  only in saved sessions.
+- **One display for every plot.** The spectral axis and the logarithmic range
+  are the viewer's settings, at the foot of the window (`display.DisplayBar`),
+  not a control on each page. Every `ViewPanel` draws its view through
+  `croak.plotting.display.displayed` and redraws when they change; a page that
+  computes a view differently on each axis (Check's marginals) builds it on the
+  display's axis, and the conversion then leaves it alone.
 
 ## Colour
 
@@ -107,10 +114,12 @@ and `error`, which `theme.set_flag` sets and re-applies.
   do.
 - **Plots** are white, closed boxes (top and right axes drawn without numbers),
   with a crosshair and readout on hover, mouse zoom and pan, and a double-click
-  back to the starting view. Plots that share an axis are linked. A plot is at
-  least 140×100 px.
-- **Strips** beneath the plots that have a natural height (Retrieve's numeric
-  read-out) fold away and hand their height back to the plots.
+  back to the starting view. A map's colour bar can be dragged, for that map
+  alone. Plots that share an axis are linked. A log axis is labelled at decades
+  only. A plot is at least 140×100 px.
+- **Numbers** are a `sheet.DerivedGrid`: a small grey name over a large value,
+  as solprop's design numbers. Retrieve's sit in a strip of fixed height beneath
+  its plots, beside the run's convergence.
 - **Analyse** has a 170 px rail of pages on the left.
 - **Export**: every plot has a right-click menu (figure, image, copy), and every
   page a figure (`PageBase.figure`), saved by Ctrl+E. Figures are drawn from the
@@ -123,12 +132,12 @@ and `error`, which `theme.set_flag` sets and re-applies.
 
 | Place | Page | Primary action | Plots |
 |---|---|---|---|
-| Home | tiles, Open a session…, About croak, recent sessions | none | none |
+| Home | four tiles (three entries, Open a session), About croak, recent sessions | none | none |
 | About | version, links (manual, GitHub, PyPI, issues), authors, copyright | none | none |
 | Data | Load the trace / Load the scan / Generate the trace | Continue | the loaded trace; for a scan its maps and marginals; for a synthetic pulse the pulse, spectrum, spectrogram and trace |
 | Check | — | Continue | the trace and the marginal comparison |
 | Prepare | — | Continue | measured, filtered and regridded traces in dB and linear (2×3) |
-| Retrieve | — | Retrieve / Stop / Retrieve again | the live overview, or convergence before the first preview; the numeric read-out |
+| Retrieve | — | Retrieve / Stop / Analyse, with Retrieve again beside it | the live overview; the run's numbers and its convergence |
 | Analyse | Overview, Traces, Pulse, Diagnostics | Save | the retrieval's panels, two by two |
 | Analyse | Dispersion | Save | dispersed spectrum, pulse, applied phase, spectrogram |
 | Analyse | Uncertainty | Estimate / Stop | FWHM distribution (or FWHM and error against thickness), the temporal band |
@@ -140,10 +149,10 @@ These are known gaps, kept out of the redesign to keep it reviewable:
 - **A dark theme.** The style sheet is built from one `Palette`, so a dark one
   would be a second instance, but the plots' white background and colour maps
   would need choosing too.
-- **The unused sheet parts.** `sheet.DerivedGrid` (numbers derived from the
-  settings) and `ProgressStrip` (state, bar and figures over the plots while
-  work runs) are built but no stage uses them yet; a run's progress is on the
-  ready line. `AdviceBox` so far carries one piece of advice: Prepare's, when
+- **The unused sheet parts.** `sheet.ProgressStrip` (state, bar and figures
+  over the plots while work runs) is built but no stage uses it yet; a run's
+  progress is on the ready line and Retrieve's numbers. `DerivedGrid` holds
+  only Retrieve's numbers so far. `AdviceBox` so far carries one piece of advice: Prepare's, when
   the λ grid clips the trace.
 - **The stage pages' interface.** The stage modules still build through
   `base.Stage`, which keeps the calls they were written against for the old

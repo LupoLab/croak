@@ -59,7 +59,7 @@ The window opens maximised and is laid out for displays of 1366×768 and up;
 un-maximised, it returns to the size you last left it. It opens on **Home**:
 
 ```{image} ../_static/gui_home.png
-:alt: Home — three tiles to start from a measured trace, a simulated scan or a synthetic trace, an "Open a session…" button, and the list of recent sessions on the right.
+:alt: Home — four tiles, each with a small drawing: start from a measured trace, a simulated scan or a synthetic trace, or open a saved session; the list of recent sessions is on the right.
 :width: 95%
 :align: center
 ```
@@ -87,10 +87,12 @@ Settings are in a narrow column on the left of each page and the plots fill the
 rest; hover over a control for help with that setting, and over a plot to read
 its values. Scroll to zoom, drag to pan, and double-click to return to the
 starting view. Right-click a plot, or press Ctrl+E (⌘E) for the whole page, to
-save it as a figure for publication: a vector PDF or SVG drawn by matplotlib.
+save it as a figure for publication: a vector PDF or SVG drawn by matplotlib. At the foot of the window, **Spectral axis** draws every spectral plot
+against wavelength or frequency, and **Log range** sets how far down every
+logarithmic map reaches; drag a map's colour bar to adjust that map alone.
 
 ```{image} ../_static/gui_retrieve.png
-:alt: Retrieve after a run — the solver settings on the left, the measured and retrieved traces above the retrieved pulse and spectrum on the right, and the numeric read-out beneath.
+:alt: Retrieve after a run — the solver settings on the left; on the right the measured and retrieved traces above the retrieved pulse and spectrum, with the run's numbers and its convergence beneath; Analyse and Retrieve again in the top bar, and the display settings at the foot of the window.
 :width: 95%
 :align: center
 ```
