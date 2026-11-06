@@ -13,6 +13,7 @@ from croak.gui.workflow import (
     next_stage,
     primary_action,
     remember_recent,
+    secondary_action,
 )
 
 FRESH = Progress(entry="experimental")
@@ -73,13 +74,14 @@ def test_workflow_raw_simulated_scan_skips_prepare_with_a_reason():
         (Stage.DATA, Stage.CHECK),
         (Stage.CHECK, Stage.PREPARE),
         (Stage.PREPARE, Stage.RETRIEVE),
+        (Stage.RETRIEVE, Stage.ANALYSE),
     ],
 )
 def test_workflow_next_stage_follows_the_session(stage, expected):
     assert next_stage(stage, LOADED) is expected
 
 
-@pytest.mark.parametrize("stage", [Stage.HOME, Stage.RETRIEVE, Stage.ANALYSE])
+@pytest.mark.parametrize("stage", [Stage.HOME, Stage.ABOUT, Stage.ANALYSE])
 def test_workflow_next_stage_refuses_a_stage_without_continue(stage):
     with pytest.raises(ValueError, match="has no next stage"):
         next_stage(stage, LOADED)
@@ -97,7 +99,7 @@ def test_workflow_next_stage_refuses_a_stage_without_continue(stage):
         (Stage.PREPARE, PREPARED, "", Action("continue", "Continue")),
         (Stage.RETRIEVE, LOADED, "", Action("retrieve", "Retrieve", enabled=False)),
         (Stage.RETRIEVE, PREPARED, "", Action("retrieve", "Retrieve")),
-        (Stage.RETRIEVE, RETRIEVED, "", Action("retrieve", "Retrieve again")),
+        (Stage.RETRIEVE, RETRIEVED, "", Action("continue", "Analyse")),
         (Stage.ANALYSE, RETRIEVED, "overview", Action("save", "Save")),
         (Stage.ANALYSE, PREPARED, "", Action("save", "Save", enabled=False)),
         (Stage.ANALYSE, RETRIEVED, "uncertainty", Action("estimate", "Estimate")),
@@ -105,6 +107,25 @@ def test_workflow_next_stage_refuses_a_stage_without_continue(stage):
 )
 def test_workflow_primary_action_is_what_comes_next(stage, progress, page, expected):
     assert primary_action(stage, progress, page) == expected
+
+
+@pytest.mark.parametrize(
+    ("stage", "progress", "expected"),
+    [
+        (Stage.RETRIEVE, PREPARED, Action("", "", enabled=False)),
+        (Stage.RETRIEVE, RETRIEVED, Action("retrieve", "Retrieve again")),
+        (Stage.ANALYSE, RETRIEVED, Action("", "", enabled=False)),
+    ],
+)
+def test_workflow_secondary_action_runs_again_beside_analyse(stage, progress, expected):
+    assert secondary_action(stage, progress) == expected
+
+
+def test_workflow_secondary_action_hides_while_retrieving():
+    running = Progress(
+        entry="synthetic", has_tracedata=True, has_result=True, retrieving=True
+    )
+    assert secondary_action(Stage.RETRIEVE, running).kind == ""
 
 
 def test_workflow_primary_action_stops_running_work():

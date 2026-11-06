@@ -206,6 +206,21 @@ def test_sheet_derived_numbers_show_values_and_states(qtbot):
     grid.clear()
     assert grid.values["FWHM"].text() == "–"
     assert grid.values["Edge energy"].property("warn") is False
+    grid.note("FWHM", "fit")
+    assert grid.names["FWHM"].text() == "FWHM · fit"
+    grid.note("FWHM", "")
+    assert grid.names["FWHM"].text() == "FWHM"
+
+
+def test_sheet_derived_numbers_start_a_group_on_a_new_row(qtbot):
+    grid = DerivedGrid(columns=3)
+    qtbot.addWidget(grid)
+    grid.add("A")
+    grid.end_row()
+    grid.end_row()  # already at a row's start: no blank row
+    grid.add("B")
+    assert grid.grid.itemAtPosition(1, 0) is not None
+    assert grid.grid.itemAtPosition(0, 1) is None
 
 
 def test_sheet_segments_choose_one_value(qtbot):

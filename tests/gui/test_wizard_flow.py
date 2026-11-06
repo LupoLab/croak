@@ -1799,13 +1799,6 @@ def test_widget_labels_escape_literal_ampersands(qtbot):
     assert w.stages[0].lam_unit_combo.toolTip()  # a row inside "Units & interaction"
 
 
-def _readout_row(readout, name):
-    """The four formatted cells of one curve row, in column order."""
-    from croak.gui.readout import _COLUMNS
-
-    return [readout._cells[name, key].text() for key, *_ in _COLUMNS]
-
-
 def _run_synthetic_retrieval(w, qtbot, *, energy=None, maxiters=15):
     """Generate a synthetic trace and retrieve it; returns the Retrieve stage."""
     w.start("synthetic")
@@ -1823,37 +1816,18 @@ def _run_synthetic_retrieval(w, qtbot, *, energy=None, maxiters=15):
 
 
 def test_retrieval_readout_fills_from_a_synthetic_run(qtbot):
-    """Each curve row carries exactly the quantities that are defined for it."""
-    from croak.gui.readout import DASH
-
+    """The run's numbers and the retrieved pulse's peak wavelength and FWHM."""
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    lam_peak, lam_fwhm, fwhm, power = range(4)
-
-    r = _readout_row(rs.readout, "R")
-    assert all(cell != DASH for cell in r[:3])  # spectral + temporal, no energy
-    assert r[power] == DASH
-
-    # the measured spectrum has no phase -> no temporal envelope
-    m = _readout_row(rs.readout, "M")
-    assert m[lam_peak] != DASH and m[lam_fwhm] != DASH
-    assert m[fwhm] == DASH and m[power] == DASH
-
-    # the transform limit shares R's spectrum, so it is reported once, on R
-    tl = _readout_row(rs.readout, "TL")
-    assert tl[lam_peak] == DASH and tl[lam_fwhm] == DASH
-    assert tl[fwhm] != DASH
-
-    # the synthetic generator supplies a known truth, spectrum included
-    truth = _readout_row(rs.readout, "truth")
-    assert truth[lam_peak] != DASH and truth[fwhm] != DASH
-    # ...and it agrees with the truth pulse it was built from
-    assert float(truth[fwhm]) == pytest.approx(w.state.truth.fwhm / 1e-15, rel=1e-2)
-
-    scalars = {k: v.text() for k, v in rs.readout._scalars.items()}
-    assert scalars["iteration"] == str(len(w.state.result.errors))
-    assert scalars["error"].endswith("%")
-    assert scalars["elapsed"].endswith(" s")
+    readout = rs.readout
+    assert readout.text("iteration") == str(len(w.state.result.errors))
+    assert readout.text("error").endswith("%")
+    assert readout.text("elapsed").endswith(" s")
+    assert readout.text("lam_peak").endswith(" nm")
+    # the retrieved FWHM is the one the status line reports
+    fwhm = float(readout.text("fwhm").removesuffix(" fs"))
+    # sig3 against the status line's two decimals: equal to 3 figures
+    assert fwhm == pytest.approx(w.state.processed.fwhm_retr / 1e-15, rel=5e-3)
 
 
 def test_retrieval_readout_shows_the_truth_errors(qtbot):
@@ -1868,7 +1842,7 @@ def test_retrieval_readout_shows_the_truth_errors(qtbot):
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
 
-    scalars = {k: v.text() for k, v in rs.readout._scalars.items()}
+    scalars = {k: rs.readout.text(k) for k in ("eps_It", "eps_Iw", "eps_Ew")}
     for key in ("eps_It", "eps_Iw", "eps_Ew"):
         assert scalars[key] != DASH
         assert 0.0 <= float(scalars[key]) <= 1.5
@@ -1886,54 +1860,7 @@ def test_retrieval_readout_dashes_the_truth_errors_without_a_truth(qtbot):
     w = Driver(qtbot)
     rs = w.stages[3]
     rs._update_truth_error_readout(None, None)
-    scalars = {k: v.text() for k, v in rs.readout._scalars.items()}
-    assert all(scalars[k] == DASH for k in ("eps_It", "eps_Iw", "eps_Ew"))
-
-
-def test_retrieval_readout_peak_power_column(qtbot):
-    """The peak-power column needs a pulse energy, and shares one SI prefix."""
-    from croak.gui.readout import DASH
-
-    w = Driver(qtbot)
-    rs = _run_synthetic_retrieval(w, qtbot, energy=1.2e-6)
-
-    header = rs.readout._header["peak_power"].text()
-    assert header.startswith("Peak power (") and header.endswith("W)")
-    for row in ("R", "TL", "truth"):
-        assert _readout_row(rs.readout, row)[3] != DASH
-    assert _readout_row(rs.readout, "M")[3] == DASH  # no temporal envelope
-
-    # dropping the energy takes the whole column away again
-    rs.state.load.energy_j = 0.0
-    rs._update_view()
-    assert rs.readout._header["peak_power"].text() == "Peak power"
-    for row in ("R", "M", "TL", "truth"):
-        assert _readout_row(rs.readout, row)[3] == DASH
-
-
-def test_retrieval_readout_truth_row_blank_without_a_truth(
-    qtbot, experiment_h5, experiment
-):
-    """An experimental trace has no known truth, so that row stays blank."""
-    from croak.gui.readout import DASH
-
-    w = Driver(qtbot)
-    st = w.state
-    st.load.frog_path = experiment_h5
-    w.stages[0]._populate_frog()
-    st.load.interaction = experiment.interaction
-    w.stages[0]._load_preview()
-    w.goto(3)
-    rs = w.stages[3]
-    rs.state.retrieve.solver = "copra"
-    rs.state.retrieve.maxiters = 15
-    w.goto(4)
-    with qtbot.waitSignal(st.result_changed, timeout=30000):
-        rs._run()
-
-    assert st.truth is None
-    assert _readout_row(rs.readout, "truth") == [DASH] * 4
-    assert _readout_row(rs.readout, "R")[0] != DASH  # the rest still fills
+    assert all(rs.readout.text(k) == DASH for k in ("eps_It", "eps_Iw", "eps_Ew"))
 
 
 def test_retrieval_readout_progress_without_a_result(qtbot):
@@ -1942,8 +1869,8 @@ def test_retrieval_readout_progress_without_a_result(qtbot):
     rs = w.stages[3]
     rs._errors = []
     rs._on_progress(7, 0.0123, 0.0100)
-    assert rs.readout._scalars["iteration"].text() == "7"
-    assert rs.readout._scalars["error"].text() == "1.2300%"
+    assert rs.readout.text("iteration") == "7"
+    assert rs.readout.text("error") == "1.2300%"
 
 
 def test_retrieval_readout_cleared_when_a_run_starts(qtbot, monkeypatch):
@@ -1953,7 +1880,7 @@ def test_retrieval_readout_cleared_when_a_run_starts(qtbot, monkeypatch):
 
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    assert _readout_row(rs.readout, "R")[0] != DASH
+    assert rs.readout.text("fwhm") != DASH
 
     # a worker that never runs, so we can inspect the just-cleared state
     class _Idle:
@@ -1970,8 +1897,8 @@ def test_retrieval_readout_cleared_when_a_run_starts(qtbot, monkeypatch):
 
     monkeypatch.setattr(sr, "RetrievalWorker", _Idle)
     rs._run()
-    assert _readout_row(rs.readout, "R") == [DASH] * 4
-    assert rs.readout._scalars["iteration"].text() == "0"
+    assert rs.readout.text("fwhm") == DASH
+    assert rs.readout.text("iteration") == "0"
     assert rs._elapsed_timer.isActive()
     rs._elapsed_timer.stop()
 
@@ -1983,20 +1910,22 @@ def test_retrieval_readout_marks_extras_fitted_or_fixed(qtbot):
     w = Driver(qtbot)
     rs = w.stages[3]
     p = rs.state.retrieve
-    scalars = rs.readout._scalars
+    readout = rs.readout
 
     # no dispersive slab modelled at all -> nothing to report
     p.dispersive = False
     rs._update_extras_readout(None)
-    assert scalars["thickness"].text() == DASH
-    assert scalars["tau0"].text() == "0.00 fs (fixed)"
-    assert scalars["smearing"].text() == DASH
+    assert readout.text("thickness") == DASH
+    assert readout.name("thickness") == "Thickness"
+    assert (readout.text("tau0"), readout.name("tau0")) == ("0.00 fs", "τ₀ · fixed")
+    assert readout.text("smearing") == DASH
 
     # a slab, held fixed at the value in the controls
     p.dispersive = True
     p.thickness_um = 42.0
     rs._update_extras_readout(None)
-    assert scalars["thickness"].text() == "42.00 µm (fixed)"
+    assert readout.text("thickness") == "42.00 µm"
+    assert readout.name("thickness") == "Thickness · fixed"
 
     # ...and one the solver fitted
     class _Fitted:
@@ -2005,8 +1934,12 @@ def test_retrieval_readout_marks_extras_fitted_or_fixed(qtbot):
         smear_scale = None
 
     rs._update_extras_readout(_Fitted())
-    assert scalars["thickness"].text() == "55.00 µm (fit)"
-    assert scalars["tau0"].text() == "1.25 fs (fit)"
+    assert readout.text("thickness") == "55.00 µm"
+    assert readout.name("thickness") == "Thickness · fit"
+    assert (readout.text("tau0"), readout.name("tau0")) == ("1.25 fs", "τ₀ · fit")
+    # a cleared read-out drops the notes with the numbers
+    readout.clear()
+    assert readout.name("tau0") == "τ₀"
 
 
 def test_gas_controls_reach_millibar_and_long_paths(qtbot):
@@ -2044,7 +1977,7 @@ def test_retrieval_readout_smearing_survives_an_shg_trace(qtbot):
     rs.state.retrieve.smearing = True
 
     rs._update_extras_readout(None)  # must not raise
-    assert rs.readout._scalars["smearing"].text() == DASH
+    assert rs.readout.text("smearing") == DASH
     # and the status-line helper, which shares _smear_width_fs, degrades too
     assert rs._smear_summary(1.5, w.state.tracedata) == "smearing ×1.500"
 
@@ -2447,7 +2380,7 @@ def test_analyse_rail_shows_every_page_of_the_result(qtbot):
         assert page.panels.mode == "panels"
 
 
-def test_retrieve_progress_curve_shows_before_the_first_preview(qtbot):
+def test_retrieve_convergence_curve_follows_the_run(qtbot):
     w = Driver(qtbot)
     w.start("synthetic")
     w.synthetic.advance()
@@ -2457,11 +2390,10 @@ def test_retrieve_progress_curve_shows_before_the_first_preview(qtbot):
     rs._errors = []
     rs._on_progress(1, 0.1, 0.1)
     rs._on_progress(2, 0.05, 0.05)
-    qtbot.waitUntil(lambda: rs.pages.mode == "progress")  # after the debounce
-    line = rs.pages.convergence.items[0]
-    assert line.yData.size == 2
+    plot = rs.convergence.plot
+    qtbot.waitUntil(lambda: bool(plot.items) and plot.items[0].yData.size == 2)
     rs._on_progress(3, 0.02, 0.02)
-    qtbot.waitUntil(lambda: rs.pages.convergence.items[0].yData.size == 3)
+    qtbot.waitUntil(lambda: plot.items[0].yData.size == 3)
 
 
 def test_retrieve_run_clears_the_overview(qtbot, monkeypatch):
@@ -2476,17 +2408,13 @@ def test_retrieve_run_clears_the_overview(qtbot, monkeypatch):
     assert rs.pages.data is None
 
 
-def test_retrieve_readout_collapse_frees_plot_height(qtbot):
+def test_retrieve_shows_the_whole_convergence_after_a_run(qtbot):
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    w.resize(1366, 768)
-    w.show()
-    qtbot.waitExposed(w)
-    assert rs.readout_strip.isExpanded()
-    before = rs.pages.height()
-    rs.readout_strip.collapse(animate=False)
-    qtbot.waitUntil(lambda: rs.pages.height() > before + 100)
-    assert settings.value("retrieve/readout_expanded", True) is False
+    errors = w.state.result.errors
+    assert rs.convergence.view is not None
+    assert rs.convergence.view.title == "Convergence"
+    assert rs.convergence.plot.items[0].yData.size == len(errors)
 
 
 def test_retrieve_live_preview_redraws_the_overview(qtbot):
@@ -2502,7 +2430,6 @@ def test_retrieve_live_preview_redraws_the_overview(qtbot):
     plot = rs.pages.boxes["temporal"].plot
     rs._on_preview(r2)
     assert rs.pages.boxes["temporal"].plot is plot
-    assert rs._live_full
     assert rs.pages.data is not None and rs.pages.data.result is r2
     assert "iter 5" in rs.status_label.text()
 
@@ -2526,7 +2453,7 @@ def test_retrieve_convergence_redraw_is_throttled(qtbot, monkeypatch):
     rs = w.stages[3]
     calls = []
     monkeypatch.setattr(
-        rs.pages, "show_progress", lambda errors: calls.append(len(errors))
+        rs.convergence, "show_view", lambda view: calls.append(view.curves[0].y.size)
     )
     rs._errors = []
     for i in range(1000):

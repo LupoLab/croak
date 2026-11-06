@@ -1,8 +1,9 @@
 """The workflow window: Home, then Data, Check, Prepare, Retrieve and Analyse.
 
 The top bar carries the brand (back to Home), what the session is, the five
-stage buttons, the one primary action and an overflow menu (⋯). Which stages
-open and what the primary action does are the pure rules of
+stage buttons, the primary action (with Retrieve again beside it once a
+retrieval is done) and an overflow menu (⋯). Which stages open and what the
+actions do are the pure rules of
 :mod:`croak.gui.workflow`; this module applies them to widgets. A drawer on the
 right shows the session's settings as ``options.toml`` or as a Python script.
 
@@ -62,6 +63,7 @@ from .workflow import (
     blocked_reason,
     next_stage,
     primary_action,
+    secondary_action,
 )
 
 if TYPE_CHECKING:
@@ -182,6 +184,12 @@ class MainWindow(QMainWindow):
             bar.addWidget(b)
             self.stage_buttons[stage] = b
         bar.addStretch(1)
+        # Beside the primary action, the one step that is not the way on
+        # (Retrieve again, once a retrieval is done).
+        self.secondary = button("")
+        self.secondary.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.secondary.clicked.connect(self.do_secondary)
+        bar.addWidget(self.secondary)
         self.primary = button("", "primary")
         self.primary.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.primary.clicked.connect(self.do_primary)
@@ -333,6 +341,10 @@ class MainWindow(QMainWindow):
         self.primary.setVisible(bool(action.kind))
         self.primary.setText(action.text)
         self.primary.setEnabled(action.enabled)
+        second = secondary_action(self.stage, progress)
+        self.secondary.setVisible(bool(second.kind))
+        self.secondary.setText(second.text)
+        self.secondary.setEnabled(second.enabled)
         entry = _ENTRY_TITLES.get(progress.entry, "")
         name = Path(self.session_path).parent.name if self.session_path else ""
         self.context.setText("  ·  ".join(p for p in (entry, name) if p))
@@ -392,6 +404,14 @@ class MainWindow(QMainWindow):
         page = self.pages[self.stage]
         if page.act(action.kind) and action.kind == "continue":
             self.go(next_stage(self.stage, self.progress()))
+        self.refresh()
+
+    def do_secondary(self) -> None:
+        """Do what the action beside the primary one says."""
+        action = secondary_action(self.stage, self.progress())
+        if not action.enabled:
+            return
+        self.pages[self.stage].act(action.kind)
         self.refresh()
 
     def move_on(self, stage: Stage) -> None:

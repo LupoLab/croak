@@ -13,19 +13,20 @@ import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QFileDialog,
+    QHBoxLayout,
     QPushButton,
+    QWidget,
 )
 
 from .. import materials, plotting, smearing
 from ..constants import C
+from ..plotting.screen import convergence_view
 from ..processing import (
     ProcessedResult,
-    TruthPulse,
     peak_wavelength,
     post_filter,
     process_result,
     resolve_time_direction,
-    spectral_fwhm,
 )
 from ..retrieve import ALGORITHMS, algorithm_params
 from ..session.params import reg_defaults, reg_family
@@ -33,17 +34,20 @@ from ..session.pipeline import extra_param_centres, smearing_kernel
 from ..truth_metrics import truth_errors
 from . import settings
 from .base import RunControls, Stage
-from .controls import check, collapsible, combo, dspin, group, spin
+from .controls import check, combo, dspin, group, spin
 from .readout import DASH, RetrievalReadout
 from .retrieval_views import RetrievalPanels
+from .view_panel import ViewPanel
 from .widgets import SciSpinBox
 from .worker import RetrievalWorker
 
+#: The height of the numbers and convergence strip under the plots (logical px).
+_STRIP_HEIGHT = 150
 #: How often the elapsed-time read-out ticks during a run (ms).
 _ELAPSED_TICK_MS = 500
-#: Shortest interval (ms) between redraws of the convergence curve before the first
-#: full preview: a fast solver can report thousands of iterations a second, and
-#: ten frames a second is all the eye needs.
+#: Shortest interval (ms) between redraws of the convergence curve during a run: a
+#: fast solver can report thousands of iterations a second, and ten frames a
+#: second is all the eye needs.
 _CONVERGENCE_REDRAW_MS = 100
 
 _INITIAL_GUESSES = {
@@ -343,9 +347,6 @@ class StageRetrieve(RunControls, Stage):
         self._worker = None
         self._base_result = None  # unfiltered retrieval, for post-filter toggles
         self._elapsed = None  # wall-clock time of the last retrieval (s)
-        # Whether a live full-plot preview has taken over the plots this run; until
-        # the first preview arrives we draw the cheap convergence curve.
-        self._live_full = False
         # Last regularisation weights used with each solver family, so switching
         # solver to compare and back does not throw away hand-tuned values. The
         # families are kept apart because the same number does not mean the same
@@ -877,17 +878,20 @@ class StageRetrieve(RunControls, Stage):
         self.controls.addStretch(1)
 
         # The live overview on top (it takes every spare pixel; see
-        # croak.gui.retrieval_views), the numeric read-out beneath at its natural
-        # height, folding away with a click and remembering that. The full pages
-        # of panels are on Analyse.
+        # croak.gui.retrieval_views); beneath it, the run's numbers beside its
+        # convergence, which on a slow retrieval says whether to wait. The full
+        # pages of panels are on Analyse.
         self.pages = RetrievalPanels()
         self.readout = RetrievalReadout()
-        self.readout_strip = collapsible(
-            "Numeric read-out",
-            self.readout,
-            settings_key="retrieve/readout_expanded",
-        )
-        self.set_plot_area(self.pages, self.readout_strip)
+        self.convergence = ViewPanel("line")
+        strip = QWidget()
+        strip.setFixedHeight(_STRIP_HEIGHT)
+        row = QHBoxLayout(strip)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(24)
+        row.addWidget(self.readout, stretch=3)
+        row.addWidget(self.convergence, stretch=2)
+        self.set_plot_area(self.pages, strip)
         self._update_extras_readout(None)
 
         self.apply_help()
@@ -1446,9 +1450,9 @@ class StageRetrieve(RunControls, Stage):
                 )
         self.set_running(True)
         self.retarget_btn.setEnabled(False)
-        self._live_full = False
         self._conv_timer.stop()
         self.pages.clear()
+        self.convergence.show_view(convergence_view([]))
         self._worker = RetrievalWorker(
             td,
             p,
@@ -1494,18 +1498,15 @@ class StageRetrieve(RunControls, Stage):
         self.set_status(f"iter {iteration}: R = {R:.4%} (best {best_R:.4%})")
         # Cheap: this fires every iteration and has no processed result to draw on.
         self.readout.set_scalars({"iteration": str(iteration), "error": f"{R:.4%}"})
-        # Until the first full-plot preview arrives (or for convergence-only
-        # solvers), animate the convergence curve on the visible page — at most
-        # every _CONVERGENCE_REDRAW_MS, however fast the iterations come. Once a
-        # live full plot has taken over, leave it to :meth:`_on_preview`.
-        if not self._live_full and not self._conv_timer.isActive():
+        # Animate the convergence curve at most every _CONVERGENCE_REDRAW_MS,
+        # however fast the iterations come.
+        if not self._conv_timer.isActive():
             self._conv_timer.start()
 
     def _draw_convergence(self) -> None:
         """Show the run's error history so far (debounced by ``_conv_timer``)."""
-        if self._live_full or not self._errors:
-            return
-        self.pages.show_progress(self._errors)
+        if self._errors:
+            self.convergence.show_view(convergence_view(self._errors))
 
     def _on_preview(self, result):
         """Show a throttled in-progress result on the pages.
@@ -1520,8 +1521,6 @@ class StageRetrieve(RunControls, Stage):
         td = self.state.tracedata
         if td is None:
             return
-        self._conv_timer.stop()
-        self._live_full = True
         energy = self.state.load.energy_j or None
         started = time.perf_counter()
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -1609,7 +1608,7 @@ class StageRetrieve(RunControls, Stage):
     def _show(self, result, pr) -> None:
         """Show ``result`` on the pages and refresh the numeric read-out from ``pr``."""
         self.pages.set_data(self._plot_data(result, pr))
-        self._update_curve_readout(pr, self.state.truth)
+        self._update_pulse_readout(pr)
         self._update_extras_readout(result)
         self._update_truth_error_readout(result, self.state.truth)
 
@@ -1639,6 +1638,11 @@ class StageRetrieve(RunControls, Stage):
         )
         self.state.set_result(result, pr)
         self._show(result, pr)
+        # The whole history, with the hand-overs between a solver's stages; a
+        # result read back from a file has none.
+        self.convergence.show_view(
+            convergence_view(result.errors, result.stage_boundaries)
+        )
         # A result rehydrated from file carries no error history, so there is no
         # honest iteration count to show.
         self.readout.set_scalars(
@@ -1720,68 +1724,19 @@ class StageRetrieve(RunControls, Stage):
             return DASH
         return plotting.sig3(value_s / 1e-15)
 
-    @staticmethod
-    def _power(value_w: float | None, scale: float) -> str:
-        """Format a power against the column's shared SI prefix."""
-        if value_w is None or not np.isfinite(value_w):
-            return DASH
-        return plotting.sig3(value_w / scale)
-
-    def _update_curve_readout(self, pr: ProcessedResult, truth: TruthPulse | None):
-        """Fill the per-curve table from a processed result (+ optional truth).
-
-        Row/column coverage follows what is physically defined: the measured
-        spectrum carries no phase, so it has no temporal envelope; the
-        transform-limited pulse is the retrieved ``|E(ω)|`` with the phase removed,
-        so its spectrum *is* the retrieved one and is left blank rather than
-        duplicated. Peak powers need a measured pulse energy.
-        """
-        truth_power = truth.peak_power(pr.energy) if truth is not None else None
-        powers = [
-            p
-            for p in (pr.peak_power, pr.peak_power_tl, truth_power)
-            if p is not None and np.isfinite(p)
-        ]
-        # One SI prefix for the whole column, so the numbers stay comparable.
-        scale, unit = plotting.si_power(max(powers)) if powers else (1.0, None)
-        self.readout.set_power_unit(unit)
-
+    def _update_pulse_readout(self, pr: ProcessedResult) -> None:
+        """Show the retrieved spectrum's peak wavelength and the pulse's FWHM."""
         # The wavelength axis is descending and can hold a zero crossing; the
-        # spectral helpers mask that off (see croak.processing.peak_wavelength).
+        # spectral helper masks that off (see croak.processing.peak_wavelength).
         with np.errstate(divide="ignore", invalid="ignore"):
-            self.readout.set_cells(
-                "R",
-                {
-                    "lam_peak": self._nm(peak_wavelength(pr.wavelength, pr.Ilam)),
-                    "lam_fwhm": self._nm(spectral_fwhm(pr.wavelength, pr.Ilam)),
-                    "fwhm": self._fs(pr.fwhm_retr),
-                    "peak_power": self._power(pr.peak_power, scale),
-                },
-            )
-            meas = {}
-            if pr.Iw_meas is not None:
-                meas = {
-                    "lam_peak": self._nm(peak_wavelength(pr.wavelength, pr.Iw_meas)),
-                    "lam_fwhm": self._nm(spectral_fwhm(pr.wavelength, pr.Iw_meas)),
-                }
-            self.readout.set_cells("M", meas)
-        self.readout.set_cells(
-            "TL",
+            lam_peak = self._nm(peak_wavelength(pr.wavelength, pr.Ilam))
+        fwhm = self._fs(pr.fwhm_retr)
+        self.readout.set_scalars(
             {
-                "fwhm": self._fs(pr.fwhm_tl),
-                "peak_power": self._power(pr.peak_power_tl, scale),
-            },
-        )
-        truth_cells = {}
-        if truth is not None:
-            truth_cells = {
-                "fwhm": self._fs(truth.fwhm),
-                "peak_power": self._power(truth_power, scale),
+                "lam_peak": lam_peak if lam_peak == DASH else f"{lam_peak} nm",
+                "fwhm": fwhm if fwhm == DASH else f"{fwhm} fs",
             }
-            if truth.lam is not None and truth.Iw is not None:
-                truth_cells["lam_peak"] = self._nm(peak_wavelength(truth.lam, truth.Iw))
-                truth_cells["lam_fwhm"] = self._nm(spectral_fwhm(truth.lam, truth.Iw))
-        self.readout.set_cells("truth", truth_cells)
+        )
 
     def _update_truth_error_readout(self, result, truth) -> None:
         """Show the known-truth errors, or dashes when there is no known pulse.
@@ -1815,7 +1770,7 @@ class StageRetrieve(RunControls, Stage):
         self.readout.set_scalars(values)
 
     def _update_extras_readout(self, result):
-        """Show τ₀ / thickness / smearing, each marked ``(fit)`` or ``(fixed)``.
+        """Show τ₀ / thickness / smearing, each named ``fit`` or ``fixed``.
 
         ``result`` is the retrieval to report (``None`` before any run, which shows
         the nominal values the forward model would use). A fitted extra is one the
@@ -1829,41 +1784,40 @@ class StageRetrieve(RunControls, Stage):
         thickness_m, _tau0, smear_scale, _smear_delta = extra_param_centres(p, None)
 
         if result is not None and result.thickness is not None:
-            thickness = f"{result.thickness / 1e-6:.2f} µm (fit)"
+            thickness = (f"{result.thickness / 1e-6:.2f} µm", "fit")
         elif p.dispersive:
-            thickness = f"{thickness_m / 1e-6:.2f} µm (fixed)"
+            thickness = (f"{thickness_m / 1e-6:.2f} µm", "fixed")
         else:
-            thickness = DASH  # no slab is modelled at all
+            thickness = (DASH, "")  # no slab is modelled at all
 
         # A fitted τ₀ that lands exactly on zero is indistinguishable from a fixed
         # one in the result; the status line makes the same trade.
         if result is not None and result.tau0:
-            tau0 = f"{result.tau0 / 1e-15:.2f} fs (fit)"
+            tau0 = (f"{result.tau0 / 1e-15:.2f} fs", "fit")
         else:
-            tau0 = "0.00 fs (fixed)"
+            tau0 = ("0.00 fs", "fixed")
 
-        smear = DASH
+        smear = (DASH, "")
         if result is not None and result.smear_scale is not None:
             smear_scale, fitted = result.smear_scale, True
-            smear = f"×{smear_scale:.3f} (fit)"
+            smear = (f"×{smear_scale:.3f}", "fit")
         else:
             fitted = False
         if p.smearing and td is not None:
             sigma_fs = self._smear_width_fs(smear_scale, td)
             if sigma_fs is not None:
                 marker = "fit" if fitted else "fixed"
-                smear = f"{sigma_fs:.2f} fs (×{smear_scale:.3f}, {marker})"
+                smear = (f"{sigma_fs:.2f} fs", f"×{smear_scale:.3f} {marker}")
 
-        self.readout.set_scalars(
-            {"tau0": tau0, "thickness": thickness, "smearing": smear}
-        )
+        shown = {"tau0": tau0, "thickness": thickness, "smearing": smear}
+        self.readout.set_scalars({key: value for key, (value, _) in shown.items()})
+        self.readout.set_notes({key: note for key, (_, note) in shown.items()})
 
     def _on_failed(self, message):
         self.set_running(False)
         self._elapsed_timer.stop()
         self._conv_timer.stop()
-        # Keep the last true iteration/error/elapsed; blank the curve table, whose
-        # numbers would otherwise be silently stale.
+        # Blank the numbers, which would otherwise be silently stale.
         self.readout.clear()
         self._update_extras_readout(None)
         self.set_status("Stopped." if message == "stopped" else f"Failed: {message}")

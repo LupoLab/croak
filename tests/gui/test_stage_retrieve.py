@@ -23,7 +23,6 @@ from croak.gui import stage_retrieve
 from croak.gui.stage_load import seed_preproc_defaults
 from croak.gui.stage_retrieve import StageRetrieve
 from croak.gui.state import WizardState
-from croak.processing import TruthPulse
 from croak.session.params import RetrieveParams
 from croak.session.pipeline import assemble_load_data, build_tracedata, run_retrieval
 
@@ -296,13 +295,13 @@ def test_stage_retrieve_seeded_extras_names_thickness_and_smearing(stage, run):
 # -- completion, preview and read-out ------------------------------------------
 def test_stage_retrieve_preview_without_trace_is_ignored(stage, run):
     stage._on_preview(run[3])
-    assert not stage._live_full
+    assert stage.pages.mode == "empty"
 
 
 def test_stage_retrieve_preview_without_worker_still_shows(with_trace, run):
     with_trace._worker = None
     with_trace._on_preview(run[3])
-    assert with_trace._live_full
+    assert with_trace.pages.mode == "panels"
     assert with_trace.status_label.text().endswith("(live preview)")
 
 
@@ -314,8 +313,11 @@ def test_stage_retrieve_preview_reports_its_cost_to_the_worker(with_trace, run):
 
 def test_stage_retrieve_convergence_waits_for_errors(stage, monkeypatch):
     shown = []
-    monkeypatch.setattr(stage.pages, "show_progress", shown.append)
-    stage._live_full = False
+    monkeypatch.setattr(
+        stage.convergence,
+        "show_view",
+        lambda view: shown.append(list(view.curves[0].y)),
+    )
     stage._errors = []
     stage._draw_convergence()  # nothing to plot yet
     assert shown == []
@@ -372,47 +374,44 @@ def test_stage_retrieve_elapsed_clock_ticks(stage, monkeypatch):
 def test_stage_retrieve_formatters_show_a_dash_when_undefined(value):
     assert StageRetrieve._nm(value) == DASH
     assert StageRetrieve._fs(value) == DASH
-    assert StageRetrieve._power(value, 1.0) == DASH
 
 
-def test_stage_retrieve_curve_readout_without_truth_spectrum(
+def test_stage_retrieve_pulse_readout_dashes_what_is_undefined(
     with_trace, run, monkeypatch
 ):
     with_trace._on_finished(run[3], 0.5)
-    pr = with_trace.state.processed
-    t = np.linspace(-50e-15, 50e-15, 101)
-    # intensity only: no spectrum on the truth
-    truth = TruthPulse(t=t, It=np.exp(-((t / 5e-15) ** 2)), fwhm=8.3e-15)
-    cells = {}
-    monkeypatch.setattr(
-        with_trace.readout, "set_cells", lambda row, values: cells.update({row: values})
-    )
-    with_trace._update_curve_readout(pr, truth)
-    # without a known spectrum the truth row carries temporal cells only
-    assert set(cells["truth"]) == {"fwhm", "peak_power"}
+    pr = replace(with_trace.state.processed, fwhm_retr=float("nan"))
+    monkeypatch.setattr(stage_retrieve, "peak_wavelength", lambda *a: None)
+    with_trace._update_pulse_readout(pr)
+    assert with_trace.readout.text("lam_peak") == DASH
+    assert with_trace.readout.text("fwhm") == DASH
 
 
 def test_stage_retrieve_extras_readout_marks_fitted_values(with_trace, run):
     p = with_trace.state.retrieve
     p.smearing = True
-    seen = {}
-    with_trace.readout.set_scalars = lambda values: seen.update(values)
+    readout = with_trace.readout
+
+    def shown(key):
+        return readout.text(key), readout.name(key)
+
     fitted = replace(run[3], thickness=12e-6, tau0=2e-15, smear_scale=1.1)
     with_trace._update_extras_readout(fitted)
-    assert seen["thickness"] == "12.00 µm (fit)"
-    assert seen["tau0"] == "2.00 fs (fit)"
-    assert seen["smearing"].endswith("(×1.100, fit)")
+    assert shown("thickness") == ("12.00 µm", "Thickness · fit")
+    assert shown("tau0") == ("2.00 fs", "τ₀ · fit")
+    assert readout.text("smearing").endswith(" fs")
+    assert readout.name("smearing") == "Smearing · ×1.100 fit"
     # a kernel the trace cannot carry (SHG) falls back to the bare factor
     with_trace.state.tracedata = replace(run[2], interaction="shg")
     with_trace._update_extras_readout(fitted)
-    assert seen["smearing"] == "×1.100 (fit)"
+    assert shown("smearing") == ("×1.100", "Smearing · fit")
     # nothing fitted, no slab: dashes and the nominal fixed values
     p.dispersive = False
     p.smearing = False
     with_trace._update_extras_readout(None)
-    assert seen["thickness"] == DASH
-    assert seen["tau0"] == "0.00 fs (fixed)"
-    assert seen["smearing"] == DASH
+    assert shown("thickness") == (DASH, "Thickness")
+    assert shown("tau0") == ("0.00 fs", "τ₀ · fixed")
+    assert shown("smearing") == (DASH, "Smearing")
 
 
 # -- retarget and save ---------------------------------------------------------

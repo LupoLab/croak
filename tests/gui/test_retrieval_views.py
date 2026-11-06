@@ -59,13 +59,10 @@ def test_retrieval_views_cover_every_figure_panel():
     assert set(PANELS) == set(plotting.RETRIEVAL_PANELS)
 
 
-def test_retrieval_panels_move_from_progress_to_results(qtbot, data):
+def test_retrieval_panels_move_from_empty_to_results(qtbot, data):
     panels = RetrievalPanels()
     qtbot.addWidget(panels)
     assert panels.mode == "empty"
-    panels.show_progress([0.5, 0.2, 0.1])
-    assert panels.mode == "progress"
-    assert panels.convergence.log_y
     panels.set_data(data)
     assert panels.mode == "panels" and panels.data is data
     assert set(panels.boxes) == {k for row in OVERVIEW for k in row}

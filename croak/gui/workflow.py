@@ -1,9 +1,10 @@
 """The window's route through a session, as rules without Qt.
 
 A session runs Home → Data → Check → Prepare → Retrieve → Analyse. Which stages can be
-opened, and what the one primary action in the top bar does, depend only on what
-the session holds (:class:`Progress`), so they are decided here, as pure
-functions the window applies and the tests check directly.
+opened, and what the primary action in the top bar does (with, on Retrieve, a
+second action beside it), depend only on what the session holds
+(:class:`Progress`), so they are decided here, as pure functions the window
+applies and the tests check directly.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ __all__ = [
     "next_stage",
     "primary_action",
     "remember_recent",
+    "secondary_action",
 ]
 
 RECENT_LIMIT = 6
@@ -123,7 +125,7 @@ def next_stage(stage: Stage, progress: Progress) -> Stage:
     Raises
     ------
     ValueError
-        For a stage with no "Continue" (Home, Retrieve, Analyse).
+        For a stage with no "Continue" (Home, About, Analyse).
     """
     if stage in (Stage.DATA, Stage.CHECK) and progress.raw_direct:
         return Stage.RETRIEVE
@@ -133,6 +135,8 @@ def next_stage(stage: Stage, progress: Progress) -> Stage:
         return Stage.PREPARE
     if stage is Stage.PREPARE:
         return Stage.RETRIEVE
+    if stage is Stage.RETRIEVE:
+        return Stage.ANALYSE
     raise ValueError(f"{stage.title} has no next stage")
 
 
@@ -177,13 +181,32 @@ def primary_action(stage: Stage, progress: Progress, page: str = "") -> Action:
     if stage is Stage.RETRIEVE:
         if progress.retrieving:
             return Action("stop", "Stop")
-        text = "Retrieve again" if progress.has_result else "Retrieve"
-        return Action("retrieve", text, enabled=progress.has_tracedata)
+        # With a result the next step is to look at it, as on every other
+        # stage; running again is the second action (secondary_action).
+        if progress.has_result:
+            return Action("continue", "Analyse")
+        return Action("retrieve", "Retrieve", enabled=progress.has_tracedata)
     if page == "uncertainty":
         if progress.estimating:
             return Action("stop-estimate", "Stop")
         return Action("estimate", "Estimate", enabled=progress.has_result)
     return Action("save", "Save", enabled=progress.has_result)
+
+
+def secondary_action(stage: Stage, progress: Progress) -> Action:
+    """The action beside the primary one: on Retrieve with a result, run again.
+
+    Examples
+    --------
+    >>> done = Progress(entry="synthetic", has_tracedata=True, has_result=True)
+    >>> secondary_action(Stage.RETRIEVE, done)
+    Action(kind='retrieve', text='Retrieve again', enabled=True)
+    >>> secondary_action(Stage.PREPARE, done).kind
+    ''
+    """
+    if stage is Stage.RETRIEVE and progress.has_result and not progress.retrieving:
+        return Action("retrieve", "Retrieve again", enabled=progress.has_tracedata)
+    return Action("", "", enabled=False)
 
 
 def remember_recent(

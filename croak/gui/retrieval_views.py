@@ -13,7 +13,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-import numpy as np
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -34,14 +33,10 @@ from ..plotting import (
     plot_retrieval_page,
 )
 from ..plotting import screen as sc
-from .plots import (
-    LinePlot,
-    curve_reader,
-)
 from .stage import PageBase
 from .state import WizardState
 from .theme import label
-from .view_panel import ViewPanel, draw_line_view
+from .view_panel import ViewPanel
 
 __all__ = [
     "OVERVIEW",
@@ -129,7 +124,7 @@ class PanelBox(ViewPanel):
 
 
 class RetrievalPanels(QWidget):
-    """A grid of retrieval panels, with a convergence view for a run's start.
+    """A grid of retrieval panels, or a note while there is nothing to show.
 
     Parameters
     ----------
@@ -152,16 +147,9 @@ class RetrievalPanels(QWidget):
                 grid.addWidget(box, r, c)
                 self.boxes[key] = box
         self._link_maps()
-        self.convergence = LinePlot(xlabel="Iteration", ylabel="Error")
-        self.convergence.reader = curve_reader(self.convergence, "iteration")
-        conv = QWidget()
-        cl = QVBoxLayout(conv)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.addWidget(label("Convergence", "plotTitle"))
-        cl.addWidget(self.convergence, stretch=1)
         self.empty = label("Run a retrieval to see it here.", "note")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        for widget in (self.empty, conv, grid_widget):
+        for widget in (self.empty, grid_widget):
             self.stack.addWidget(widget)
         self.grid_widget = grid_widget
         layout = QVBoxLayout(self)
@@ -182,8 +170,8 @@ class RetrievalPanels(QWidget):
 
     @property
     def mode(self) -> str:
-        """``"empty"``, ``"progress"`` or ``"panels"``."""
-        return ("empty", "progress", "panels")[self.stack.currentIndex()]
+        """``"empty"`` or ``"panels"``."""
+        return ("empty", "panels")[self.stack.currentIndex()]
 
     def set_data(self, data: RetrievalPlotData) -> None:
         """Show ``data`` on every panel (cheap enough for a live preview)."""
@@ -191,12 +179,6 @@ class RetrievalPanels(QWidget):
         for box in self.boxes.values():
             box.show_data(data)
         self.stack.setCurrentWidget(self.grid_widget)
-
-    def show_progress(self, errors: Sequence[float]) -> None:
-        """Before the first preview of a run: the error so far against iteration."""
-        view = sc.convergence_view(np.asarray(errors, dtype=float))
-        draw_line_view(self.convergence, view)
-        self.stack.setCurrentIndex(1)
 
     def clear(self) -> None:
         """Forget the shown result."""

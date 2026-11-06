@@ -402,23 +402,31 @@ class DerivedGrid(QWidget):
         self.grid.setHorizontalSpacing(24)
         self.grid.setVerticalSpacing(8)
         self.values: dict[str, QLabel] = {}
+        self.names: dict[str, QLabel] = {}
+        self._next = 0  # the next free cell, counted row by row
 
     def add(self, name: str, tooltip: str = "") -> QLabel:
         """Add a number called ``name`` (shown as an en dash until set)."""
-        index = len(self.values)
         cell = QWidget()
         cl = QVBoxLayout(cell)
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(0)
-        cl.addWidget(label(name, "derivedLabel"))
+        self.names[name] = label(name, "derivedLabel")
+        cl.addWidget(self.names[name])
         value = label("–", "derivedValue")
         value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         cl.addWidget(value)
         if tooltip:
             cell.setToolTip(tooltip)
-        self.grid.addWidget(cell, index // self.columns, index % self.columns)
+        row, column = divmod(self._next, self.columns)
+        self.grid.addWidget(cell, row, column)
+        self._next += 1
         self.values[name] = value
         return value
+
+    def end_row(self) -> None:
+        """Start the next number on a new row (a group of its own)."""
+        self._next = -(-self._next // self.columns) * self.columns
 
     def set(self, name: str, text: str, state: str = "ok") -> None:
         """Show ``text`` for ``name``; ``state`` ``"warn"``/``"error"`` colours it."""
@@ -426,6 +434,10 @@ class DerivedGrid(QWidget):
         value.setText(text)
         set_flag(value, "warn", state == "warn")
         set_flag(value, "error", state == "error")
+
+    def note(self, name: str, text: str) -> None:
+        """Add ``text`` to the name of ``name`` ("τ₀ · fit"); ``""`` removes it."""
+        self.names[name].setText(f"{name} · {text}" if text else name)
 
     def clear(self) -> None:
         """Show every number as unknown."""

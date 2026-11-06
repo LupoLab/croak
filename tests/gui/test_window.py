@@ -226,9 +226,19 @@ def test_window_retrieve_and_analyse_actions_reach_their_pages(window):
     window.do_primary()
     assert retrieve.acted[-1] == "stop"
     retrieve.running = False
+    assert not window.secondary.isVisible()
     window.state.set_result("result")
-    assert window.primary.text() == "Retrieve again"
-    assert window.go(Stage.ANALYSE)
+    # With a result, Analyse is the way on and Retrieve again sits beside it.
+    assert window.primary.text() == "Analyse"
+    assert window.secondary.text() == "Retrieve again"
+    assert not window.secondary.isHidden()
+    window.secondary.click()
+    assert retrieve.acted[-1] == "retrieve"
+    window.do_primary()
+    assert window.stage is Stage.ANALYSE
+    assert window.secondary.isHidden()
+    window.do_secondary()  # nothing beside Save: nothing happens
+    assert window.pages[Stage.ANALYSE].acted == []
     analyse = window.pages[Stage.ANALYSE]
     assert window.primary.text() == "Save"
     analyse.key = "uncertainty"
