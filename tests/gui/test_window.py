@@ -12,7 +12,13 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QLabel,
+    QMessageBox,
+    QWidget,
+)
 
 from croak import save
 from croak.gui import settings
@@ -156,8 +162,12 @@ def test_window_home_lists_recent_sessions_that_still_exist(qtbot, tmp_path):
     assert title == "run-7" and str(tmp_path) in detail
     home.recent_items[0].clicked.emit()
     assert opened == [str(saved)]
-    home.open_button.click()
+    home.tiles["open"].clicked.emit()  # the Open a session tile
     assert opened[-1] == ""
+    # every tile carries its drawing
+    for tile in home.tiles.values():
+        art = tile.findChild(QLabel, "tileArt")
+        assert art is not None and not art.pixmap().isNull()
     shown = list(home.recent_items)
     home.show_recent([])  # back to the hint
     assert home.recent_items == []
@@ -428,6 +438,17 @@ def test_window_status_bar_hides_when_empty(window, qtbot):
     assert window.statusBar().isVisible()
     window.statusBar().clearMessage()
     assert not window.statusBar().isVisible()
+
+
+def test_window_foot_holds_the_display_settings_in_a_session(window, qtbot):
+    window.show()
+    qtbot.waitExposed(window)
+    assert not window.display_bar.isVisibleTo(window)
+    window.new_session("synthetic")
+    # in a session the foot stays, with the display controls, even when quiet
+    window.statusBar().clearMessage()
+    assert window.statusBar().isVisible()
+    assert window.display_bar.isVisibleTo(window)
 
 
 def test_window_remembers_its_geometry_on_close(window, qtbot):

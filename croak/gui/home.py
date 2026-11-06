@@ -1,7 +1,8 @@
 """Home: what to retrieve, a session to reopen, and the recent sessions.
 
 Shown when no session is open, and from the brand button in the top bar. Each
-tile starts a new session from one of the three entries; the recent sessions are
+tile, with a drawing of its own (``assets/tiles``), starts a new session from one
+of the three entries, or opens a saved one; the recent sessions are
 the ``options.toml`` files last saved or opened (:mod:`croak.gui.settings`),
 each reopened with its data and, where it matches, its saved result.
 """
@@ -12,8 +13,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QIcon, QMouseEvent
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -23,9 +24,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import button, label
+from .theme import ASSETS, button, label
 
 __all__ = ["ENTRY_TILES", "Home"]
+
+TILE_ICON_SIZE = 44
+"""The size of a tile's drawing, logical px."""
+
+OPEN_TILE = (
+    "open",
+    "Open a session",
+    "Reopen a saved session's options.toml, with its data and, where it still "
+    "matches, its result.",
+)
+"""The tile that reopens a saved session: key, title, description."""
 
 ENTRY_TILES = (
     (
@@ -69,14 +81,23 @@ class _Clickable(QFrame):
         super().mouseReleaseEvent(event)
 
 
-def _tile(title: str, text: str) -> _Clickable:
+def _tile(key: str, title: str, text: str) -> _Clickable:
+    """A tile: its drawing (``assets/tiles/<key>.svg``) beside its title and text."""
     tile = _Clickable("tile")
-    layout = QVBoxLayout(tile)
-    layout.setContentsMargins(16, 14, 16, 14)
-    layout.setSpacing(4)
-    layout.addWidget(label(title, "tileTitle"))
-    layout.addWidget(label(text, "tileText", wrap=True))
-    layout.addStretch(1)  # tiles in a row share a height; text stays at the top
+    row = QHBoxLayout(tile)
+    row.setContentsMargins(16, 14, 16, 14)
+    row.setSpacing(14)
+    art = label("", "tileArt")
+    icon = QIcon(str(ASSETS / "tiles" / f"{key}.svg"))
+    art.setPixmap(icon.pixmap(QSize(TILE_ICON_SIZE, TILE_ICON_SIZE)))
+    art.setFixedSize(TILE_ICON_SIZE, TILE_ICON_SIZE)
+    row.addWidget(art, alignment=Qt.AlignmentFlag.AlignTop)
+    words = QVBoxLayout()
+    words.setSpacing(4)
+    words.addWidget(label(title, "tileTitle"))
+    words.addWidget(label(text, "tileText", wrap=True))
+    words.addStretch(1)  # tiles in a row share a height; text stays at the top
+    row.addLayout(words, stretch=1)
     return tile
 
 
@@ -125,16 +146,16 @@ class Home(QWidget):
         grid = QGridLayout()
         grid.setSpacing(12)
         self.tiles: dict[str, _Clickable] = {}
-        for index, (entry, title, text) in enumerate(ENTRY_TILES):
-            tile = _tile(title, text)
-            tile.clicked.connect(lambda entry=entry: self.start.emit(entry))
+        for index, (key, title, text) in enumerate((*ENTRY_TILES, OPEN_TILE)):
+            tile = _tile(key, title, text)
+            if key == OPEN_TILE[0]:
+                tile.clicked.connect(lambda: self.open_session.emit(""))
+            else:
+                tile.clicked.connect(lambda entry=key: self.start.emit(entry))
             grid.addWidget(tile, index // 2, index % 2)
-            self.tiles[entry] = tile
+            self.tiles[key] = tile
         main.addLayout(grid)
         actions = QHBoxLayout()
-        self.open_button = button("Open a session…")
-        self.open_button.clicked.connect(lambda: self.open_session.emit(""))
-        actions.addWidget(self.open_button)
         actions.addStretch(1)
         self.about_button = button("About croak", "link")
         self.about_button.clicked.connect(self.about)
