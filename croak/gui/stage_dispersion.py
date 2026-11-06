@@ -32,7 +32,7 @@ from ..plotting.screen import (
 )
 from ..processing import process_result, spectrogram
 from .base import Stage
-from .controls import combo, group
+from .controls import add_wide_row, combo, group
 from .mirror_stack import MirrorStack
 from .view_panel import ViewPanel
 from .widgets import SciSpinBox, ValueControl
@@ -311,7 +311,8 @@ class StageDispersion(Stage):
             *_GAS_PRESSURE_RANGE_BAR, 1.0, decimals=3, step=0.001, slider_scale=1000.0
         )
         self.gas_pressure.changed.connect(self._on_gas_pressure)
-        form.addRow("pressure (bar)", self.gas_pressure)
+        # Label above, so the sliders (and the path's Auto) fit the form column.
+        add_wide_row(form, "pressure (bar)", self.gas_pressure)
         self.gas_path = ValueControl(
             *_GAS_PATH_RANGE_CM, 0.0, decimals=2, slider_scale=10.0
         )
@@ -323,7 +324,7 @@ class StageDispersion(Stage):
         auto = QPushButton("Auto")
         auto.clicked.connect(self._auto_gas)
         rl.addWidget(auto)
-        form.addRow("path length (cm)", row)
+        add_wide_row(form, "path length (cm)", row)
         self.controls.addWidget(box)
 
     # -- mirror-stack handlers ----------------------------------------------

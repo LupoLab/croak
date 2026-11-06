@@ -289,6 +289,10 @@ class Form(QFrame):
                 QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
             )
             box.setMinimumContentsLength(COMBO_MIN_CHARS)
+            # Qt keeps the minimum size hint it computed before the policy
+            # changed; an explicit minimum width, from the fresh size hint,
+            # is what the layout then uses.
+            box.setMinimumWidth(box.sizeHint().width())
         super().showEvent(event)
 
     def filter(self, query: str) -> None:

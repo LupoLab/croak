@@ -14,7 +14,7 @@ import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QFileDialog,
-    QHBoxLayout,
+    QGridLayout,
     QPushButton,
     QWidget,
 )
@@ -860,8 +860,9 @@ class StageRetrieve(RunControls, Stage):
         form.addRow("Spectrum axis", self.spectrum_axis_combo)
         self.controls.addWidget(box)
 
+        # Two by two: four in a row are wider than the form column.
         btns = QWidget()
-        bl = QHBoxLayout(btns)
+        bl = QGridLayout(btns)
         bl.setContentsMargins(0, 0, 0, 0)
         self.run_btn = QPushButton("Run")
         self.run_btn.clicked.connect(self._run)
@@ -874,10 +875,10 @@ class StageRetrieve(RunControls, Stage):
         self.reset_btn = QPushButton("Reset")
         self.reset_btn.setToolTip("Restore the default retrieval settings.")
         self.reset_btn.clicked.connect(self._reset_defaults)
-        bl.addWidget(self.run_btn)
-        bl.addWidget(self.stop_btn)
-        bl.addWidget(self.save_btn)
-        bl.addWidget(self.reset_btn)
+        bl.addWidget(self.run_btn, 0, 0)
+        bl.addWidget(self.stop_btn, 0, 1)
+        bl.addWidget(self.save_btn, 1, 0)
+        bl.addWidget(self.reset_btn, 1, 1)
         self.controls.addWidget(btns)
 
         # Retarget: rerun this exact session on a different dataset folder (same

@@ -346,3 +346,23 @@ def test_window_figures_come_from_the_page_on_screen(qtbot):
     assert d.analyse.figure() is None  # nothing retrieved: nothing drawn
     d.analyse.show_page("traces")
     assert d.analyse.figure_name() == "traces"
+
+
+@pytest.mark.parametrize("entry", ["experimental", "simulated", "synthetic"])
+def test_window_every_form_fits_its_column(qtbot, entry):
+    from PySide6.QtWidgets import QScrollArea
+
+    from croak.gui.sheet import FORM_WIDTH, Form
+
+    d = Driver(qtbot, entry)
+    d.win.resize(1440, 900)
+    d.win.show()
+    qtbot.waitExposed(d.win)
+    for number in range(1, 7):
+        d.goto(number)
+        page = d.current_page()
+        qtbot.wait(1)
+        for form in page.findChildren(Form):
+            content = form.findChild(QScrollArea).widget()
+            # Nothing scrolls sideways: every row fits the fixed column.
+            assert content.minimumSizeHint().width() < FORM_WIDTH, (number, entry)

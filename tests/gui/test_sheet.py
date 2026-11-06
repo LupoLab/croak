@@ -6,7 +6,14 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QSpinBox, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QLabel,
+    QLineEdit,
+    QScrollArea,
+    QSpinBox,
+    QWidget,
+)
 
 from croak.gui import settings
 from croak.gui.help import apply_tooltips
@@ -240,6 +247,7 @@ def test_sheet_combo_boxes_shrink_to_the_column(qtbot):
     form, plots = _form(qtbot), QWidget()
     long = QComboBox()
     long.addItems(["Automatic (centroid phase) from a very long description"])
+    wide = long.minimumSizeHint().width()  # computed now, and cached by Qt
     form.add_section("Mode").form.addRow("Initial guess", long)
     sheet = Sheet(form, plots)
     qtbot.addWidget(sheet)
@@ -249,6 +257,11 @@ def test_sheet_combo_boxes_shrink_to_the_column(qtbot):
     assert long.sizeAdjustPolicy() == (
         QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
     )
-    assert form.width() == FORM_WIDTH  # the long item does not widen the column
+    assert form.width() == FORM_WIDTH
+    # The long item does not widen what the column scrolls, cached hint or not.
+    assert long.minimumSizeHint().width() == wide
+    assert long.minimumWidth() < wide
+    content = form.findChild(QScrollArea).widget()
+    assert content.minimumSizeHint().width() < FORM_WIDTH
     sheet.resize(NARROW_WIDTH - 200, 700)  # stacked: the form spans the sheet
     qtbot.waitUntil(lambda: form.width() > FORM_WIDTH)
