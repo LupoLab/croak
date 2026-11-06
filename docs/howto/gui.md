@@ -339,7 +339,12 @@ Fringe/DC/low-pass filtering, windowing and regridding
 change a setting. The plots show six maps in two rows of three — the measured,
 filtered and regridded trace, in dB above and linear below — with linked axes:
 all six share the delay axis, and the measured and filtered maps share the
-wavelength axis, so a zoom on one follows on the others.
+wavelength axis, so a zoom on one follows on the others. Above the maps, five
+numbers say what the grid gives: its size (delay × frequency samples), its time
+step **Δt** (the shortest feature it can show), its **time window** (the longest
+pulse it can hold), its **λ span**, and the **taper loss**, the share of the
+trace the grid's edge taper removes, in amber above 1 %, when an advice box
+also says to widen the λ range.
 
 The controls always show the settings that were actually applied: re-entering
 the stage re-seeds every widget from the current parameters, and those
@@ -473,9 +478,9 @@ with the temporal profile and spectrogram updating as you drag the sliders.
 Enter a **pulse energy** (J) (shared with the measured loader) to switch the
 temporal plot to absolute power and read off the current and transform-limited
 **peak power**; compressing the pulse raises the peak power towards the
-transform-limited maximum at fixed energy. The page's own **Save…** writes the
-dispersed result as `result_dispersion.h5`, with `options.toml` and
-`dispersion.pdf`.
+transform-limited maximum at fixed energy. When a dispersion is set, **Save
+session…** also writes the dispersed result as `result_dispersion.h5`, with
+`dispersion.pdf` (see [Sessions](#sessions)).
 
 #### Uncertainty
 
@@ -486,8 +491,10 @@ confidence level, and run it with **Estimate** in the top bar. It runs on a
 worker thread; the ready line counts the replicates, and **Stop** in the top bar
 cancels the run. The page reports the
 point estimate with its 68 % and 95 % intervals, draws the temporal confidence
-band over the retrieved profile, and its **Save…** appends the estimates to
-`result.h5` and writes `options.toml` and `uncertainty.pdf`. See
+band over the retrieved profile. Each estimate is kept in a list; **Combine
+ticked** adds the ticked independent ones in quadrature. **Save session…**
+appends every estimate to `result.h5` and writes the figure on screen as
+`uncertainty.pdf`. See
 [Estimating FWHM uncertainty](uncertainty.md).
 
 ## Sessions
@@ -498,9 +505,14 @@ dispersion and uncertainty choices — kept as a TOML file
 retrieval in HDF5 ({func}`croak.save.save_result`).
 
 **Save session…** (⋯ menu, File menu, or the primary action on Analyse) asks for
-a folder and writes three files into it: `result.h5` (the retrieval, with any
+a folder and writes into it: `result.h5` (the retrieval, with any
 uncertainty estimates appended), `options.toml` (the settings) and
-`retrieval.pdf` (the twelve-panel overview, drawn by matplotlib). The session is
+`retrieval.pdf` (the twelve-panel overview, drawn by matplotlib). It also writes
+what Analyse holds: with a dispersion set on the Dispersion page,
+`result_dispersion.h5` (the dispersed pulse, with its peak power when a pulse
+energy is set) and `dispersion.pdf`; with an uncertainty estimate on screen,
+`uncertainty.pdf`. It is the one way to save: no page has a Save button of its
+own. The session is
 added to Recent sessions and its folder's name appears in the top bar. Saving
 needs a retrieval: before one, the GUI says so.
 

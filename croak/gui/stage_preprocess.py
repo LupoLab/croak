@@ -41,6 +41,7 @@ from .controls import (
     group,
     spin,
 )
+from .sheet import DerivedGrid
 from .view_panel import ViewPanel
 from .widgets import RangeControl, SciSpinBox
 from .worker import PreprocessWorker
@@ -62,6 +63,19 @@ TAPER_ADVICE_LEVEL = 0.01
 """The fraction of the trace the regrid's edge taper may remove before Prepare
 says so: :func:`croak.preprocess.regrid`'s default ``taper_warn_level``, so the
 page warns exactly when the library does."""
+
+NUMBERS = (
+    ("Grid", "Delay samples × frequency samples of the retrieval grid."),
+    ("Δt", "The grid's time step: the shortest feature it can show."),
+    ("Time window", "The grid's time span, N × Δt: the longest pulse it can hold."),
+    ("λ span", "The wavelength range the grid covers."),
+    (
+        "Taper loss",
+        "The share of the trace the grid's edge taper removes; above 1 % the "
+        "λ range clips the trace.",
+    ),
+)
+"""The numbers over Prepare's maps: name and tooltip."""
 
 
 class StagePreprocess(Stage):
@@ -436,6 +450,12 @@ class StagePreprocess(Stage):
         self.views["regridded_lin"].plot.setXLink(self.views["regridded_db"].plot)
         plots = QWidget()
         plots.setLayout(grid)
+        # Over the maps, what the grid settings give: the numbers to read while
+        # moving the λ range and trange sliders (see _show_numbers).
+        self.numbers = DerivedGrid(columns=len(NUMBERS))
+        for name, tip in NUMBERS:
+            self.numbers.add(name, tip)
+        self.body.addWidget(self.numbers)
         self.set_plot_area(plots)
 
         self.apply_help()
@@ -674,9 +694,26 @@ class StagePreprocess(Stage):
         if shiboken6.isValid(worker):
             worker.deleteLater()
 
+    def _show_numbers(self, td) -> None:
+        """Show what the grid gives: its size, step, window, band and taper loss."""
+        grid = td.grid
+        lost = td.taper_loss
+        self.numbers.set("Grid", f"{td.delays.size} × {grid.n}")
+        self.numbers.set("Δt", f"{grid.dt / 1e-15:.3g} fs")
+        self.numbers.set("Time window", f"{grid.n * grid.dt / 1e-15:.4g} fs")
+        self.numbers.set(
+            "λ span", f"{td.lam_min / 1e-9:.0f}–{td.lam_max / 1e-9:.0f} nm"
+        )
+        self.numbers.set(
+            "Taper loss",
+            f"{lost:.1%}" if lost >= 0.001 else "< 0.1%",
+            "warn" if lost > TAPER_ADVICE_LEVEL else "ok",
+        )
+
     def _show_tracedata(self, td):
         """Store and draw a freshly computed trace (main thread)."""
         self.state.set_tracedata(td)
+        self._show_numbers(td)
         for key, view in filter_views(td).items():
             self.views[key].show_view(view)
         grid = f"Regridded to {td.grid.n}×{td.delays.size}."
@@ -721,3 +758,4 @@ class StagePreprocess(Stage):
         if req_id != self._req_id:
             return
         self.set_status(f"Preprocess failed: {message}", "error")
+        self.numbers.clear()  # the last grid's numbers no longer hold

@@ -42,6 +42,10 @@ applications read alike.
 - **Remember arrangement, not results.** The window's size, folded sections
   and the display settings persist between launches; computed results persist
   only in saved sessions.
+- **One way to save.** Save session writes everything the session holds; a page
+  that adds files (Dispersion's dispersed pulse, Uncertainty's figure) does so
+  in `PageBase.save_extras`, which the window calls, rather than with a Save
+  button of its own.
 - **One display for every plot.** The spectral axis and the logarithmic range
   are the viewer's settings, at the foot of the window (`display.DisplayBar`),
   not a control on each page. Every `ViewPanel` draws its view through
@@ -136,7 +140,7 @@ and `error`, which `theme.set_flag` sets and re-applies.
 | About | version, links (manual, GitHub, PyPI, issues), authors, copyright | none | none |
 | Data | Load the trace / Load the scan / Generate the trace | Continue | the loaded trace; for a scan its maps and marginals; for a synthetic pulse the pulse, spectrum, spectrogram and trace |
 | Check | — | Continue | the trace and the marginal comparison |
-| Prepare | — | Continue | measured, filtered and regridded traces in dB and linear (2×3) |
+| Prepare | — | Continue | the grid's numbers over the measured, filtered and regridded traces in dB and linear (2×3) |
 | Retrieve | — | Retrieve / Stop / Analyse, with Retrieve again beside it | the live overview; the run's numbers and its convergence |
 | Analyse | Overview, Traces, Pulse, Diagnostics | Save | the retrieval's panels, two by two |
 | Analyse | Dispersion | Save | dispersed spectrum, pulse, applied phase, spectrogram |
@@ -149,8 +153,8 @@ These are known gaps, kept out of the redesign to keep it reviewable:
 - **A dark theme.** The style sheet is built from one `Palette`, so a dark one
   would be a second instance, but the plots' white background and colour maps
   would need choosing too.
-- **Few derived numbers.** `sheet.DerivedGrid` holds only Retrieve's numbers so
-  far; a run's progress is on the ready line and those numbers. `AdviceBox` so far carries one piece of advice: Prepare's, when
+- **Few derived numbers.** `sheet.DerivedGrid` holds Retrieve's and Prepare's
+  numbers so far; a run's progress is on the ready line and Retrieve's numbers. `AdviceBox` so far carries one piece of advice: Prepare's, when
   the λ grid clips the trace.
 - **The stage pages' interface.** The stage modules still build through
   `base.Stage`, which keeps the calls they were written against for the old

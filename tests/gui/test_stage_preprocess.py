@@ -171,6 +171,7 @@ def test_stage_preprocess_ignores_superseded_and_reports_failed_results(loaded):
     assert loaded.status_label.text() == ""
     loaded._on_preprocess_failed("new error", 5)
     assert loaded.status_label.text() == "Preprocess failed: new error"
+    assert loaded.numbers.values["Grid"].text() == "–"  # no grid to describe
 
 
 def test_stage_preprocess_fast_result_without_pending_does_not_refine(loaded):
@@ -228,3 +229,23 @@ def test_stage_preprocess_advises_when_the_grid_clips_the_trace(loaded):
     loaded._show_tracedata(td)  # widened again: the advice goes
     assert loaded.advice.isHidden()
     assert loaded.status_label.text().endswith("Proceed to Retrieve.")
+
+
+def test_stage_preprocess_numbers_describe_the_grid(loaded):
+    from dataclasses import replace
+
+    loaded.on_enter()
+    td = loaded.state.tracedata
+    numbers = loaded.numbers.values
+    assert numbers["Grid"].text() == f"{td.delays.size} × {td.grid.n}"
+    assert numbers["Δt"].text() == f"{td.grid.dt / 1e-15:.3g} fs"
+    window = float(numbers["Time window"].text().removesuffix(" fs"))
+    # .4g formatting: equal to four significant figures
+    assert window == pytest.approx(td.grid.n * td.grid.dt / 1e-15, rel=1e-3)
+    assert numbers["λ span"].text().endswith(" nm")
+    assert numbers["Taper loss"].property("warn") is not True
+    loaded._show_tracedata(replace(td, taper_loss=0.25))
+    assert numbers["Taper loss"].text() == "25.0%"
+    assert numbers["Taper loss"].property("warn") is True
+    loaded._show_tracedata(replace(td, taper_loss=0.0))
+    assert numbers["Taper loss"].text() == "< 0.1%"

@@ -105,7 +105,8 @@ logarithmic map reaches; drag a map's colour bar to adjust that map alone.
 
 The [GUI guide](../howto/gui.md) documents each stage in detail. **Save
 session…** in the ⋯ menu writes the retrieval, a TOML file that records every
-setting and an overview PDF into a folder, and the session then appears under
+setting and an overview PDF into a folder (with the dispersed pulse and the
+uncertainty figure, when Analyse holds them), and the session then appears under
 Recent sessions on Home. A saved session can be re-run later — including
 headlessly with `croak replay options.toml` — or exported as a standalone Python
 script with `croak script options.toml` (the `croak` command is installed
