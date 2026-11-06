@@ -183,6 +183,8 @@ def test_sheet_advice_box_appears_when_it_has_something_to_say(qtbot):
     box.say("Retrieval failed", "Try a smaller grid.")
     assert not box.isHidden()
     assert box.title.text() == "Retrieval failed"
+    box.clear()
+    assert box.isHidden() and box.title.text() == ""
 
 
 def test_sheet_derived_numbers_show_values_and_states(qtbot):

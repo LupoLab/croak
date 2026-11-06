@@ -353,6 +353,12 @@ class AdviceBox(QFrame):
         self.text.setText(text)
         self.show()
 
+    def clear(self) -> None:
+        """Hide the box: there is nothing to advise."""
+        self.title.setText("")
+        self.text.setText("")
+        self.hide()
+
 
 class DerivedGrid(QWidget):
     """Numbers derived from the settings: a small grey name over a large value."""

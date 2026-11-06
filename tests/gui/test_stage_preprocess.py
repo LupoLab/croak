@@ -210,3 +210,21 @@ def test_stage_preprocess_baseline_toggle_gates_its_controls(stage):
         stage.baseline_check.setChecked(checked)
         assert stage.state.preproc.baseline is checked
         assert all(w.isEnabled() is checked for w in dependents)
+
+
+def test_stage_preprocess_advises_when_the_grid_clips_the_trace(loaded):
+    from dataclasses import replace
+
+    loaded.on_enter()
+    td = loaded.state.tracedata
+    assert loaded.advice.isHidden()  # the seeded grid leaves room to spare
+    # Just over the library's own warning level: the page says so too.
+    clipped = replace(td, taper_loss=stage_preprocess.TAPER_ADVICE_LEVEL + 0.6)
+    loaded._show_tracedata(clipped)
+    assert loaded.status_label.state == "warn"
+    assert not loaded.advice.isHidden()
+    assert loaded.advice.title.text() == "The λ grid removes 61% of the trace"
+    assert "λ range (nm)" in loaded.advice.text.text()
+    loaded._show_tracedata(td)  # widened again: the advice goes
+    assert loaded.advice.isHidden()
+    assert loaded.status_label.text().endswith("Proceed to Retrieve.")

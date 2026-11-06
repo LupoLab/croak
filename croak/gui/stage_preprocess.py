@@ -58,6 +58,11 @@ class _RangeKW(TypedDict):
 
 _RANGE_KW: _RangeKW = {"decimals": 1, "step": 0.1, "slider_scale": 10.0}
 
+TAPER_ADVICE_LEVEL = 0.01
+"""The fraction of the trace the regrid's edge taper may remove before Prepare
+says so: :func:`croak.preprocess.regrid`'s default ``taper_warn_level``, so the
+page warns exactly when the library does."""
+
 
 class StagePreprocess(Stage):
     HELP_TITLE = "Preprocess"
@@ -641,7 +646,7 @@ class StagePreprocess(Stage):
             try:
                 td = pipeline.build_tracedata(params, data)  # exact, full-resolution
             except Exception as exc:
-                self.set_status(f"Preprocess failed: {exc}")
+                self.set_status(f"Preprocess failed: {exc}", "error")
                 return
             self._show_tracedata(td)
             return
@@ -674,8 +679,27 @@ class StagePreprocess(Stage):
         self.state.set_tracedata(td)
         for key, view in filter_views(td).items():
             self.views[key].show_view(view)
-        self.set_status(
-            f"Regridded to {td.grid.n}×{td.delays.size}. Proceed to Retrieve."
+        grid = f"Regridded to {td.grid.n}×{td.delays.size}."
+        if td.taper_loss > TAPER_ADVICE_LEVEL:
+            self.set_status(f"{grid} The λ grid clips the trace.", "warn")
+            self._advise_taper(td)
+        else:
+            self.set_status(f"{grid} Proceed to Retrieve.")
+            self.advice.clear()
+
+    def _advise_taper(self, td):
+        """Say that the λ grid cuts live signal, and what to do about it.
+
+        The library's own warning goes to the console, where a GUI user never
+        sees it; the clipped signal is discarded and the retrieved field is left
+        free at those frequencies, so the page says it where the user looks.
+        """
+        self.advice.say(
+            f"The λ grid removes {td.taper_loss:.0%} of the trace",
+            f"The grid ({td.lam_min / 1e-9:.0f}–{td.lam_max / 1e-9:.0f} nm) ends "
+            "where the trace still has signal, so its edge taper discards that "
+            "signal and leaves the retrieved field unconstrained there. Widen the "
+            "λ range (nm) under Grid until the trace decays inside it.",
         )
 
     def _on_preprocess_done(self, td, req_id, was_fast):
@@ -696,4 +720,4 @@ class StagePreprocess(Stage):
     def _on_preprocess_failed(self, message, req_id):
         if req_id != self._req_id:
             return
-        self.set_status(f"Preprocess failed: {message}")
+        self.set_status(f"Preprocess failed: {message}", "error")
