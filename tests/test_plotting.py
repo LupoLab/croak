@@ -848,6 +848,15 @@ def test_phase_ylim_of_nothing_finite_is_none():
     assert plotting.pulse._phase_ylim(None, np.array([np.nan]), np.array([])) is None
 
 
+def test_phase_ylim_keeps_a_flat_phase_from_filling_the_axis():
+    floor = plotting.pulse.PHASE_MIN_HALF_SPAN
+    # Rounding noise of a transform-limited pulse: the axis stays ±floor wide.
+    low, high = plotting.pulse._phase_ylim(np.array([0.0, 1e-15, -2e-15]))
+    assert high - low == pytest.approx(2 * floor)
+    # A real phase keeps its own span as margin either side.
+    assert plotting.pulse._phase_ylim(np.array([0.0, 4.0])) == (-2.0, 6.0)
+
+
 def test_plot_residual_and_spectrogram_defaults(result_and_trace):
     import matplotlib.pyplot as plt
 

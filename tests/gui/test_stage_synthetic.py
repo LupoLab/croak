@@ -162,6 +162,26 @@ def test_additive_noise_alone(stage):
     assert noisy.min() >= 0.0 and noisy.max() == pytest.approx(1.0)
 
 
+def test_preview_draws_the_trace_continue_hands_on(stage):
+    stage.on_enter()
+    shown = stage.views["trace"].plot
+    stage.advance()
+    lam_nm = stage.state.load_data["lam"] / 1e-9
+    # The λ window's own samples, not the whole simulation grid, in which the
+    # signal band was one or two rows of a featureless stripe.
+    assert shown.data.shape == stage.state.load_data["trace"].shape
+    assert shown.y_axis[0] == pytest.approx(lam_nm[0])
+    assert shown.y_axis[-1] == pytest.approx(lam_nm[-1])
+
+
+def test_preview_with_an_empty_window_asks_to_widen_it(stage):
+    stage.interaction.setCurrentText("pg")
+    stage._wl = (100.0, 150.0)  # below every wavelength the grid represents
+    stage.on_enter()
+    assert "widen the range" in stage.status_label.text()
+    assert stage.status_label.state == "warn"
+
+
 def test_preview_draws_the_four_panels(stage):
     stage.on_enter()
     titles = {view.title.text() for view in stage.views.values()}

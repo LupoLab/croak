@@ -95,10 +95,18 @@ def _intensity_ylim(*curves) -> tuple[float, float]:
     return 0.0, 1.05 * top if top > 0 else 1.0
 
 
+PHASE_MIN_HALF_SPAN = 1.0
+"""The least half-range of a phase axis (rad).
+
+A nearly flat phase would otherwise fill the axis with its rounding noise
+(a transform-limited pulse's phase varies by ~1e-15 rad) and look structured."""
+
+
 def _phase_ylim(*curves) -> tuple[float, float] | None:
     """Phase-axis limits centred on the shown phases with their span as margin.
 
     Finite samples of every non-empty curve count; ``None`` when nothing is shown.
+    The half-range is at least :data:`PHASE_MIN_HALF_SPAN`.
     """
     arrays = [np.asarray(c, dtype=float) for c in curves if c is not None]
     arrays = [a[np.isfinite(a)] for a in arrays]
@@ -106,9 +114,9 @@ def _phase_ylim(*curves) -> tuple[float, float] | None:
     if not arrays:
         return None
     pm = np.concatenate(arrays)
-    d = pm.max() - pm.min()
+    d = max(float(pm.max() - pm.min()), PHASE_MIN_HALF_SPAN)
     mid = (pm.max() + pm.min()) / 2
-    return mid - d - 1e-9, mid + d + 1e-9
+    return mid - d, mid + d
 
 
 def _temporal_panel(

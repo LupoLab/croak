@@ -444,9 +444,30 @@ class StageSynthetic(Stage):
             self.set_status(f"Generation failed: {exc}")
             return
         self._last = (grid, ew, omega0)
-        # show the trace as it will be handed on (with any noise applied)
-        self._draw(grid, ew, omega0, lam_sig, delays, self._add_noise(trace))
+        # Show the trace as Continue hands it on: sampled onto the λ window, with
+        # any noise. The raw trace spans the whole simulation grid, far wider
+        # than the signal, and drawn as it is it shows a featureless stripe.
+        lam, meas = self._measured(lam_sig, delays, trace)
+        if meas.max() <= 0:
+            self.set_status(
+                "Trace is empty in the chosen λ window; widen the range.", "warn"
+            )
+            return
+        self._draw(grid, ew, omega0, lam, delays, meas / meas.max())
         self.set_status("Adjust the pulse and the trace, then Continue to check it.")
+
+    def _measured(self, lam_sig, delays, trace):
+        """Sample the trace onto the user's λ window, as a spectrometer would.
+
+        Returns ``(lam, trace)``: the window's wavelengths (m) and the trace on
+        them, with the chosen noise; zero outside the simulated band.
+        """
+        lo, hi = self._wl[0] * 1e-9, self._wl[1] * 1e-9
+        lam = np.linspace(lo, hi, int(self.nwl.value()))
+        meas = np.empty((lam.size, delays.size))
+        for j in range(delays.size):
+            meas[:, j] = np.interp(lam, lam_sig, trace[:, j], left=0.0, right=0.0)
+        return lam, self._add_noise(meas)
 
     def _draw(self, grid, ew, omega0, lam_sig, delays, trace):
         """Show the pulse, its spectrum and spectrogram, and its trace."""
@@ -482,13 +503,7 @@ class StageSynthetic(Stage):
             self.set_status(f"Generation failed: {exc}")
             return
         interaction = self.interaction.currentText()
-        # sample onto the user's measurement wavelength axis (emulate a spectrometer)
-        lo, hi = self._wl[0] * 1e-9, self._wl[1] * 1e-9
-        lam_user = np.linspace(lo, hi, int(self.nwl.value()))
-        meas = np.empty((lam_user.size, delays.size))
-        for j in range(delays.size):
-            meas[:, j] = np.interp(lam_user, lam_sig, trace[:, j], left=0.0, right=0.0)
-        meas = self._add_noise(meas)
+        lam_user, meas = self._measured(lam_sig, delays, trace)
         m = meas.max()
         if m <= 0:
             self.set_status("Trace is empty in the chosen λ window; widen the range.")

@@ -750,10 +750,11 @@ def pulse_field_views(
     et = grid.ifft(ew)
     it = _unit(np.abs(et) ** 2)
     t = grid.t / 1e-15
+    phase_t = _masked_phase(it, et)
     temporal = LineView(
         curves=(
             CurveView(t, it, "retrieved", "intensity"),
-            CurveView(t, _masked_phase(it, et), "phase", "phase", True),
+            CurveView(t, phase_t, "phase", "phase", True),
         ),
         title="Temporal",
         xlabel="Time (fs)",
@@ -761,6 +762,7 @@ def pulse_field_views(
         right_label="Phase (rad)",
         xrange=_zoom(t, it > PULSE_FRACTION),
         yrange=(0.0, 1.05),
+        right_range=_phase_ylim(phase_t),
     )
     iw = _unit(np.abs(ew) ** 2)
     omega_abs = grid.omega + omega0
@@ -768,10 +770,11 @@ def pulse_field_views(
     lam = wlfreq(omega_abs[pos]) / 1e-9
     order = np.argsort(lam)
     lam, ip = lam[order], iw[pos][order]
+    phase_w = _masked_phase(iw, ew)[pos][order]
     spectral = LineView(
         curves=(
             CurveView(lam, ip, "retrieved", "intensity"),
-            CurveView(lam, _masked_phase(iw, ew)[pos][order], "phase", "phase", True),
+            CurveView(lam, phase_w, "phase", "phase", True),
         ),
         title="Spectral",
         xlabel="Wavelength (nm)",
@@ -779,6 +782,7 @@ def pulse_field_views(
         right_label="Phase (rad)",
         xrange=_zoom(lam, ip > PULSE_FRACTION),
         yrange=(0.0, 1.05),
+        right_range=_phase_ylim(phase_w),
     )
     return temporal, spectral, _gabor(grid, et, omega0)
 

@@ -202,6 +202,15 @@ def test_screen_pulse_views_zoom_to_the_pulse_and_blank_its_wings():
     assert gram.yrange is not None
 
 
+def test_screen_pulse_views_give_a_flat_phase_a_readable_axis():
+    g = Grid(128, dt=0.5e-15)
+    ew = gaussian_pulse(g, 7e-15)  # transform-limited: phase is rounding noise
+    temporal, spectral, _ = screen.pulse_field_views(g, ew, float(wlfreq(800e-9)))
+    for view in (temporal, spectral):
+        low, high = view.right_range
+        assert high - low >= 2.0  # ±1 rad at least, not ±1e-15
+
+
 def test_screen_pulse_views_tolerate_an_empty_field():
     g = Grid(64, dt=1e-15)
     temporal, spectral, gram = screen.pulse_field_views(
