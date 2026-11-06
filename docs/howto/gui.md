@@ -164,8 +164,15 @@ which shows only the rows whose label or help contains what you type; typing
 part of a section's title shows that whole section.
 
 At the foot of the form a **ready line** says whether the stage can go on: green
-when it can, amber with a warning, red when something has to be fixed first. On
-the right are the stage's plots.
+when it can, amber with a warning, red when something has to be fixed first.
+Retrieve has none: the numbers beneath its plots say how a run goes, anything
+else it has to say appears at the foot of the window, and a failed retrieval
+shows in an amber box over the plots until the next run. On the right are the
+stage's plots.
+
+A setting with a slider has its value in a box just wide enough for the numbers
+it takes, so the slider has the rest of the row; a range has its two ends either
+side of one slider.
 
 ## Plots
 
@@ -403,11 +410,10 @@ for an older intensity-only file). **Reuse previous result** warm-starts one run
 from the last — handy for the global-then-local refine recipe. It seeds the
 previous **spectrum** as the initial guess *and* the extras that run fitted
 (thickness, τ₀, smearing width) as the starting values for fitting them again,
-naming them on the ready line; an extra you are no longer fitting keeps the value
-set in the controls. When the run finishes, the ready line reports the fitted
-extras alongside the error and FWHMs — including the geometric-smearing width as
-a delay σ in fs with its multiplier on the nominal mask geometry (which is left
-untouched). When the trace came from a synthetic or simulated session, the
+naming them in a notice at the foot of the window; an extra you are no longer
+fitting keeps the value set in the controls. The numbers beneath the plots show
+the fitted extras — including the geometric-smearing width as a delay σ in fs
+with its multiplier on the nominal mask geometry (which is left untouched). When the trace came from a synthetic or simulated session, the
 **known-truth** temporal intensity is drawn as a thin black line beneath the
 retrieved and transform-limited pulses. When its complex field is available,
 dotted truth-phase lines appear in both time and spectrum panels and are named
@@ -526,7 +532,7 @@ reopens a saved `options.toml` and replays it:
    re-running the solver — but only when it was fitted to exactly the trace the
    replay produced. The saved measured trace and frequency axis are compared
    element by element ({func}`croak.session.files.result_mismatch`).
-3. Otherwise the retrieval is re-run, and the ready line on Retrieve says why
+3. Otherwise the retrieval is re-run, and a notice at the foot of the window says why
    (no saved result, an unreadable file, or a trace that differs).
 
 A synthetic session cannot be replayed this way: the generator's settings are not

@@ -54,6 +54,9 @@ def run(tmp_path_factory):
 def stage(qtbot):
     s = StageRetrieve(WizardState())
     qtbot.addWidget(s)
+    # What the page says goes out as notices; keep them to read back.
+    s.said = []
+    s.message.connect(s.said.append)
     return s
 
 
@@ -225,13 +228,14 @@ def test_stage_retrieve_geometry_without_mask_says_so(stage):
 # -- running -------------------------------------------------------------------
 def test_stage_retrieve_run_without_a_trace(stage):
     stage._run()
-    assert stage.status_label.text() == "No trace to retrieve."
+    assert stage.said == ["No trace to retrieve."]
+    assert stage.status_label.isHidden()  # Retrieve has no ready line
 
 
 def test_stage_retrieve_truth_init_needs_a_complex_truth(with_trace):
     with_trace.state.retrieve.truth_init = True
     with_trace._run()
-    assert with_trace.status_label.text().startswith(
+    assert with_trace.said[-1].startswith(
         "Truth initialisation needs a known complex field"
     )
     assert with_trace._worker is None
@@ -263,16 +267,16 @@ def test_stage_retrieve_reuse_without_a_compatible_result(with_trace, monkeypatc
     monkeypatch.setattr(stage_retrieve, "RetrievalWorker", _Worker)
     with_trace.state.retrieve.reuse_result = True
     with_trace._run()
-    assert with_trace.status_label.text() == (
+    assert with_trace.said[-1] == (
         "No compatible previous result to reuse; using the default guess."
     )
     assert with_trace._worker.kwargs["guess_override"] is None
     # a result on the same grid but with nothing extra to seed says nothing
     with_trace.state.result = run[3]
-    with_trace.set_status("")
+    with_trace.said.clear()
     with_trace._run()
     assert with_trace._worker.kwargs["extras_seed"] is run[3]
-    assert with_trace.status_label.text() == ""
+    assert with_trace.said == []
     with_trace._stop()
     assert with_trace._worker.stop_requested
 
@@ -302,7 +306,6 @@ def test_stage_retrieve_preview_without_worker_still_shows(with_trace, run):
     with_trace._worker = None
     with_trace._on_preview(run[3])
     assert with_trace.pages.mode == "panels"
-    assert with_trace.status_label.text().endswith("(live preview)")
 
 
 def test_stage_retrieve_preview_reports_its_cost_to_the_worker(with_trace, run):
@@ -330,20 +333,7 @@ def test_stage_retrieve_stopped_run_is_kept_and_labelled(with_trace, run):
     with_trace._on_stopped(run[3], 1.25)
     assert with_trace.state.result is not None
     assert not with_trace.busy()
-    status = with_trace.status_label.text()
-    assert status.startswith("Stopped. R = ")
-    assert status.endswith("1.25 s")
-
-
-def test_stage_retrieve_status_lists_fitted_extras(with_trace, run):
-    p = with_trace.state.retrieve
-    p.smearing = True
-    fitted = replace(run[3], thickness=12e-6, tau0=2e-15, smear_scale=1.1)
-    with_trace._on_finished(fitted, 0.5)
-    status = with_trace.status_label.text()
-    assert "thickness 12.00 µm" in status
-    assert "τ₀ 2.00 fs" in status
-    assert "smearing σ" in status and "(×1.100)" in status
+    assert with_trace.said[-1] == "Stopped: the run's latest result is kept."
 
 
 def test_stage_retrieve_update_view_needs_result_and_trace(stage, run):
@@ -353,6 +343,12 @@ def test_stage_retrieve_update_view_needs_result_and_trace(stage, run):
     assert stage.state.result is None
     with pytest.raises(RuntimeError, match="no trace data"):
         stage._plot_data(run[3], None)
+
+
+def test_stage_retrieve_smear_width_is_none_without_a_kernel(stage):
+    stage.state.retrieve.smearing = False  # switched off after the run
+    td = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
+    assert stage._smear_width_fs(1.1, td) is None
 
 
 def test_stage_retrieve_smear_width_is_none_for_shg(stage):
@@ -418,30 +414,32 @@ def test_stage_retrieve_extras_readout_marks_fitted_values(with_trace, run):
 def test_stage_retrieve_retarget_emits_the_chosen_folder(stage, monkeypatch, qtbot):
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "")
     stage._retarget()
-    assert stage.status_label.text() == ""
+    assert stage.said == []
     monkeypatch.setattr(
         QFileDialog, "getExistingDirectory", lambda *a, **k: "/data/next"
     )
     with qtbot.waitSignal(stage.state.retarget_requested) as blocker:
         stage._retarget()
     assert blocker.args == ["/data/next"]
-    assert stage.status_label.text() == "Retargeting to /data/next …"
-
-
-def test_stage_retrieve_smear_summary_after_the_kernel_is_switched_off(stage):
-    stage.state.retrieve.smearing = False
-    td = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
-    assert stage._smear_summary(1.1, td) == "smearing ×1.100"
+    assert stage.said == ["Retargeting to /data/next …"]
 
 
 @pytest.mark.parametrize(
-    ("message", "status"), [("stopped", "Stopped."), ("diverged", "Failed: diverged")]
+    ("message", "status", "advised"),
+    [("stopped", "Stopped.", False), ("diverged", "Failed: diverged", True)],
 )
-def test_stage_retrieve_failure_ends_the_run(stage, message, status):
-    stage.set_running(True)
-    stage._on_failed(message)
-    assert not stage.busy()
-    assert stage.status_label.text() == status
+def test_stage_retrieve_failure_ends_the_run(
+    with_trace, monkeypatch, message, status, advised
+):
+    with_trace.set_running(True)
+    with_trace._on_failed(message)
+    assert not with_trace.busy()
+    assert with_trace.said[-1] == status
+    # a failure stays over the plots until the next run starts
+    assert with_trace.advice.isHidden() is not advised
+    monkeypatch.setattr(stage_retrieve, "RetrievalWorker", _Worker)
+    with_trace._run()
+    assert with_trace.advice.isHidden()
 
 
 def test_retrieve_form_finds_a_setting_by_name_or_help(qtbot):

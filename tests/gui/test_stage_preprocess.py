@@ -237,7 +237,7 @@ def test_stage_preprocess_numbers_describe_the_grid(loaded):
     loaded.on_enter()
     td = loaded.state.tracedata
     numbers = loaded.numbers.values
-    assert numbers["Grid"].text() == f"{td.delays.size} × {td.grid.n}"
+    assert numbers["Grid"].text() == f"{td.grid.n} × {td.delays.size}"
     assert numbers["Δt"].text() == f"{td.grid.dt / 1e-15:.3g} fs"
     window = float(numbers["Time window"].text().removesuffix(" fs"))
     # .4g formatting: equal to four significant figures

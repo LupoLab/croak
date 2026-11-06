@@ -35,7 +35,8 @@ applications read alike.
   `HELP`, and appears as its tooltip, as the form's one-line help when it has
   focus, and in the page's help dialog.
 - **Say it where it happens.** Whether a stage can go on is on its ready line,
-  at the foot of the form; a passing notice (saved, copied, why a stage is
+  at the foot of the form (Retrieve has none: its numbers say how a run goes,
+  and a failure goes to the advice box over the plots); a passing notice (saved, copied, why a stage is
   closed) goes to the foot of the window, which hides on Home when it is empty.
   Modal dialogs are
   for choosing files and for confirming that work will be discarded.
@@ -112,7 +113,9 @@ and `error`, which `theme.set_flag` sets and re-applies.
   take the rest of the width. Below a window width of 1000 px the plots move
   under the form, which then spans the window. The form scrolls on its own; its
   help line and ready line stay at its foot, and its combo boxes shrink to the
-  column rather than widen it.
+  column rather than widen it. A slider's spin box is as wide as its numbers
+  (`widgets.CompactSpinBox`, up to seven characters), so the slider has the rest
+  of the row.
 - **Sections** fold in place. Settings most sessions leave alone start folded
   and remember their state (a `settings_key`), as Retrieve's advanced sections
   do.
@@ -154,8 +157,8 @@ These are known gaps, kept out of the redesign to keep it reviewable:
   would be a second instance, but the plots' white background and colour maps
   would need choosing too.
 - **Few derived numbers.** `sheet.DerivedGrid` holds Retrieve's and Prepare's
-  numbers so far; a run's progress is on the ready line and Retrieve's numbers. `AdviceBox` so far carries one piece of advice: Prepare's, when
-  the λ grid clips the trace.
+  numbers so far. `AdviceBox` carries two pieces of advice: Prepare's, when the
+  λ grid clips the trace, and Retrieve's, when a retrieval fails.
 - **The stage pages' interface.** The stage modules still build through
   `base.Stage`, which keeps the calls they were written against for the old
   wizard; moving them onto `StagePage` directly is a later clean-up.

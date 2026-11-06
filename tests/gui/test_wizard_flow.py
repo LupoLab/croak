@@ -705,7 +705,7 @@ def test_load_previous_reruns_when_saved_result_grid_moved(
     w2.win.replay(rp)  # must not raise
 
     assert reran["called"] is True  # fell back to a re-run
-    assert "regrids to" in w2.stages[3].status_label.text()  # and said why
+    assert "regrids to" in w2.win.statusBar().currentMessage()  # and said why
 
 
 def test_rehydrated_result_matches_a_rerun_of_the_same_session(
@@ -1214,12 +1214,14 @@ def test_retrieve_reuse_passes_the_previous_fitted_extras(qtbot, monkeypatch):
             return _Signal() if _name != "start" else (lambda: None)
 
     monkeypatch.setattr(sr, "RetrievalWorker", _Worker)
+    said = []
+    rs.message.connect(said.append)
     rs._run()
 
     assert captured["extras_seed"] is previous
     np.testing.assert_allclose(captured["guess_override"], previous.spectrum)
-    # the status names what was seeded, so a warm start is never silent
-    assert "τ₀" in rs.status_label.text()
+    # the notice names what was seeded, so a warm start is never silent
+    assert any("τ₀" in text for text in said)
 
 
 def _seed_result_for_reuse(*, n: int):
@@ -1238,8 +1240,8 @@ def _seed_result_for_reuse(*, n: int):
     )
 
 
-def test_retrieve_status_reports_the_fitted_smearing_width(qtbot):
-    """A fitted smearing strength is reported as a delay width and its factor."""
+def test_retrieve_reports_the_fitted_smearing_width(qtbot):
+    """A fitted smearing strength is reported as the kernel's delay width."""
     from croak.session.pipeline import smearing_kernel
 
     w = Driver(qtbot)
@@ -1254,11 +1256,8 @@ def test_retrieve_status_reports_the_fitted_smearing_width(qtbot):
         omega0_pulse = 2.0 * np.pi * 3e8 / 800e-9
 
     td = _TD()
-    text = rs._smear_summary(1.457, td)
-
     sigma_fs = smearing_kernel(p, td).sigma_delta * 1.457 / 1e-15
-    assert f"{sigma_fs:.2f} fs" in text
-    assert "×1.457" in text
+    assert rs._smear_width_fs(1.457, td) == pytest.approx(sigma_fs)
 
 
 def test_position_scan_seeds_delay(experiment_h5, experiment):
@@ -1711,7 +1710,7 @@ def test_simulated_reload_keeps_preproc_settings(qtbot, simulated_scan_h5):
 
 
 def test_slider_controls_fill_the_control_column(qtbot):
-    """Range sliders span their group box rather than collapsing to the spins.
+    """Range controls span their group box rather than collapsing to the spins.
 
     Regression: ``QFormLayout``'s default field-growth policy is style-dependent
     (``FieldsStayAtSizeHint`` on macOS), which ignored the controls' ``Expanding``
@@ -1728,9 +1727,11 @@ def test_slider_controls_fill_the_control_column(qtbot):
 
     box = stage.lam_range.parentWidget()
     assert box is not None
-    # the slider reaches (nearly) the group box's inner width
-    assert stage.lam_range.slider.width() > 0.85 * box.width()
-    assert stage.lam_range.slider.width() > 2 * stage.lam_range.lo_spin.width()
+    # the control reaches (nearly) the group box's inner width, and the slider
+    # between its two ends takes the room they do not need
+    control = stage.lam_range
+    assert control.width() > 0.85 * box.width()
+    assert control.slider.width() > 1.5 * control.lo_spin.width()
 
 
 def test_widget_labels_escape_literal_ampersands(qtbot):
@@ -1971,8 +1972,8 @@ def test_retrieval_readout_smearing_survives_an_shg_trace(qtbot):
 
     rs._update_extras_readout(None)  # must not raise
     assert rs.readout.text("smearing") == DASH
-    # and the status-line helper, which shares _smear_width_fs, degrades too
-    assert rs._smear_summary(1.5, w.state.tracedata) == "smearing ×1.500"
+    # SHG has no smearing kernel, so there is no width to report
+    assert rs._smear_width_fs(1.5, w.state.tracedata) is None
 
 
 def test_preprocess_tau_exclude_auto_button(qtbot, experiment_h5, experiment):
@@ -2424,7 +2425,6 @@ def test_retrieve_live_preview_redraws_the_overview(qtbot):
     rs._on_preview(r2)
     assert rs.pages.boxes["temporal"].plot is plot
     assert rs.pages.data is not None and rs.pages.data.result is r2
-    assert "iter 5" in rs.status_label.text()
 
 
 def test_retrieve_post_filter_redraws_the_stored_result(qtbot):

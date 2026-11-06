@@ -65,10 +65,14 @@ says so: :func:`croak.preprocess.regrid`'s default ``taper_warn_level``, so the
 page warns exactly when the library does."""
 
 NUMBERS = (
-    ("Grid", "Delay samples × frequency samples of the retrieval grid."),
+    ("Grid", "Frequency samples × delay samples of the retrieval grid."),
     ("Δt", "The grid's time step: the shortest feature it can show."),
     ("Time window", "The grid's time span, N × Δt: the longest pulse it can hold."),
-    ("λ span", "The wavelength range the grid covers."),
+    (
+        "λ span",
+        "The pulse's wavelength range the grid covers (λ range under Grid); an "
+        "SHG trace's signal lies at half these wavelengths.",
+    ),
     (
         "Taper loss",
         "The share of the trace the grid's edge taper removes; above 1 % the "
@@ -698,7 +702,7 @@ class StagePreprocess(Stage):
         """Show what the grid gives: its size, step, window, band and taper loss."""
         grid = td.grid
         lost = td.taper_loss
-        self.numbers.set("Grid", f"{td.delays.size} × {grid.n}")
+        self.numbers.set("Grid", f"{grid.n} × {td.delays.size}")
         self.numbers.set("Δt", f"{grid.dt / 1e-15:.3g} fs")
         self.numbers.set("Time window", f"{grid.n * grid.dt / 1e-15:.4g} fs")
         self.numbers.set(
@@ -716,7 +720,7 @@ class StagePreprocess(Stage):
         self._show_numbers(td)
         for key, view in filter_views(td).items():
             self.views[key].show_view(view)
-        grid = f"Regridded to {td.grid.n}×{td.delays.size}."
+        grid = f"Regridded to {td.grid.n} × {td.delays.size}."
         if td.taper_loss > TAPER_ADVICE_LEVEL:
             self.set_status(f"{grid} The λ grid clips the trace.", "warn")
             self._advise_taper(td)

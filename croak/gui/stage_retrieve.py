@@ -329,6 +329,9 @@ class StageRetrieve(RunControls, Stage):
     def __init__(self, state):
         # The longest form: offer "Find a setting" over it.
         super().__init__(state, find=True)
+        # The numbers beneath the plots say how a run goes, so the form has no
+        # ready line; what else the page has to say is a notice (set_status).
+        self.status_label.hide()
         p = state.retrieve
         self._worker = None
         self._base_result = None  # unfiltered retrieval, for post-filter toggles
@@ -1428,6 +1431,7 @@ class StageRetrieve(RunControls, Stage):
         self.set_running(True)
         self.retarget_btn.setEnabled(False)
         self._conv_timer.stop()
+        self.advice.clear()
         self.pages.clear()
         self.convergence.show_view(convergence_view([]))
         self._worker = RetrievalWorker(
@@ -1472,7 +1476,6 @@ class StageRetrieve(RunControls, Stage):
 
     def _on_progress(self, iteration, R, best_R):
         self._errors.append(R)
-        self.set_status(f"iter {iteration}: R = {R:.4%} (best {best_R:.4%})")
         # Cheap: this fires every iteration and has no processed result to draw on.
         self.readout.set_scalars({"iteration": str(iteration), "error": f"{R:.4%}"})
         # Animate the convergence curve at most every _CONVERGENCE_REDRAW_MS,
@@ -1510,9 +1513,6 @@ class StageRetrieve(RunControls, Stage):
             # Processing and presenting ran on the GUI thread (holding the GIL):
             # tell the worker what it cost so the cadence keeps within its duty.
             self._worker.report_preview_cost(time.perf_counter() - started)
-        self.set_status(
-            f"iter {len(result.errors)}: R = {result.error:.4%}  (live preview)"
-        )
 
     def _on_finished(self, result, elapsed):
         self._finalise(result, elapsed)
@@ -1522,11 +1522,12 @@ class StageRetrieve(RunControls, Stage):
 
         The retrieval was aborted mid-run, so the snapshot is a legitimate (if
         non-converged) result: store it, enable Save/post-filters, and keep its
-        full plot on screen — labelled "Stopped" rather than "Done".
+        full plot on screen, saying that it is a stopped run's.
         """
-        self._finalise(result, elapsed, done_label="Stopped")
+        self._finalise(result, elapsed)
+        self.set_status("Stopped: the run's latest result is kept.")
 
-    def _finalise(self, result, elapsed, *, done_label="Done"):
+    def _finalise(self, result, elapsed):
         """Shared completion path for a finished or stopped retrieval."""
         # An SHG trace is invariant under E(t) -> E*(-t), so the solver returns
         # whichever of the two branches it landed in. When the session carries a
@@ -1543,7 +1544,7 @@ class StageRetrieve(RunControls, Stage):
         self.retarget_btn.setEnabled(True)
         self.pf_lam.setEnabled(True)
         self.pf_tau.setEnabled(True)
-        self._update_view(done_label=done_label)
+        self._update_view()
 
     def _on_post_filter(self, _=None):
         self.state.retrieve.post_filter_lam = self.pf_lam.isChecked()
@@ -1588,12 +1589,8 @@ class StageRetrieve(RunControls, Stage):
         self._update_extras_readout(result)
         self._update_truth_error_readout(result, self.state.truth)
 
-    def _update_view(self, *, done_label="Done"):
-        """(Re)apply the post-filters to the stored result and redraw — no re-run.
-
-        ``done_label`` heads the status summary ("Done" on completion, "Stopped"
-        when the user aborted the run).
-        """
+    def _update_view(self):
+        """(Re)apply the post-filters to the stored result and redraw — no re-run."""
         if self._base_result is None:
             return
         td = self.state.tracedata
@@ -1628,49 +1625,13 @@ class StageRetrieve(RunControls, Stage):
                 "elapsed": DASH if self._elapsed is None else f"{self._elapsed:.2f} s",
             }
         )
-        # Mirror the terminal summary report: error, retrieved & transform-
-        # limited FWHM, iteration count and wall-clock time.
-        parts = [
-            f"{done_label}. R = {result.error:.4%}",
-            f"retrieved FWHM {pr.fwhm_retr / 1e-15:.2f} fs",
-            f"transform-limited {pr.fwhm_tl / 1e-15:.2f} fs",
-            f"{len(result.errors)} iters",
-        ]
-        # Report any fitted extra parameters (thickness / delay-zero offset /
-        # geometric-smearing width).
-        if result.thickness is not None:
-            parts.append(f"thickness {result.thickness / 1e-6:.2f} µm")
-        if result.tau0:
-            parts.append(f"τ₀ {result.tau0 / 1e-15:.2f} fs")
-        if result.smear_scale is not None:
-            parts.append(self._smear_summary(result.smear_scale, td))
-        if self._elapsed is not None:
-            parts.append(f"{self._elapsed:.2f} s")
-        self.set_status("   |   ".join(parts))
-
-    def _smear_summary(self, smear_scale: float, td) -> str:
-        """Summarise a fitted smearing strength as a delay width plus its factor.
-
-        The fit optimises one dimensionless multiplier on the kernel widths, which
-        scale linearly with it (:meth:`croak.smearing.SmearingKernel.scaled`), so
-        the physical delay width is ``smear_scale × sigma_delta`` of the kernel
-        the run actually used. The nominal mask geometry is deliberately left
-        alone — it is the stored truth, not a readout to be overwritten.
-        """
-        sigma_fs = self._smear_width_fs(smear_scale, td)
-        if sigma_fs is None:
-            # The kernel was switched off after the run (this view is re-rendered
-            # by the post-filter toggles), so there is no width to convert to.
-            return f"smearing ×{smear_scale:.3f}"
-        return f"smearing σ {sigma_fs:.2f} fs (×{smear_scale:.3f})"
 
     def _smear_width_fs(self, smear_scale: float, td) -> float | None:
         """The modelled smearing delay width (fs) at ``smear_scale``, or ``None``.
 
         ``None`` when there is no kernel to measure — smearing switched off, or an
         SHG trace, which has no three-arm form and so no smearing model at all — so
-        callers can fall back to reporting the bare multiplier or nothing. Shared by
-        the status line and the read-out so the two cannot drift apart.
+        the read-out can fall back to reporting the bare multiplier or nothing.
         """
         try:
             kernel = smearing_kernel(self.state.retrieve, td)
@@ -1796,7 +1757,21 @@ class StageRetrieve(RunControls, Stage):
         # Blank the numbers, which would otherwise be silently stale.
         self.readout.clear()
         self._update_extras_readout(None)
-        self.set_status("Stopped." if message == "stopped" else f"Failed: {message}")
+        if message == "stopped":
+            self.set_status("Stopped.")
+        else:
+            self.set_status(f"Failed: {message}", "error")
+
+    def set_status(self, text: str, state: str = "ok") -> None:
+        """Say ``text`` at the foot of the window; a failure also over the plots.
+
+        Retrieve has no ready line (its numbers say how a run goes), so what it
+        has to say is a passing notice, and a failed retrieval stays in the
+        advice box until the next run starts.
+        """
+        self.message.emit(text)
+        if state == "error":
+            self.advice.say("The retrieval failed", text)
 
     def _retarget(self):
         """Ask for a new dataset folder and hand off to the window to replay it.

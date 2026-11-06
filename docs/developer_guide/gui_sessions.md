@@ -91,7 +91,8 @@ Most stage pages subclass `base.Stage`, a `StagePage` that keeps the calls the
 stage modules were first written against: sections go into `self.controls`
 (from `controls.group(title, folded=…, settings_key=…)`), plots into
 `set_plot_area(plot, *strips)`, and messages onto the ready line with
-`set_status(text, "ok" | "warn" | "error")`. A loader implements `advance` and
+`set_status(text, "ok" | "warn" | "error")` (Retrieve overrides it: a notice at
+the foot of the window, and a failure in its advice box). A loader implements `advance` and
 emits `advanced("check")` or `advanced("retrieve")`; `DataPage` calls it on
 Continue. A page that runs a worker mixes in `RunControls`, whose `busy` turns
 the primary action into Stop.
