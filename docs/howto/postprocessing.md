@@ -280,7 +280,10 @@ own figures.
 ### Screen views (GUI support)
 
 The GUI does not draw these matplotlib panels on screen: it draws the same data
-with interactive views, from the Qt-free {mod}`croak.plotting.screen`. See
+with interactive views, from the Qt-free {mod}`croak.plotting.screen`, and
+{mod}`croak.plotting.export` draws those views back into matplotlib for a
+publication figure ({func}`~croak.plotting.export.views_figure`,
+{func}`~croak.plotting.export.save_figure`). See
 [screen views in the developer’s guide](../developer_guide/gui_sessions.md#screen-views-gui-support).
 
 ## Windowing the retrieved field

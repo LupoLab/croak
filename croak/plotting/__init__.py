@@ -41,6 +41,9 @@ group them by domain:
 ``screen``
     What the GUI's interactive views show, as plain data
     (:mod:`croak.plotting.screen`).
+``export``
+    Those views drawn as publication figures, for the GUI's "Export … as a
+    figure" (:mod:`croak.plotting.export`).
 """
 
 from .artists import (

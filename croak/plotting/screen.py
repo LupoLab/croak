@@ -39,6 +39,8 @@ from .traces import _decimate_for_display, filter_view_vmax
 from .units import _TWOPI_PHZ
 
 __all__ = [
+    "CURVE_COLOURS",
+    "ROLE_STYLE",
     "CurveView",
     "LineView",
     "MapView",
@@ -62,23 +64,43 @@ __all__ = [
     "uniform_image",
 ]
 
-# Roles a view gives its curves; the GUI maps each to a colour and a line style.
-ROLES = (
-    "retrieved",
-    "transform-limited",
-    "measured",
-    "truth",
-    "phase",
-    "fit",
-    "truth-phase",
-    "error",
-    "estimate",
-    "prior",
-    "predicted",
-    "corrected",
-    "faint",
-    "boundary",
+CURVE_COLOURS = (
+    "#1f6fb4",  # blue
+    "#d2670b",  # orange
+    "#2a9d6a",  # green
+    "#8c5bb5",  # purple
+    "#c2445c",  # red
+    "#5a6675",  # grey
+    "#b08a16",  # ochre
+    "#2b8fb3",  # cyan
 )
+"""The curves' colours, in order of use, on screen and in exported figures."""
+
+_INK = "#1b2430"
+_MUTED = "#5a6675"
+
+ROLE_STYLE: dict[str, tuple[str, bool, bool]] = {
+    "retrieved": (CURVE_COLOURS[0], False, False),
+    "transform-limited": (CURVE_COLOURS[1], False, False),
+    "measured": (CURVE_COLOURS[1], False, False),
+    "truth": (_INK, False, True),
+    "phase": (CURVE_COLOURS[2], False, False),
+    "fit": (CURVE_COLOURS[3], True, False),
+    "truth-phase": (_MUTED, True, True),
+    "error": (CURVE_COLOURS[0], False, False),
+    "estimate": (CURVE_COLOURS[4], False, False),
+    "prior": ("#9aa3ad", False, False),
+    "predicted": (CURVE_COLOURS[4], True, False),
+    "corrected": (CURVE_COLOURS[0], True, False),
+    "faint": ("#9cbfdd", False, False),
+    "boundary": (_MUTED, True, False),
+}
+"""Each role a view gives its curves: colour, dashed, and whether it is a thin
+reference drawn beneath the rest (the known pulse). The screen and the exported
+figures both draw from it."""
+
+ROLES = tuple(ROLE_STYLE)
+"""The roles a view may give its curves, bands, spans and rules."""
 
 
 @dataclass(frozen=True)

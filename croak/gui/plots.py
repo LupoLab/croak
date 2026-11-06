@@ -22,6 +22,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter
 
+from ..plotting.screen import CURVE_COLOURS
 from .theme import FONT_FAMILY, PALETTE, PLOT_PX
 
 __all__ = [
@@ -38,17 +39,8 @@ __all__ = [
 
 pg.setConfigOptions(antialias=True, background="w", foreground=PALETTE.ink)
 
-COLOURS = (
-    "#1f6fb4",  # blue
-    "#d2670b",  # orange
-    "#2a9d6a",  # green
-    "#8c5bb5",  # purple
-    "#c2445c",  # red
-    "#5a6675",  # grey
-    "#b08a16",  # ochre
-    "#2b8fb3",  # cyan
-)
-"""The curves' colours, in order of use."""
+COLOURS = CURVE_COLOURS
+"""The curves' colours, in order of use (shared with the exported figures)."""
 
 PEN_WIDTH = 1.7
 """A curve's line width, in logical pixels."""
