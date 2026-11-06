@@ -7,19 +7,16 @@ stored result without re-running the retrieval.
 from __future__ import annotations
 
 import math
-import os
 import time
 
 import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QFileDialog,
-    QGridLayout,
     QPushButton,
-    QWidget,
 )
 
-from .. import materials, plotting, save, smearing
+from .. import materials, plotting, smearing
 from ..constants import C
 from ..processing import (
     ProcessedResult,
@@ -860,26 +857,12 @@ class StageRetrieve(RunControls, Stage):
         form.addRow("Spectrum axis", self.spectrum_axis_combo)
         self.controls.addWidget(box)
 
-        # Two by two: four in a row are wider than the form column.
-        btns = QWidget()
-        bl = QGridLayout(btns)
-        bl.setContentsMargins(0, 0, 0, 0)
-        self.run_btn = QPushButton("Run")
-        self.run_btn.clicked.connect(self._run)
-        self.stop_btn = QPushButton("Stop")
-        self.stop_btn.clicked.connect(self._stop)
-        self.stop_btn.setEnabled(False)
-        self.save_btn = QPushButton("Save…")
-        self.save_btn.clicked.connect(self._save)
-        self.save_btn.setEnabled(False)
+        # Retrieve, Stop and Save are the top bar's primary action and Save
+        # session; only what has no place there stays in the form.
         self.reset_btn = QPushButton("Reset")
         self.reset_btn.setToolTip("Restore the default retrieval settings.")
         self.reset_btn.clicked.connect(self._reset_defaults)
-        bl.addWidget(self.run_btn, 0, 0)
-        bl.addWidget(self.stop_btn, 0, 1)
-        bl.addWidget(self.save_btn, 1, 0)
-        bl.addWidget(self.reset_btn, 1, 1)
-        self.controls.addWidget(btns)
+        self.controls.addWidget(self.reset_btn)
 
         # Retarget: rerun this exact session on a different dataset folder (same
         # file names, calibration kept fixed). On its own row so the label fits.
@@ -1407,7 +1390,6 @@ class StageRetrieve(RunControls, Stage):
         # clear the retrieval is still valid — no re-run needed to proceed.
         if self.state.result is not None and self._base_result is None:
             self._base_result = self.state.result
-            self.save_btn.setEnabled(True)
             self.retarget_btn.setEnabled(True)
             self.pf_lam.setEnabled(True)
             self.pf_tau.setEnabled(True)
@@ -1463,7 +1445,6 @@ class StageRetrieve(RunControls, Stage):
                     "No compatible previous result to reuse; using the default guess."
                 )
         self.set_running(True)
-        self.save_btn.setEnabled(False)
         self.retarget_btn.setEnabled(False)
         self._live_full = False
         self._conv_timer.stop()
@@ -1583,7 +1564,6 @@ class StageRetrieve(RunControls, Stage):
         self._elapsed = float(elapsed)
         self._elapsed_timer.stop()
         self.set_running(False)
-        self.save_btn.setEnabled(True)
         self.retarget_btn.setEnabled(True)
         self.pf_lam.setEnabled(True)
         self.pf_tau.setEnabled(True)
@@ -1899,25 +1879,3 @@ class StageRetrieve(RunControls, Stage):
             return
         self.set_status(f"Retargeting to {folder} …")
         self.state.retarget_requested.emit(folder)
-
-    def _save(self):
-        if self.state.result is None:
-            return
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
-        if not folder:
-            return
-        save.save_result(
-            self.state.result,
-            os.path.join(folder, "result.h5"),
-            processed=self.state.processed,
-            truth=self.state.truth,
-            force=True,
-        )
-        save.save_options(self.state.to_options(), os.path.join(folder, "options.toml"))
-        # The PDF is the full twelve-panel overview drawn afresh at its design size
-        # (each tab's toolbar Save writes that page instead).
-        data = self._plot_data(self.state.result, self.state.processed)
-        plotting.plot_retrieval_page(data, plotting.RETRIEVAL_OVERVIEW).savefig(
-            os.path.join(folder, "retrieval.pdf"), dpi=600
-        )
-        self.set_status(f"Saved result.h5, options.toml, retrieval.pdf to {folder}")

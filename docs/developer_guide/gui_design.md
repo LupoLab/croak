@@ -149,6 +149,3 @@ These are known gaps, kept out of the redesign to keep it reviewable:
   `base.Stage`, which keeps the calls they were written against for the old
   wizard; moving them onto `StagePage` directly is a later clean-up.
 - **Find a setting** is offered on Retrieve, the longest form, only.
-- **Two ways to save a retrieval.** Retrieve's own **Save…** writes the same
-  three files as **Save session…**, without the uncertainty estimates and
-  without adding the session to Recent sessions.

@@ -98,16 +98,14 @@ def test_controls_write_the_parameters_and_gate_each_other(stage):
     assert u.interval == "percentile"
 
 
-def test_on_enter_without_a_result_disables_estimate(stage):
+def test_on_enter_without_a_result_asks_for_one(stage):
     stage.on_enter()
-    assert not stage.run_btn.isEnabled()
     assert stage.status_label.text() == "Retrieve a pulse first."
 
 
 def test_on_enter_lists_and_draws_the_current_estimate(stage, retrieval):
     stage.state.set_result(retrieval)
     stage.on_enter()
-    assert stage.run_btn.isEnabled()
     assert "Choose options" in stage.status_label.text()
     stage.state.set_uncertainty_result(_uresult("parametric", 0.05e-15))
     stage.on_enter()
@@ -261,7 +259,7 @@ def test_run_reports_progress_and_shows_the_estimate(stage, retrieval, fake_work
     assert w.kwargs["dispersion"] is stage.state.dispersion
     assert "replicate 1/4:  R = 1.2300%" in statuses
     assert stage.state.uncertainty_results["parametric"] is est
-    assert stage.run_btn.isEnabled() and not stage.stop_btn.isEnabled()
+    assert not stage.busy()
     assert stage.status_label.text() == est.summary()
     # Stop forwards to the worker.
     stage._stop()
@@ -281,7 +279,7 @@ def test_run_failure_and_stop_messages(stage, retrieval, fake_worker, message, s
     fake_worker.script = [("failed", message)]
     stage._run()
     assert stage.status_label.text() == status
-    assert stage.run_btn.isEnabled() and not stage.stop_btn.isEnabled()
+    assert not stage.busy()
 
 
 def test_stop_without_a_run_is_harmless(stage):

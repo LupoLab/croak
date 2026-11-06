@@ -331,10 +331,10 @@ sections (*Dispersive propagation*, *Geometrical smearing*), the advanced
 sections, *Post-filter (applied to result)* and *Display*. The advanced sections —
 *Chromatic focal mixture (advanced)*, *Extra fit parameters*, *Regularisation*
 and *Global search (cma-es)* — start folded, and whether each is open is
-remembered between launches. Below them are **Run**, **Stop**, **Save…** (which
-writes `result.h5`, `options.toml` and `retrieval.pdf` into a folder), **Reset**
-(the default retrieval settings) and **Retarget to new dataset…** (see
-[Sessions](#sessions)).
+remembered between launches. Below them are **Reset** (the default retrieval
+settings) and **Retarget to new dataset…** (see [Sessions](#sessions)). A run
+starts and stops from the top bar's **Retrieve** and **Stop**, and **Save
+session…** saves it.
 
 The **Display** section's **Spectrum axis** draws the spectrum panel against
 **frequency** (PHz, the default — the space the retrieval works in) or
@@ -458,9 +458,9 @@ dispersed result as `result_dispersion.h5`, with `options.toml` and
 Put an error bar on the retrieved FWHM ({mod}`croak.uncertainty`). Choose the
 estimator (parametric or resampling bootstrap, the substrate-thickness
 systematic, or the fast analytic covariance), set the replicate count and
-confidence level, and run it with **Estimate** (on the page or in the top bar)
-on a worker thread; the ready line counts the replicates, and **Stop** cancels
-the run. The page reports the
+confidence level, and run it with **Estimate** in the top bar. It runs on a
+worker thread; the ready line counts the replicates, and **Stop** in the top bar
+cancels the run. The page reports the
 point estimate with its 68 % and 95 % intervals, draws the temporal confidence
 band over the retrieved profile, and its **Save…** appends the estimates to
 `result.h5` and writes `options.toml` and `uncertainty.pdf`. See

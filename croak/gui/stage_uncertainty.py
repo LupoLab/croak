@@ -124,18 +124,6 @@ class StageUncertainty(RunControls, Stage):
         form.addRow("Interval", self.interval)
         self.controls.addWidget(box)
 
-        row = QWidget()
-        rl = QHBoxLayout(row)
-        rl.setContentsMargins(0, 0, 0, 0)
-        self.run_btn = QPushButton("Estimate")
-        self.run_btn.clicked.connect(self._run)
-        self.stop_btn = QPushButton("Stop")
-        self.stop_btn.clicked.connect(self._stop)
-        self.stop_btn.setEnabled(False)
-        rl.addWidget(self.run_btn)
-        rl.addWidget(self.stop_btn)
-        self.controls.addWidget(row)
-
         # Retained estimates: each completed run is kept so several independent
         # contributions can be combined into a total before saving. Tick the ones to
         # combine (don't mix redundant statistical estimators); click one to view it.
@@ -318,10 +306,8 @@ class StageUncertainty(RunControls, Stage):
     # -- lifecycle ----------------------------------------------------------
     def on_enter(self):
         if self.state.result is None:
-            self.run_btn.setEnabled(False)
             self.set_status("Retrieve a pulse first.")
             return
-        self.run_btn.setEnabled(True)
         self._refresh_estimates()
         if self.state.uncertainty_result is not None:
             self._draw(self.state.uncertainty_result)

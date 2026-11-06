@@ -327,7 +327,7 @@ def test_stage_retrieve_convergence_waits_for_errors(stage, monkeypatch):
 def test_stage_retrieve_stopped_run_is_kept_and_labelled(with_trace, run):
     with_trace._on_stopped(run[3], 1.25)
     assert with_trace.state.result is not None
-    assert with_trace.save_btn.isEnabled()
+    assert not with_trace.busy()
     status = with_trace.status_label.text()
     assert status.startswith("Stopped. R = ")
     assert status.endswith("1.25 s")
@@ -429,23 +429,6 @@ def test_stage_retrieve_retarget_emits_the_chosen_folder(stage, monkeypatch, qtb
     assert stage.status_label.text() == "Retargeting to /data/next …"
 
 
-def test_stage_retrieve_save_needs_a_result_and_a_folder(
-    with_trace, monkeypatch, run, tmp_path
-):
-    calls = []
-    monkeypatch.setattr(
-        QFileDialog,
-        "getExistingDirectory",
-        lambda *a, **k: calls.append(1) or "",
-    )
-    with_trace._save()  # no result: the dialog never opens
-    assert calls == []
-    with_trace._on_finished(run[3], 0.5)
-    with_trace._save()  # cancelled
-    assert calls == [1]
-    assert list(tmp_path.iterdir()) == []
-
-
 def test_stage_retrieve_smear_summary_after_the_kernel_is_switched_off(stage):
     stage.state.retrieve.smearing = False
     td = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
@@ -455,11 +438,10 @@ def test_stage_retrieve_smear_summary_after_the_kernel_is_switched_off(stage):
 @pytest.mark.parametrize(
     ("message", "status"), [("stopped", "Stopped."), ("diverged", "Failed: diverged")]
 )
-def test_stage_retrieve_failure_reenables_run(stage, message, status):
-    stage.run_btn.setEnabled(False)
-    stage.stop_btn.setEnabled(True)
+def test_stage_retrieve_failure_ends_the_run(stage, message, status):
+    stage.set_running(True)
     stage._on_failed(message)
-    assert stage.run_btn.isEnabled() and not stage.stop_btn.isEnabled()
+    assert not stage.busy()
     assert stage.status_label.text() == status
 
 

@@ -1126,10 +1126,10 @@ def test_retrieve_view_restored_on_reentry(qtbot, experiment_h5, experiment):
 
     # simulate a fresh stage instance that hasn't drawn the result yet
     rs._base_result = None
-    rs.save_btn.setEnabled(False)
+    rs.retarget_btn.setEnabled(False)
     rs.on_enter()
     assert rs._base_result is st.result  # view restored
-    assert rs.save_btn.isEnabled()
+    assert rs.retarget_btn.isEnabled()
     assert w.win.primary.isEnabled()
 
 
@@ -2487,32 +2487,6 @@ def test_retrieve_readout_collapse_frees_plot_height(qtbot):
     rs.readout_strip.collapse(animate=False)
     qtbot.waitUntil(lambda: rs.pages.height() > before + 100)
     assert settings.value("retrieve/readout_expanded", True) is False
-
-
-def test_retrieve_save_writes_the_full_overview_pdf(qtbot, tmp_path, monkeypatch):
-    from PySide6.QtWidgets import QFileDialog
-
-    from croak.gui import stage_retrieve as sr
-
-    w = Driver(qtbot)
-    rs = _run_synthetic_retrieval(w, qtbot)
-    monkeypatch.setattr(
-        QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path)
-    )
-    seen = []
-    real = sr.plotting.plot_retrieval_page
-
-    def spy(data, page, **kwargs):
-        fig = real(data, page, **kwargs)
-        seen.append((page, fig))
-        return fig
-
-    monkeypatch.setattr(sr.plotting, "plot_retrieval_page", spy)
-    rs._save()
-    assert (tmp_path / "retrieval.pdf").stat().st_size > 0
-    page, fig = seen[-1]
-    assert page is croak.plotting.RETRIEVAL_OVERVIEW
-    assert len([ax for ax in fig.axes if ax.get_title()]) == 12
 
 
 def test_retrieve_live_preview_redraws_the_overview(qtbot):

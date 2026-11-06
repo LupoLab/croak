@@ -9,7 +9,7 @@ against: ``controls`` to add sections to, :meth:`set_plot_area`,
 from __future__ import annotations
 
 from PySide6.QtCore import Signal, SignalInstance
-from PySide6.QtWidgets import QPushButton, QWidget
+from PySide6.QtWidgets import QWidget
 
 from .help import apply_tooltips, flatten
 from .stage import StagePage
@@ -65,23 +65,21 @@ class Stage(StagePage):
 
 
 class RunControls:
-    """Run and Stop buttons that follow a worker, for a page that runs one.
+    """Running state for a page that runs a worker, driven from the top bar.
 
-    The page creates :attr:`run_btn` and :attr:`stop_btn`; :meth:`set_running`
-    toggles them and tells the window (``changed``) so its primary action
-    becomes Stop while the work runs. Mix in before :class:`Stage`.
+    The window's primary action starts the work and becomes Stop while it runs;
+    :meth:`set_running` records the state and tells the window (``changed``).
+    Mix in before :class:`Stage`.
     """
 
-    run_btn: QPushButton
-    stop_btn: QPushButton
+    _running: bool = False
     changed: SignalInstance
 
     def set_running(self, running: bool) -> None:
-        """Show the work as running (Stop on) or idle (Run on)."""
-        self.run_btn.setEnabled(not running)
-        self.stop_btn.setEnabled(running)
+        """Show the work as running (the primary action is Stop) or idle."""
+        self._running = running
         self.changed.emit()
 
     def busy(self) -> bool:
         """Whether the work is running."""
-        return self.stop_btn.isEnabled()
+        return self._running

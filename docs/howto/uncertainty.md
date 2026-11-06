@@ -285,7 +285,7 @@ retrievals — keep `n_trials`/`n_resamples` modest while exploring).
 The GUI's **Uncertainty** page (under Analyse) runs the bootstrap in the background
 on the current retrieval, using the same solver settings, and plots the result. Pick the
 method, the replicate count and (for the parametric method) the noise source, then click
-**Estimate** (on the page or in the top bar); **Stop** cancels mid-run. For a dispersive retrieval, choose method
+**Estimate** in the top bar; **Stop** there cancels mid-run. For a dispersive retrieval, choose method
 **thickness** and set **Thickness σ (µm)** to your measured substrate-thickness
 uncertainty (the central value is the retrieval's own thickness) to get the systematic
 FWHM error bar.
