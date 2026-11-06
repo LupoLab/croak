@@ -134,9 +134,7 @@ def test_synthetic_back_returns_to_generator(qtbot):
     assert w.stage_number == 2  # marginal check
 
     w.goto(3)  # advance to preprocess
-    w.win.stage_buttons[Stage.DATA].click()  # back to Data, on its check step
-    assert w.current_page() is w.stages[1]
-    w.data.steps.buttons["entry"].click()  # -> the synthetic generator
+    w.win.stage_buttons[Stage.DATA].click()  # back to Data: the generator
     assert w.current_page() is w.synthetic
     # the in-progress data survives the round trip (no reset on Back)
     assert w.state.truth is not None
@@ -376,9 +374,7 @@ def test_simulated_back_returns_to_loader(qtbot, simulated_scan_h5, simulated_tr
     assert w.stage_number == 2
 
     w.goto(3)  # advance to preprocess
-    w.win.stage_buttons[Stage.DATA].click()  # back to Data, on its check step
-    assert w.current_page() is w.stages[1]
-    w.data.steps.buttons["entry"].click()  # -> the simulated loader
+    w.win.stage_buttons[Stage.DATA].click()  # back to Data: the simulated loader
     assert w.current_page() is w.simulated
 
 
@@ -1705,14 +1701,14 @@ def test_simulated_reload_keeps_preproc_settings(qtbot, simulated_scan_h5):
     w.state.preproc.use_threshold = True
 
     # Back to the loader and forward again with the same options -> settings kept
-    w.data.steps.buttons["entry"].click()  # back to the simulated loader
+    w.win.stage_buttons[Stage.DATA].click()  # back to the simulated loader
     assert w.current_page() is w.simulated
     sim.advance()
     assert w.state.preproc.defringe is True
     assert w.state.preproc.use_threshold is True
 
     # a different loaded band is a different trace -> data-seeded defaults return
-    w.data.steps.buttons["entry"].click()
+    w.win.stage_buttons[Stage.DATA].click()
     lo, hi = sim.band.values()
     sim.band.set_values(lo + 5.0, hi - 5.0)
     sim._band = (lo + 5.0, hi - 5.0)

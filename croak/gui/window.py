@@ -1,6 +1,6 @@
-"""The workflow window: Home, then Data, Prepare, Retrieve and Analyse.
+"""The workflow window: Home, then Data, Check, Prepare, Retrieve and Analyse.
 
-The top bar carries the brand (back to Home), what the session is, the four
+The top bar carries the brand (back to Home), what the session is, the five
 stage buttons, the one primary action and an overflow menu (⋯). Which stages
 open and what the primary action does are the pure rules of
 :mod:`croak.gui.workflow`; this module applies them to widgets. A drawer on the
@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -39,11 +39,12 @@ from ..scripting import generate_script
 from ..session import files as session_files
 from ..session import retarget
 from . import settings
+from .about import About
 from .branding import app_icon
 from .home import ENTRY_TILES, Home
 from .stage import PageBase
 from .state import WizardState
-from .theme import button, frame, label, load_fonts, set_flag, stylesheet
+from .theme import ASSETS, button, frame, label, load_fonts, set_flag, stylesheet
 from .workflow import (
     STAGES,
     Action,
@@ -62,7 +63,7 @@ if TYPE_CHECKING:
 __all__ = ["DRAWER_WIDTH", "MainWindow", "PageFactory"]
 
 PageFactory = Callable[[WizardState], Mapping[Stage, PageBase]]
-"""Builds a session's four stage pages from the shared state."""
+"""Builds a session's stage pages from the shared state."""
 
 DRAWER_WIDTH = 440
 """The width of the settings drawer, logical px."""
@@ -80,7 +81,7 @@ class MainWindow(QMainWindow):
     Parameters
     ----------
     make_pages : PageFactory, optional
-        Builds the Data, Prepare, Retrieve and Analyse pages for a session
+        Builds the Data, Check, Prepare, Retrieve and Analyse pages for a session
         (:func:`croak.gui.pages.default_pages` by default).
     state : WizardState, optional
         The shared session state (a fresh one by default).
@@ -118,7 +119,10 @@ class MainWindow(QMainWindow):
         self.home = Home()
         self.home.start.connect(self.new_session)
         self.home.open_session.connect(self.open_session)
+        self.home.about.connect(self.show_about)
         self.stack.addWidget(self.home)
+        self.about = About()
+        self.stack.addWidget(self.about)
         middle.addWidget(self.stack, stretch=1)
         middle.addWidget(self._make_drawer())
         column.addLayout(middle, stretch=1)
@@ -152,6 +156,17 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.brand)
         bar.addWidget(self.context)
         bar.addStretch(1)
+        # Home leads the stage row, where navigation is looked for; the brand
+        # also goes Home, but nobody guesses that a name is a button.
+        self.home_button = button("Home", "stage")
+        self.home_button.setIcon(QIcon(str(ASSETS / "home.svg")))
+        self.home_button.setToolTip("Home: start or reopen a session")
+        self.home_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.home_button.clicked.connect(self.go_home)
+        bar.addWidget(self.home_button)
+        divider = frame("divider")
+        divider.setFixedSize(1, 20)
+        bar.addWidget(divider)
         self.stage_buttons: dict[Stage, QPushButton] = {}
         for stage in STAGES:
             b = button(stage.title, "stage")
@@ -226,7 +241,10 @@ class MainWindow(QMainWindow):
             "help": self._action(
                 "Help for this stage", self.show_help, QKeySequence(keys.HelpContents)
             ),
+            "about": self._action("About croak", self.show_about),
         }
+        # On macOS, Qt moves it to the application menu, where About belongs.
+        self.actions_["about"].setMenuRole(QAction.MenuRole.AboutRole)
         overflow = QMenu(self)
         for key in ("save", "open"):
             overflow.addAction(self.actions_[key])
@@ -235,6 +253,7 @@ class MainWindow(QMainWindow):
             overflow.addAction(self.actions_[key])
         overflow.addSeparator()
         overflow.addAction(self.actions_["help"])
+        overflow.addAction(self.actions_["about"])
         self.overflow.setMenu(overflow)
         bar = self.menuBar()
         file_menu = bar.addMenu("&File")
@@ -243,7 +262,9 @@ class MainWindow(QMainWindow):
         view_menu = bar.addMenu("&View")
         for key in ("options", "python"):
             view_menu.addAction(self.actions_[key])
-        bar.addMenu("&Help").addAction(self.actions_["help"])
+        help_menu = bar.addMenu("&Help")
+        for key in ("help", "about"):
+            help_menu.addAction(self.actions_[key])
 
     def _build_pages(self) -> None:
         """Replace the stage pages with fresh ones bound to the state's parameters."""
@@ -255,10 +276,11 @@ class MainWindow(QMainWindow):
         if missing:
             names = ", ".join(sorted(s.value for s in missing))
             raise ValueError(f"the page factory built no page for {names}")
-        for page in self.pages.values():
+        for stage, page in self.pages.items():
             self.stack.addWidget(page)
             page.changed.connect(self.refresh)
             page.message.connect(self.notify)
+            page.moved_on.connect(lambda stage=stage: self.move_on(stage))
 
     # -- the route ------------------------------------------------------------
     def progress(self) -> Progress:
@@ -287,13 +309,14 @@ class MainWindow(QMainWindow):
     def refresh(self) -> None:
         """Re-apply the route rules to the top bar."""
         progress = self.progress()
-        in_session = self.stage is not Stage.HOME or bool(self.pages)
+        in_session = bool(self.pages)
         for stage, b in self.stage_buttons.items():
             reason = blocked_reason(stage, progress) if self.pages else "no session"
             b.setVisible(in_session)
             b.setEnabled(not reason)
             b.setToolTip(reason)
             set_flag(b, "current", stage is self.stage)
+        set_flag(self.home_button, "current", self.stage is Stage.HOME)
         action = self.current_action()
         self.primary.setVisible(bool(action.kind))
         self.primary.setText(action.text)
@@ -307,8 +330,9 @@ class MainWindow(QMainWindow):
 
     def go(self, stage: Stage) -> bool:
         """Show ``stage`` if it can be opened; say why not otherwise."""
-        if stage is Stage.HOME or not self.pages:
-            reason = "" if stage is Stage.HOME else "no session"
+        outside = stage in (Stage.HOME, Stage.ABOUT)
+        if outside or not self.pages:
+            reason = "" if outside else "no session"
         else:
             reason = blocked_reason(stage, self.progress())
         if reason:
@@ -318,6 +342,8 @@ class MainWindow(QMainWindow):
         if stage is Stage.HOME:
             self.home.show_recent(settings.recent_sessions())
             self.stack.setCurrentWidget(self.home)
+        elif stage is Stage.ABOUT:
+            self.stack.setCurrentWidget(self.about)
         else:
             page = self.pages[stage]
             self.stack.setCurrentWidget(page)
@@ -333,6 +359,10 @@ class MainWindow(QMainWindow):
         """Show Home (the session stays open until a new one starts)."""
         self.show_home()
 
+    def show_about(self) -> None:
+        """Show About, keeping any open session."""
+        self.go(Stage.ABOUT)
+
     def do_primary(self) -> None:
         """Do what the primary action says."""
         action = self.current_action()
@@ -345,6 +375,10 @@ class MainWindow(QMainWindow):
         if page.act(action.kind) and action.kind == "continue":
             self.go(next_stage(self.stage, self.progress()))
         self.refresh()
+
+    def move_on(self, stage: Stage) -> None:
+        """Go to the stage after ``stage``, whose page handed its work on."""
+        self.go(next_stage(stage, self.progress()))
 
     # -- sessions ---------------------------------------------------------------
     def confirm_discard(self) -> bool:

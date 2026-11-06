@@ -37,41 +37,38 @@ def _point_at_experiment(state, experiment_h5, experiment):
     p.interaction = experiment.interaction
 
 
-# -- Data's two steps ------------------------------------------------------------
+# -- Data and Check --------------------------------------------------------------
 def test_window_data_waits_for_a_loaded_trace_then_checks_it(
     qtbot, experiment_h5, experiment
 ):
     d = Driver(qtbot, "experimental")
     win = d.win
-    assert d.data.step == "entry"
     assert not win.primary.isEnabled()  # nothing loaded yet
-    assert not d.data.steps.buttons["check"].isEnabled()
+    assert not win.stage_buttons[Stage.CHECK].isEnabled()
     _point_at_experiment(win.state, experiment_h5, experiment)
     d.stages[0]._load_preview()
     assert win.primary.isEnabled()
-    assert d.data.steps.buttons["check"].isEnabled()
-    win.do_primary()  # a measured trace: on to the check, still on Data
-    assert win.stage is Stage.DATA and d.data.step == "check"
-    assert d.current_page() is d.data.check
+    assert win.stage_buttons[Stage.CHECK].isEnabled()  # no Continue needed
+    win.do_primary()  # a measured trace: on to the check
+    assert win.stage is Stage.CHECK
+    assert d.current_page() is win.pages[Stage.CHECK]
     win.do_primary()  # from the check, on to Prepare
     assert win.stage is Stage.PREPARE
     assert win.state.tracedata is not None
 
 
-def test_window_data_steps_can_be_chosen_directly(qtbot):
+def test_window_data_and_check_answer_for_their_own_page(qtbot):
     d = Driver(qtbot, "synthetic")
-    d.synthetic.advance()  # generated: the generator moves to the check
-    assert d.data.step == "check" and d.data.page_key() == "check"
-    d.data.steps.buttons["entry"].click()
-    assert d.data.step == "entry"
-    d.data.on_enter()
     d.data.show_help()  # the generator has no help of its own: nothing opens
-    d.data.steps.buttons["check"].click()
-    dialog = d.data.show_help()
-    assert dialog is not None
-    dialog.close()
     with pytest.raises(ValueError, match="no 'retrieve' action"):
         d.data.act("retrieve")
+    d.win.do_primary()  # generated: the check opens
+    assert d.win.stage is Stage.CHECK
+    dialog = d.win.pages[Stage.CHECK].show_help()
+    assert dialog is not None
+    dialog.close()
+    assert d.win.go(Stage.DATA)  # back to the generator, the trace kept
+    assert d.state.load_data is not None
 
 
 def test_window_synthetic_continue_generates_and_checks(qtbot):
@@ -79,14 +76,25 @@ def test_window_synthetic_continue_generates_and_checks(qtbot):
     assert d.win.primary.isEnabled()  # a synthetic pulse is ready at once
     d.win.do_primary()
     assert d.state.load_data is not None
-    assert d.win.stage is Stage.DATA and d.data.step == "check"
+    assert d.win.stage is Stage.CHECK
+
+
+def test_window_synthetic_continue_stays_when_generation_fails(qtbot, monkeypatch):
+    d = Driver(qtbot, "synthetic")
+
+    def fail():
+        raise ValueError("bad grid")
+
+    monkeypatch.setattr(d.synthetic, "_pulse", fail)
+    d.win.do_primary()
+    assert d.win.stage is Stage.DATA and d.state.load_data is None
 
 
 def test_window_simulated_waits_for_a_previewed_scan(qtbot, simulated_scan_h5):
     d = Driver(qtbot, "simulated")
     assert not d.win.primary.isEnabled()
     d.win.do_primary()  # disabled: nothing happens
-    assert d.data.step == "entry"
+    assert d.win.stage is Stage.DATA
     d.simulated.path_edit.setText(simulated_scan_h5)
     d.simulated._populate_file_options(simulated_scan_h5)
     d.simulated._preview()

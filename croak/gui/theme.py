@@ -143,6 +143,7 @@ def stylesheet(p: Palette = PALETTE) -> str:
         f"QPushButton#brand {{ border: 0; background: none; padding: 4px;"
         f" font-size: {H2_PX}px; font-weight: 600; color: {p.ink}; }}",
         f"QLabel#context {{ color: {p.muted}; }}",
+        f"QFrame#divider {{ background: {p.hairline}; }}",
         f"QPushButton#stage {{ {flat} padding: 6px 14px; color: {p.muted};"
         f" font-weight: 500; }}",
         f"QPushButton#stage:hover {{ background: {p.hover_bg}; }}",

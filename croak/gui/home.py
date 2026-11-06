@@ -99,10 +99,13 @@ class Home(QWidget):
         A tile was chosen: the entry to start a session from.
     open_session : Signal(str)
         A session to reopen: an ``options.toml`` path, or ``""`` to ask for one.
+    about : Signal
+        About croak was asked for.
     """
 
     start = Signal(str)
     open_session = Signal(str)
+    about = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -133,6 +136,9 @@ class Home(QWidget):
         self.open_button.clicked.connect(lambda: self.open_session.emit(""))
         actions.addWidget(self.open_button)
         actions.addStretch(1)
+        self.about_button = button("About croak", "link")
+        self.about_button.clicked.connect(self.about)
+        actions.addWidget(self.about_button)
         main.addLayout(actions)
         main.addStretch(1)
         columns.addLayout(main, stretch=3)

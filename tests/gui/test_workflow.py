@@ -30,7 +30,13 @@ RETRIEVED = Progress(
 
 
 def test_workflow_stages_are_in_session_order_with_titles():
-    assert [s.title for s in STAGES] == ["Data", "Prepare", "Retrieve", "Analyse"]
+    assert [s.title for s in STAGES] == [
+        "Data",
+        "Check",
+        "Prepare",
+        "Retrieve",
+        "Analyse",
+    ]
     assert Stage.HOME not in STAGES
 
 
@@ -40,6 +46,8 @@ def test_workflow_stages_are_in_session_order_with_titles():
         (Stage.HOME, Progress(), False),
         (Stage.DATA, Progress(), True),  # no session yet
         (Stage.DATA, FRESH, False),
+        (Stage.CHECK, FRESH, True),
+        (Stage.CHECK, LOADED, False),
         (Stage.PREPARE, FRESH, True),
         (Stage.PREPARE, LOADED, False),
         (Stage.RETRIEVE, LOADED, True),
@@ -56,11 +64,16 @@ def test_workflow_raw_simulated_scan_skips_prepare_with_a_reason():
     raw = Progress(entry="simulated", has_load_data=True, raw_direct=True)
     assert "Skip filtering & regrid" in blocked_reason(Stage.PREPARE, raw)
     assert next_stage(Stage.DATA, raw) is Stage.RETRIEVE
+    assert next_stage(Stage.CHECK, raw) is Stage.RETRIEVE
 
 
 @pytest.mark.parametrize(
     ("stage", "expected"),
-    [(Stage.DATA, Stage.PREPARE), (Stage.PREPARE, Stage.RETRIEVE)],
+    [
+        (Stage.DATA, Stage.CHECK),
+        (Stage.CHECK, Stage.PREPARE),
+        (Stage.PREPARE, Stage.RETRIEVE),
+    ],
 )
 def test_workflow_next_stage_follows_the_session(stage, expected):
     assert next_stage(stage, LOADED) is expected
@@ -78,6 +91,8 @@ def test_workflow_next_stage_refuses_a_stage_without_continue(stage):
         (Stage.HOME, FRESH, "", Action("", "", enabled=False)),
         (Stage.DATA, FRESH, "", Action("continue", "Continue", enabled=False)),
         (Stage.DATA, LOADED, "", Action("continue", "Continue")),
+        (Stage.CHECK, FRESH, "", Action("continue", "Continue", enabled=False)),
+        (Stage.CHECK, LOADED, "", Action("continue", "Continue")),
         (Stage.PREPARE, LOADED, "", Action("continue", "Continue", enabled=False)),
         (Stage.PREPARE, PREPARED, "", Action("continue", "Continue")),
         (Stage.RETRIEVE, LOADED, "", Action("retrieve", "Retrieve", enabled=False)),

@@ -2,9 +2,9 @@
 
 The GUI tests were written against six numbered stages (1 Load, 2 Marginal
 check, 3 Preprocess, 4 Retrieve, 5 Dispersion, 6 Uncertainty). The window
-now has four places (Data with two steps, Prepare, Retrieve, Analyse with a
-rail), so :class:`Driver` maps the numbers onto them and hands back the stage
-pages, which keep their own behaviour. Navigation tests use the window itself.
+now has five places (Data, Check, Prepare, Retrieve, Analyse with a rail), so
+:class:`Driver` maps the numbers onto them and hands back the stage pages,
+which keep their own behaviour. Navigation tests use the window itself.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from croak.gui.workflow import Stage
 
 # stage number -> (place, step or rail page)
 PLACES = {
-    1: (Stage.DATA, "entry"),
-    2: (Stage.DATA, "check"),
+    1: (Stage.DATA, ""),
+    2: (Stage.CHECK, ""),
     3: (Stage.PREPARE, ""),
     4: (Stage.RETRIEVE, ""),
     5: (Stage.ANALYSE, "dispersion"),
@@ -69,7 +69,7 @@ class Driver:
         """The six stage pages in the old order (the entry's loader first)."""
         return [
             self.data.entry_page,
-            self.data.check,
+            self.win.pages[Stage.CHECK],
             self.win.pages[Stage.PREPARE],
             self.win.pages[Stage.RETRIEVE],
             self.analyse.pages["dispersion"],
@@ -94,9 +94,7 @@ class Driver:
         win.stage = place
         page = win.pages[place]
         win.stack.setCurrentWidget(page)
-        if place is Stage.DATA:
-            self.data.show_step(sub)
-        elif place is Stage.ANALYSE:
+        if place is Stage.ANALYSE:
             self.analyse.show_page(sub)
         else:
             page.on_enter()
@@ -109,15 +107,13 @@ class Driver:
         for number, (where, sub) in PLACES.items():
             if where is not place:
                 continue
-            if place is Stage.DATA and sub != self.data.step:
-                continue
             if place is Stage.ANALYSE and sub != self.analyse.key:
                 continue
             return number
         return 0
 
     def current_page(self):
-        """The stage page on screen (inside Data's steps or Analyse's rail)."""
+        """The stage page on screen (inside Data or Analyse's rail)."""
         return self.stages[self.stage_number - 1] if self.stage_number else None
 
     def __getattr__(self, name: str):

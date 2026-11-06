@@ -1,6 +1,6 @@
 """The window's route through a session, as rules without Qt.
 
-A session runs Home → Data → Prepare → Retrieve → Analyse. Which stages can be
+A session runs Home → Data → Check → Prepare → Retrieve → Analyse. Which stages can be
 opened, and what the one primary action in the top bar does, depend only on what
 the session holds (:class:`Progress`), so they are decided here, as pure
 functions the window applies and the tests check directly.
@@ -31,7 +31,9 @@ class Stage(StrEnum):
     """A place in the window."""
 
     HOME = "home"
+    ABOUT = "about"
     DATA = "data"
+    CHECK = "check"
     PREPARE = "prepare"
     RETRIEVE = "retrieve"
     ANALYSE = "analyse"
@@ -42,8 +44,8 @@ class Stage(StrEnum):
         return self.value.capitalize()
 
 
-STAGES = (Stage.DATA, Stage.PREPARE, Stage.RETRIEVE, Stage.ANALYSE)
-"""The stages of a session, in order (Home is outside the session)."""
+STAGES = (Stage.DATA, Stage.CHECK, Stage.PREPARE, Stage.RETRIEVE, Stage.ANALYSE)
+"""The stages of a session, in order (Home and About are outside the session)."""
 
 
 @dataclass(frozen=True)
@@ -92,12 +94,14 @@ def blocked_reason(stage: Stage, progress: Progress) -> str:
     >>> blocked_reason(Stage.DATA, Progress(entry="synthetic"))
     ''
     """
-    if stage is Stage.HOME:
+    if stage in (Stage.HOME, Stage.ABOUT):
         return ""
     if not progress.entry:
         return "Start a session from Home first."
     if stage is Stage.DATA:
         return ""
+    if stage is Stage.CHECK:
+        return "" if progress.has_load_data else "Load a trace first."
     if stage is Stage.PREPARE:
         if progress.raw_direct:
             return (
@@ -113,15 +117,20 @@ def blocked_reason(stage: Stage, progress: Progress) -> str:
 def next_stage(stage: Stage, progress: Progress) -> Stage:
     """The stage "Continue" leads to from ``stage``.
 
-    From Data a raw simulated scan goes straight to Retrieve.
+    A raw simulated scan skips the check and Prepare: it goes from Data (or,
+    if checked after all, from Check) straight to Retrieve.
 
     Raises
     ------
     ValueError
         For a stage with no "Continue" (Home, Retrieve, Analyse).
     """
+    if stage in (Stage.DATA, Stage.CHECK) and progress.raw_direct:
+        return Stage.RETRIEVE
     if stage is Stage.DATA:
-        return Stage.RETRIEVE if progress.raw_direct else Stage.PREPARE
+        return Stage.CHECK
+    if stage is Stage.CHECK:
+        return Stage.PREPARE
     if stage is Stage.PREPARE:
         return Stage.RETRIEVE
     raise ValueError(f"{stage.title} has no next stage")
@@ -157,10 +166,12 @@ def primary_action(stage: Stage, progress: Progress, page: str = "") -> Action:
     >>> primary_action(Stage.DATA, Progress(entry="synthetic")).enabled
     False
     """
-    if stage is Stage.HOME:
+    if stage in (Stage.HOME, Stage.ABOUT):
         return Action("", "", enabled=False)
     if stage is Stage.DATA:
         return Action("continue", "Continue", enabled=progress.data_ready)
+    if stage is Stage.CHECK:
+        return Action("continue", "Continue", enabled=progress.has_load_data)
     if stage is Stage.PREPARE:
         return Action("continue", "Continue", enabled=progress.has_tracedata)
     if stage is Stage.RETRIEVE:

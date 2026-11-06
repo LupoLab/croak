@@ -3,7 +3,7 @@
 The GUI is a thin layer over the croak library: it loads, cleans, retrieves,
 post-processes, tunes dispersion, estimates uncertainty, plots and saves — all
 through the library's functions and the Qt-free :mod:`croak.session`. Its window
-takes a session from Home through Data, Prepare, Retrieve and Analyse.
+takes a session from Home through Data, Check, Prepare, Retrieve and Analyse.
 
 Launch with the ``croak-gui`` command, :func:`run_gui`, or ``python -m croak.gui``.
 """

@@ -5,7 +5,7 @@ can do through a few hooks (:class:`PageBase`) and does it in :meth:`~PageBase.a
 Most pages are a :class:`StagePage`: a :class:`~croak.gui.sheet.Sheet` with a form
 of folding sections on the left and, on the right, an advice box, a progress
 strip, the derived numbers and the stage's plots. Pages made of other pages
-(Data's steps, Analyse's rail) build on :class:`PageBase` directly.
+(Data's loader, Analyse's rail) build on :class:`PageBase` directly.
 """
 
 from __future__ import annotations
@@ -35,6 +35,9 @@ class PageBase(QWidget):
         started or ended), so the window re-reads the hooks.
     message : Signal(str)
         A passing notice for the window's status bar.
+    moved_on : Signal
+        The page handed its work on by itself (an entry loader's own forward
+        action did), so the window goes to the next stage.
     """
 
     HELP_TITLE: str = ""
@@ -46,6 +49,7 @@ class PageBase(QWidget):
 
     changed = Signal()
     message = Signal(str)
+    moved_on = Signal()
 
     def __init__(self, state: WizardState) -> None:
         super().__init__()

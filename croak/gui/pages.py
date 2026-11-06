@@ -1,11 +1,11 @@
-"""The window's four pages for a session, and the pages made of other pages.
+"""The window's pages for a session, and the pages made of other pages.
 
-:func:`default_pages` builds a session's Data, Prepare, Retrieve and Analyse
-pages from the shared state. Data is two steps on one page: the entry's own
-loader (a measured trace, a simulated scan or a synthetic pulse) and then the
-marginal check of the loaded trace. Analyse is a rail of pages that read the
-retrieved result: its panels (Overview, Traces, Pulse, Diagnostics), then
-Dispersion and Uncertainty.
+:func:`default_pages` builds a session's Data, Check, Prepare, Retrieve and
+Analyse pages from the shared state. Data holds the entry's own loader (a
+measured trace, a simulated scan or a synthetic pulse) and brings a reopened
+session's trace back; Check is the marginal check of what it loaded. Analyse is
+a rail of pages that read the retrieved result: its panels (Overview, Traces,
+Pulse, Diagnostics), then Dispersion and Uncertainty.
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ from ..session.pipeline import (
 from .base import Stage
 from .help import HelpDialog
 from .retrieval_views import ResultPage
-from .sheet import Segments
 from .stage import PageBase
 from .stage_dispersion import StageDispersion
 from .stage_load import StageLoad, compute_preproc_defaults, trace_signature
@@ -49,15 +48,9 @@ __all__ = ["AnalysePage", "DataPage", "RAIL_WIDTH", "default_pages"]
 RAIL_WIDTH = 170
 """The width of Analyse's rail, logical px."""
 
-_ENTRY_STEP = {
-    "experimental": "Load the trace",
-    "simulated": "Load the scan",
-    "synthetic": "Generate the trace",
-}
-
 
 class DataPage(PageBase):
-    """Data: the entry's loader, then the marginal check of what it loaded.
+    """Data: the entry's loader, which hands a trace on to the check.
 
     Parameters
     ----------
@@ -80,91 +73,41 @@ class DataPage(PageBase):
             self.entry_page = StageSimulated(state, adopt_geometry)
         else:
             self.entry_page = StageLoad(state)
-        self.check = StageMarginalCheck(state)
-        self._went = ""
-        head = frame("strip")
-        hl = QHBoxLayout(head)
-        hl.setContentsMargins(16, 8, 16, 8)
-        self.steps = Segments(
-            [("entry", _ENTRY_STEP[entry]), ("check", "Check the marginal")],
-            "entry",
-        )
-        self.steps.changed.connect(self.show_step)
-        hl.addWidget(self.steps)
-        hl.addStretch(1)
-        self.stack = QStackedWidget()
-        self.stack.addWidget(self.entry_page)
-        self.stack.addWidget(self.check)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(head)
-        layout.addWidget(self.stack, stretch=1)
-        for page in (self.entry_page, self.check):
-            page.changed.connect(self.changed)
-            page.message.connect(self.message)
-        self.entry_page.advanced.connect(self._advanced)
-        state.load_data_changed.connect(self._sync)
-        self._sync()
-
-    @property
-    def step(self) -> str:
-        """The step on screen: ``"entry"`` or ``"check"``."""
-        return self.steps.value
-
-    def current(self) -> Stage:
-        """The step's page."""
-        return self.check if self.step == "check" else self.entry_page
-
-    def _sync(self) -> None:
-        """Offer the check only once a trace is loaded."""
-        self.steps.buttons["check"].setEnabled(self.state.load_data is not None)
-        self.changed.emit()
-
-    def show_step(self, step: str) -> None:
-        """Show ``step`` (``"entry"`` or ``"check"``) and refresh it."""
-        self.steps.set_value(step)
-        self.stack.setCurrentWidget(self.current())
-        self.current().on_enter()
-        self.changed.emit()
-
-    def _advanced(self, where: str) -> None:
-        self._went = where
-        if where == "check":
-            self.show_step("check")
+        layout.addWidget(self.entry_page)
+        self.entry_page.changed.connect(self.changed)
+        self.entry_page.message.connect(self.message)
+        # Wherever the loader hands its trace on to, the window's route rules
+        # know (a raw simulated scan skips to Retrieve).
+        self.entry_page.advanced.connect(lambda _where: self.moved_on.emit())
 
     # -- hooks the window reads ---------------------------------------------
     def on_enter(self) -> None:
-        self.current().on_enter()
-
-    def page_key(self) -> str:
-        return self.step
+        self.entry_page.on_enter()
 
     def can_advance(self) -> bool:
-        if self.step == "check" or self.state.entry == "experimental":
+        if self.state.entry == "experimental":
             return self.state.load_data is not None
         return self.entry_page.can_advance()
 
     def act(self, kind: str) -> bool:
-        """Continue: from the loader to the check, from the check onwards.
+        """Continue: hand the trace on to the next stage.
 
-        A measured trace is loaded by its own button, so its Continue only moves
-        to the check; the synthetic and simulated loaders build the trace here.
-        A raw simulated scan goes on to Retrieve straight from the loader.
+        A measured trace is loaded by its own button, so its Continue just
+        moves on. The synthetic and simulated loaders build the trace here and,
+        if they could, say so through :attr:`moved_on`; if not, the page stays
+        and the loader says why.
         """
         if kind != "continue":
             return super().act(kind)
-        if self.step == "check":
-            return True
         if self.state.entry == "experimental":
-            self.show_step("check")
-            return False
-        self._went = ""
+            return True
         self.entry_page.advance()
-        return self._went == "retrieve"
+        return False
 
     def show_help(self) -> HelpDialog | None:
-        return self.current().show_help()
+        return self.entry_page.show_help()
 
     # -- session replay -----------------------------------------------------
     def restore(self) -> bool:
@@ -317,7 +260,7 @@ class AnalysePage(PageBase):
 
 
 def default_pages(state: WizardState) -> Mapping[Place, PageBase]:
-    """Build a session's Data, Prepare, Retrieve and Analyse pages."""
+    """Build a session's Data, Check, Prepare, Retrieve and Analyse pages."""
     retrieve = StageRetrieve(state)
     results: list[tuple[str, str, PageBase]] = [
         (key, title, ResultPage(state, key, retrieve.overview))
@@ -341,6 +284,7 @@ def default_pages(state: WizardState) -> Mapping[Place, PageBase]:
         Place.DATA: DataPage(
             state, lambda geom: retrieve.apply_simulated_geometry(geom)
         ),
+        Place.CHECK: StageMarginalCheck(state),
         Place.PREPARE: StagePreprocess(state),
         Place.RETRIEVE: retrieve,
         Place.ANALYSE: analyse,

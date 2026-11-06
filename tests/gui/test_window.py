@@ -174,9 +174,11 @@ def test_window_primary_action_continues_through_the_stages(window):
     window.do_primary()  # disabled: does nothing
     assert data.acted == []
     data.ready = True
-    window.refresh()
+    window.state.set_load_data({"trace": "loaded"})
     window.do_primary()
     assert data.acted == ["continue"]
+    assert window.stage is Stage.CHECK
+    window.do_primary()  # the check passes the trace on
     assert window.stage is Stage.PREPARE
     # Prepare cannot continue until a trace is prepared.
     assert not window.primary.isEnabled()
@@ -185,6 +187,13 @@ def test_window_primary_action_continues_through_the_stages(window):
     window.do_primary()
     assert window.stage is Stage.RETRIEVE
     assert window.primary.text() == "Retrieve"
+
+
+def test_window_follows_a_page_that_moves_on_by_itself(window):
+    window.new_session("synthetic")
+    window.state.set_load_data({"trace": "generated"})
+    window.pages[Stage.DATA].moved_on.emit()  # e.g. the generator's own Generate
+    assert window.stage is Stage.CHECK
 
 
 def test_window_raw_simulated_scan_continues_straight_to_retrieve(window):
@@ -241,6 +250,31 @@ def test_window_brand_returns_home_keeping_the_session(window):
     assert window.go(Stage.DATA)
 
 
+def test_window_home_button_returns_home_and_marks_it(window):
+    assert window.home_button.property("current") is True
+    window.new_session("synthetic")
+    assert window.home_button.property("current") is False
+    window.home_button.click()
+    assert window.stage is Stage.HOME and window.pages
+    assert window.home_button.property("current") is True
+
+
+@pytest.mark.parametrize("route", ["menu", "home"])
+def test_window_about_opens_with_or_without_a_session(window, route):
+    if route == "menu":
+        window.actions_["about"].trigger()
+    else:
+        window.home.about_button.click()
+    assert window.stage is Stage.ABOUT
+    assert window.stack.currentWidget() is window.about
+    assert not window.primary.isVisible()
+    assert not any(b.isVisibleTo(window) for b in window.stage_buttons.values())
+    window.new_session("synthetic")
+    window.show_about()  # a session stays open behind About
+    assert window.stage is Stage.ABOUT
+    assert window.go(Stage.DATA)
+
+
 def test_window_new_session_asks_before_discarding_data(window, monkeypatch):
     window.new_session("experimental")
     window.state.set_load_data({"trace": 1})
@@ -258,7 +292,9 @@ def test_window_rejects_a_factory_missing_a_stage(qtbot):
 
     win = MainWindow(partial)
     qtbot.addWidget(win)
-    with pytest.raises(ValueError, match="no page for analyse, prepare, retrieve"):
+    with pytest.raises(
+        ValueError, match="no page for analyse, check, prepare, retrieve"
+    ):
         win.new_session("synthetic")
 
 
