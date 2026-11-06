@@ -40,6 +40,10 @@ from .units import _TWOPI_PHZ
 
 __all__ = [
     "CURVE_COLOURS",
+    "DB_DEPTH",
+    "DB_UNIT",
+    "FREQUENCY_LABEL",
+    "WAVELENGTH_LABEL",
     "ROLE_STYLE",
     "CurveView",
     "LineView",
@@ -102,6 +106,16 @@ figures both draw from it."""
 ROLES = tuple(ROLE_STYLE)
 """The roles a view may give its curves, bands, spans and rules."""
 
+WAVELENGTH_LABEL = "Wavelength (nm)"
+"""The label of a wavelength axis, in nm; :mod:`croak.plotting.display` knows it."""
+FREQUENCY_LABEL = "Frequency (PHz)"
+"""The label of a frequency axis, in PHz; :mod:`croak.plotting.display` knows it."""
+DB_UNIT = "dB"
+"""The colour-bar unit of a logarithmic map, whose peak is 0 dB."""
+DB_DEPTH = 120.0
+"""How far below the peak a logarithmic map keeps its values, dB: a display
+range up to this much (:class:`croak.plotting.display.Display`) shows detail."""
+
 
 @dataclass(frozen=True)
 class MapView:
@@ -144,6 +158,9 @@ class CurveView:
     """One curve of a :class:`LineView`; ``role`` decides its colour and style.
 
     ``points`` draws the samples as dots (a scatter) instead of a line.
+    ``density`` says ``y`` is an intensity per unit of ``x`` (a spectrum, a
+    marginal), so moving it to another spectral axis multiplies it by the
+    Jacobian; a phase or a filter factor is not one.
     """
 
     x: NDArray[np.float64]
@@ -152,6 +169,7 @@ class CurveView:
     name: str = ""
     right: bool = False
     points: bool = False
+    density: bool = True
 
 
 @dataclass(frozen=True)
@@ -339,8 +357,8 @@ def trace_map(data: RetrievalPlotData, which: str, *, db: bool) -> MapView:
         peak = float(np.nanmax(trace)) or 1.0
         with np.errstate(divide="ignore"):
             shown = 10 * np.log10(np.maximum(trace, 0.0) / peak)
-        shown = np.clip(shown, -data.tracedb, 0.0)
-        levels, unit = (-data.tracedb, 0.0), "dB"
+        shown = np.clip(shown, -DB_DEPTH, 0.0)
+        levels, unit = (-data.tracedb, 0.0), DB_UNIT
     else:
         shown, levels, unit = trace, (0.0, data.lin_vmax), "a.u."
     x, y, values = uniform_image(
@@ -359,7 +377,7 @@ def trace_map(data: RetrievalPlotData, which: str, *, db: bool) -> MapView:
         levels=levels,
         title=f"{which.capitalize()} ({scale})",
         xlabel="Delay (fs)",
-        ylabel="Frequency (PHz)",
+        ylabel=FREQUENCY_LABEL,
         unit=unit,
         signed=not db,
         xrange=_delay_window(data),
@@ -385,7 +403,7 @@ def residual_map(data: RetrievalPlotData) -> MapView | None:
         levels=(-reach, reach),
         title="Residuals",
         xlabel="Delay (fs)",
-        ylabel="Frequency (PHz)",
+        ylabel=FREQUENCY_LABEL,
         unit="a.u.",
         colours="bwr",
         xrange=_delay_window(data),
@@ -427,7 +445,7 @@ def spectrogram_map_of(
         levels=(0.0, float(np.nanmax(values)) or 1.0),
         title="Spectrogram",
         xlabel="Time (fs)",
-        ylabel="Wavelength (nm)",
+        ylabel=WAVELENGTH_LABEL,
         unit="a.u.",
         xrange=window,
         yrange=None if band is None else (band[0] / 1e-9, band[1] / 1e-9),
@@ -482,7 +500,11 @@ def temporal_view_of(
             )
         )
     t = pr.t_over / 1e-15
-    curves.append(CurveView(t[pr.mask_t], pr.phi_t[pr.mask_t], "phase", "phase", True))
+    curves.append(
+        CurveView(
+            t[pr.mask_t], pr.phi_t[pr.mask_t], "phase", "phase", True, density=False
+        )
+    )
     truth_phase = None
     if truth is not None and truth.phi_t is not None:
         keep = np.asarray(truth.It) > 0.01
@@ -550,12 +572,23 @@ def spectral_view_of(
     if known is not None:
         curves.append(CurveView(known[0], known[1], "truth", "truth"))
     mask = pr.mask_w
-    curves.append(CurveView(x[mask], pr.phi_w[mask], "phase", "phase", True))
-    curves.append(CurveView(x[mask], pr.phi_w_fit[mask], "fit", "phase fit", True))
+    curves.append(
+        CurveView(x[mask], pr.phi_w[mask], "phase", "phase", True, density=False)
+    )
+    curves.append(
+        CurveView(x[mask], pr.phi_w_fit[mask], "fit", "phase fit", True, density=False)
+    )
     truth_phase = _truth_spectral_phase(pr.wavelength, truth)
     if truth_phase is not None:
         curves.append(
-            CurveView(x[mask], truth_phase[mask], "truth-phase", "truth phase", True)
+            CurveView(
+                x[mask],
+                truth_phase[mask],
+                "truth-phase",
+                "truth phase",
+                True,
+                density=False,
+            )
         )
     edge = pr.edge_energy
     lam_min, lam_max = band if band is not None else (None, None)
@@ -626,7 +659,7 @@ def frequency_marginal_view(data: RetrievalPlotData) -> LineView:
         pr.omega_marg_retr,
         pr.omega_marg_meas,
         title="Frequency marginal",
-        xlabel="Frequency (PHz)",
+        xlabel=FREQUENCY_LABEL,
         xrange=None,
     )
 
@@ -655,11 +688,14 @@ def filter_view(data: RetrievalPlotData) -> LineView:
     return LineView(
         curves=(
             CurveView(
-                lam_nm[keep][order], _filter_factor(result)[keep][order], "retrieved"
+                lam_nm[keep][order],
+                _filter_factor(result)[keep][order],
+                "retrieved",
+                density=False,
             ),
         ),
         title="Spectral filter",
-        xlabel="Wavelength (nm)",
+        xlabel=WAVELENGTH_LABEL,
         ylabel="Filter factor",
         xrange=(data.lam_min / 1e-9, data.lam_max / 1e-9),
     )
@@ -709,7 +745,7 @@ def raw_trace_map(
         levels=(low, vmax),
         title=title,
         xlabel="Delay (fs)",
-        ylabel="Wavelength (nm)",
+        ylabel=WAVELENGTH_LABEL,
         unit="a.u.",
         signed=True,
         yrange=(float(rows.min()), float(rows.max())) if rows.size else None,
@@ -776,7 +812,7 @@ def pulse_field_views(
     temporal = LineView(
         curves=(
             CurveView(t, it, "retrieved", "intensity"),
-            CurveView(t, phase_t, "phase", "phase", True),
+            CurveView(t, phase_t, "phase", "phase", True, density=False),
         ),
         title="Temporal",
         xlabel="Time (fs)",
@@ -791,15 +827,17 @@ def pulse_field_views(
     pos = omega_abs > 0
     lam = wlfreq(omega_abs[pos]) / 1e-9
     order = np.argsort(lam)
-    lam, ip = lam[order], iw[pos][order]
+    # |E(ω)|² dω = |E(λ)|² dλ: drawn against wavelength, the spectrum is a
+    # wavelength density, with the ω² Jacobian, as the spectrogram beside it.
+    lam, ip = lam[order], _unit(iw[pos] * omega_abs[pos] ** 2)[order]
     phase_w = _masked_phase(iw, ew)[pos][order]
     spectral = LineView(
         curves=(
             CurveView(lam, ip, "retrieved", "intensity"),
-            CurveView(lam, phase_w, "phase", "phase", True),
+            CurveView(lam, phase_w, "phase", "phase", True, density=False),
         ),
         title="Spectral",
-        xlabel="Wavelength (nm)",
+        xlabel=WAVELENGTH_LABEL,
         ylabel="Intensity",
         right_label="Phase (rad)",
         xrange=_zoom(lam, ip > PULSE_FRACTION),
@@ -845,7 +883,7 @@ def _gabor(grid, et: NDArray[np.complex128], omega0: float) -> MapView:
         levels=(0.0, 1.0),
         title="Spectrogram",
         xlabel="Time (fs)",
-        ylabel="Wavelength (nm)",
+        ylabel=WAVELENGTH_LABEL,
         unit="a.u.",
         yrange=(float(rows.min()), float(rows.max())) if rows.size else None,
     )
@@ -894,8 +932,8 @@ def simulated_trace_views(
     window = (float(rows.min()), float(rows.max()))
     x, y, lin = uniform_image(delays, freq, trace)
     with np.errstate(divide="ignore"):
-        db = np.clip(10 * np.log10(np.maximum(lin, 0.0)), -SIMULATED_DB, 0.0)
-    common = {"x": x, "y": y, "xlabel": "Delay (fs)", "ylabel": "Frequency (PHz)"}
+        db = np.clip(10 * np.log10(np.maximum(lin, 0.0)), -DB_DEPTH, 0.0)
+    common = {"x": x, "y": y, "xlabel": "Delay (fs)", "ylabel": FREQUENCY_LABEL}
     linear = MapView(
         values=lin,
         levels=(min(float(lin.min()), 0.0), 1.0),
@@ -909,7 +947,7 @@ def simulated_trace_views(
         values=db,
         levels=(-SIMULATED_DB, 0.0),
         title="Simulated FROG trace (dB)",
-        unit="dB",
+        unit=DB_UNIT,
         yrange=window,
         **common,
     )
@@ -930,7 +968,7 @@ def simulated_trace_views(
     spectral_marginal = LineView(
         curves=tuple(curves),
         title="Spectral marginal (ω-density)",
-        xlabel="Frequency (PHz)",
+        xlabel=FREQUENCY_LABEL,
         ylabel="Marginal (a.u.)",
         xrange=window,
         yrange=(0.0, 1.05),
@@ -997,9 +1035,9 @@ def filter_views(td, *, tracedb: float = 30.0) -> dict[str, MapView]:
             peak = float(np.nanmax(values)) or 1.0
             with np.errstate(divide="ignore", invalid="ignore"):
                 values = np.clip(
-                    10 * np.log10(np.maximum(values, 0.0) / peak), -tracedb, 0.0
+                    10 * np.log10(np.maximum(values, 0.0) / peak), -DB_DEPTH, 0.0
                 )
-            levels, unit = (-tracedb, 0.0), "dB"
+            levels, unit = (-tracedb, 0.0), DB_UNIT
         else:
             levels, unit = (min(float(np.nanmin(values)), 0.0), vmax), "a.u."
         views[key] = MapView(
@@ -1008,7 +1046,7 @@ def filter_views(td, *, tracedb: float = 30.0) -> dict[str, MapView]:
             y=ys,
             levels=levels,
             title=title,
-            xlabel="Frequency (PHz)" if domain == "frequency" else "Wavelength (nm)",
+            xlabel=FREQUENCY_LABEL if domain == "frequency" else WAVELENGTH_LABEL,
             ylabel="Delay (fs)",
             unit=unit,
             signed=not db,

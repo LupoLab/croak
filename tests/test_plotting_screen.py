@@ -81,7 +81,8 @@ def test_screen_log_trace_spans_the_dynamic_range(data):
     view = screen.trace_map(data, "measured", db=True)
     assert view.levels == (-data.tracedb, 0.0) and view.unit == "dB"
     assert view.values.max() == pytest.approx(0.0)
-    assert view.values.min() >= -data.tracedb
+    # the values reach DB_DEPTH, so a wider display range shows more of them
+    assert view.values.min() >= -screen.DB_DEPTH
     assert view.title == "Measured (log)" and not view.signed
     assert view.yrange == pytest.approx((0.7, 0.8))  # flim in PHz
     assert view.xrange == pytest.approx((-50.0, 50.0))
@@ -235,7 +236,7 @@ def test_screen_filter_views_cover_the_three_traces_in_both_scales(experiment):
     views = screen.filter_views(td, tracedb=20.0)
     assert list(views) == [key for key, *_ in screen.FILTER_PANELS]
     assert views["measured_db"].levels == (-20.0, 0.0)
-    assert views["measured_db"].values.min() >= -20.0
+    assert views["measured_db"].values.min() >= -screen.DB_DEPTH
     shared = plotting.filter_view_vmax(td)
     assert views["filtered_lin"].levels[1] == shared
     assert views["regridded_lin"].levels[1] == shared

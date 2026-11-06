@@ -33,6 +33,7 @@ from ..plotting import (
     plot_retrieval_page,
 )
 from ..plotting import screen as sc
+from .display import current as current_display
 from .stage import PageBase
 from .state import WizardState
 from .theme import label
@@ -263,10 +264,16 @@ class ResultPage(PageBase):
         return dialog
 
     def figure(self) -> Figure | None:
-        """The page as croak's own figure of it (:func:`plot_retrieval_page`)."""
+        """The page as croak's own figure of it (:func:`plot_retrieval_page`).
+
+        croak's figures draw the traces against frequency; with the display on
+        wavelength, the page's plots are exported as they are shown instead.
+        """
         data = self.plot_data()
         if data is None:
             return None
+        if current_display().axis == "wavelength":
+            return super().figure()
         spec = (
             PageSpec("overview", "Overview", self.mosaic)
             if self.key == "overview"

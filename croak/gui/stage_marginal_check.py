@@ -47,6 +47,8 @@ from ..preprocess import (
 from ..session.pipeline import assemble_load_data, assemble_simulated_load_data
 from .base import Stage
 from .controls import add_wide_row, check, combo, dspin, group
+from .display import current as current_display
+from .display import hub as display_hub
 from .view_panel import ViewPanel
 from .widgets import RangeControl
 
@@ -74,7 +76,11 @@ class StageMarginalCheck(Stage):
         "shape, centroid and width flags calibration, spectral-response, scatter "
         "and detector-nonlinearity problems. Tune the (λ/µm)^exp third-order "
         "efficiency correction here; 'Auto' matches the marginal centroid to the "
-        "prediction."
+        "prediction. The marginals are drawn against frequency, the physically "
+        "correct space, unless the display at the foot of the window asks for "
+        "wavelength: there the predicted marginal becomes a wavelength density "
+        "(×1/λ²), which blue-shifts a broad (e.g. transform-limited) marginal "
+        "even when its frequency centroid matches the measured one."
     )
     HELP = [
         (
@@ -96,16 +102,6 @@ class StageMarginalCheck(Stage):
         (
             "Display",
             [
-                (
-                    "marginal axis",
-                    "Plot the marginals against frequency or wavelength. Frequency "
-                    "(the default) is the physically correct space: the marginal is "
-                    "a frequency density and the centroid/width identities live "
-                    "there. On a wavelength axis the predicted marginal is converted "
-                    "to a wavelength density (×1/λ²), which blue-shifts a broad "
-                    "(e.g. transform-limited) marginal even when its frequency "
-                    "centroid matches the measured one — visually misleading.",
-                ),
                 (
                     "marginal scale",
                     "Plot the marginal comparison on a linear or logarithmic "
@@ -164,10 +160,6 @@ class StageMarginalCheck(Stage):
 
         # -- display --
         box, form = group("Display")
-        self.axis_combo = combo(
-            ["frequency", "wavelength"], "frequency", self._on_scale
-        )
-        form.addRow("marginal axis", self.axis_combo)
         self.scale_combo = combo(["linear", "log"], "linear", self._on_scale)
         form.addRow("marginal scale", self.scale_combo)
         self.controls.addWidget(box)
@@ -225,6 +217,8 @@ class StageMarginalCheck(Stage):
         self.plot_splitter.setStretchFactor(1, 1)
         self.plot_splitter.setChildrenCollapsible(True)
         self.set_plot_area(self.plot_splitter)
+        # The marginals are built on the display's axis (see _marginal_view).
+        display_hub().changed.connect(self._draw)
 
         self.apply_help()
 
@@ -443,12 +437,15 @@ class StageMarginalCheck(Stage):
         """Build the marginal comparison; reads the display combos live."""
         lo, hi = self._trust_nm  # nm
         log = self.scale_combo.currentText() == "log"
-        freq = self.axis_combo.currentText() == "frequency"
+        # Frequency, the space the marginal identities live in, unless the
+        # display asks for wavelength; built here on either axis, so the
+        # display's own conversion leaves it as it is.
+        freq = current_display().axis != "wavelength"
 
         # Marginals are frequency densities. On the frequency axis we plot the
         # ω-density vs ν=ω/2π (undistorted). On the wavelength axis we plot the
         # λ-density vs λ; the λ Jacobian (×1/λ²) then blue-shifts a broad marginal
-        # even when its frequency centroid matches — see the 'marginal axis' help.
+        # even when its frequency centroid matches — see the page's help.
         # When the SHG marginal correction is active, the raw marginal is drawn
         # faint and the corrected one (which, by construction, equals the
         # predicted SHG autoconvolution) is overlaid in the trace colour, dashed.

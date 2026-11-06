@@ -54,6 +54,12 @@ def test_plots_signed_colormap_is_white_at_zero_and_red_below():
     assert_allclose(cmap.map([0.0], mode=cmap.FLOAT)[0], NEGATIVE_RGBA, atol=1 / 255)
 
 
+def test_plots_signed_colormap_ignores_rounding_noise_below_zero():
+    # a bottom level of -2e-12 (rounding noise) must not paint zero red
+    cmap = signed_colormap("viridis", -2e-12, 1.0)
+    assert_allclose(cmap.map([0.0], mode=cmap.FLOAT)[0], (1, 1, 1, 1), atol=1 / 255)
+
+
 def test_plots_unsigned_colormap_starts_white():
     cmap = signed_colormap("viridis", 0.0, 1.0)
     assert_allclose(cmap.map([0.0], mode=cmap.FLOAT)[0], (1, 1, 1, 1), atol=1e-6)
@@ -128,6 +134,26 @@ def test_plots_signed_map_recolours_for_negative_levels(qtbot):
     plot.set_levels((0.0, 6.0))  # no negatives: back to white at the floor
     cmap = plot.bar.colorMap()
     assert_allclose(cmap.map([0.0], mode=cmap.FLOAT)[0], (1, 1, 1, 1), atol=1 / 255)
+
+
+def test_plots_map_colour_bar_drags_and_double_click_restores_it(qtbot):
+    plot = _map(qtbot, signed=True)
+    plot.set_levels((-2.0, 6.0))
+    # a drag on the bar moves its levels; white stays at zero on a signed map
+    plot.bar.setLevels(values=(-1.0, 3.0))
+    plot.bar.sigLevelsChanged.emit(plot.bar)
+    cmap = plot.bar.colorMap()
+    assert_allclose(cmap.map([0.25], mode=cmap.FLOAT)[0], (1, 1, 1, 1), atol=1 / 255)
+    plot.reset_view()  # a double-click
+    assert plot.bar.levels() == pytest.approx((-2.0, 6.0))
+
+
+def test_plots_unsigned_map_keeps_its_colours_when_dragged(qtbot):
+    plot = _map(qtbot)
+    before = plot.bar.colorMap()
+    plot.bar.setLevels(values=(0.2, 0.8))
+    plot.bar.sigLevelsChanged.emit(plot.bar)
+    assert plot.bar.colorMap() is before
 
 
 def test_plots_map_starts_white_unless_told_otherwise(qtbot):
@@ -239,6 +265,11 @@ def test_plots_log_axis_drops_non_positive_values(qtbot):
     plot.fit()
     # A log axis spans whole decades (at least one), so it always has ticks.
     assert plot.box.viewRange()[1] == pytest.approx([0.0, 1.0])
+    # ...labelled at each decade only, which a short plot has room for
+    left = plot.item.getAxis("left")
+    assert left.tickSpacing(0.0, 2.0, 100.0) == [(1.0, 0), (1.0, 0)]
+    plot.set_curves([Curve(x, x)])  # a linear axis spaces its ticks itself
+    assert left.tickSpacing(0.0, 2.0, 100.0) != [(1.0, 0), (1.0, 0)]
 
 
 def test_plots_right_axis_carries_its_own_curves(qtbot):

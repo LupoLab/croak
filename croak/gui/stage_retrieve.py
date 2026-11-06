@@ -32,9 +32,9 @@ from ..retrieve import ALGORITHMS, algorithm_params
 from ..session.params import reg_defaults, reg_family
 from ..session.pipeline import extra_param_centres, smearing_kernel
 from ..truth_metrics import truth_errors
-from . import settings
 from .base import RunControls, Stage
 from .controls import check, combo, dspin, group, spin
+from .display import current as current_display
 from .readout import DASH, RetrievalReadout
 from .retrieval_views import RetrievalPanels
 from .view_panel import ViewPanel
@@ -321,20 +321,6 @@ class StageRetrieve(RunControls, Stage):
                     "Temporal (τ window)",
                     "Mask the retrieved result outside the delay window — applied "
                     "to the stored result, no re-run.",
-                ),
-            ],
-        ),
-        (
-            "Display",
-            [
-                (
-                    "Spectrum axis",
-                    "Draw the spectrum panel against frequency (PHz — the space "
-                    "the retrieval works in, where |E(ω)|² of a symmetric pulse is "
-                    "symmetric) or wavelength (nm — the spectrometer's axis, with "
-                    "the λ² Jacobian applied). Both are unit-peak densities in "
-                    "their own variable. Remembered between launches; the "
-                    "exported twelve-panel PDF follows it.",
                 ),
             ],
         ),
@@ -847,15 +833,6 @@ class StageRetrieve(RunControls, Stage):
         self.pf_tau.setEnabled(False)
         form.addRow(self.pf_lam)
         form.addRow(self.pf_tau)
-        self.controls.addWidget(box)
-
-        box, form = group("Display")
-        self.spectrum_axis_combo = combo(
-            plotting.SPECTRAL_AXES,
-            settings.text("retrieve/spectrum_axis", "frequency"),
-            self._on_spectrum_axis,
-        )
-        form.addRow("Spectrum axis", self.spectrum_axis_combo)
         self.controls.addWidget(box)
 
         # Retrieve, Stop and Save are the top bar's primary action and Save
@@ -1573,11 +1550,6 @@ class StageRetrieve(RunControls, Stage):
         self.state.retrieve.post_filter_tau = self.pf_tau.isChecked()
         self._update_view()
 
-    def _on_spectrum_axis(self, axis: str) -> None:
-        """Remember the spectrum panel's abscissa and re-present the stored result."""
-        settings.set_text("retrieve/spectrum_axis", axis)
-        self._update_view()
-
     def overview(self) -> plotting.RetrievalPlotData | None:
         """The current retrieval as the overview's plot data (``None`` before one)."""
         if self.state.result is None:
@@ -1588,11 +1560,14 @@ class StageRetrieve(RunControls, Stage):
         """Bundle ``result`` and its processed form for the panels.
 
         Draws against the session's trace data (measured trace, independent
-        spectrum, wavelength window), the known truth if any, and the pulse energy.
+        spectrum, wavelength window), the known truth if any, and the pulse energy,
+        with the display settings' spectral axis and logarithmic range, which the
+        figures drawn from it (Analyse's pages, the saved ``retrieval.pdf``) follow.
         """
         td = self.state.tracedata
         if td is None:
             raise RuntimeError("no trace data to plot the retrieval against")
+        display = current_display()
         return plotting.retrieval_plot_data(
             result,
             measured=td.trace,
@@ -1602,7 +1577,8 @@ class StageRetrieve(RunControls, Stage):
             truth=self.state.truth,
             energy=self.state.load.energy_j or None,
             processed=pr,
-            spectral_axis=self.spectrum_axis_combo.currentText(),
+            spectral_axis="wavelength" if display.axis == "wavelength" else "frequency",
+            tracedb=display.db_range,
         )
 
     def _show(self, result, pr) -> None:

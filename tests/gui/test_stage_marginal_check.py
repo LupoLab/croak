@@ -14,8 +14,10 @@ import pytest
 pytest.importorskip("PySide6")
 
 from croak.gui import stage_marginal_check
+from croak.gui.display import set_display
 from croak.gui.stage_marginal_check import StageMarginalCheck, _peak_norm
 from croak.gui.state import WizardState
+from croak.plotting.display import Display
 from croak.session.pipeline import assemble_load_data
 
 LAM = np.linspace(700e-9, 900e-9, 64)
@@ -143,7 +145,7 @@ def test_stage_marginal_check_shg_correction_needs_a_spectrum(stage):
 # -- display ------------------------------------------------------------------
 def test_stage_marginal_check_wavelength_axis_and_log_scale(stage):
     _enter(stage, _data())
-    stage.axis_combo.setCurrentText("wavelength")
+    set_display(Display(axis="wavelength"))
     stage.scale_combo.setCurrentText("log")
     plot = stage.marg_view.plot
     assert plot.item.getAxis("bottom").labelText == "Wavelength (nm)"

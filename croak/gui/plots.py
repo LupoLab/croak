@@ -210,13 +210,22 @@ def colormap(name: str) -> pg.ColorMap:
     raise ValueError(f"unknown colour map {name!r}")
 
 
+NEGLIGIBLE_NEGATIVE = 1e-3
+"""Negative levels within this fraction of the top level draw no red.
+
+Below it the red part would be finer than an entry of the colour table, which
+then paints zero itself red: rounding noise (around -1e-17 after a filter) set
+the bottom level of a whole map that way."""
+
+
 def signed_colormap(name: str, low: float, high: float) -> pg.ColorMap:
     """Return colour map ``name`` for levels ``(low, high)``, white at zero.
 
     A measured trace can dip below zero after background subtraction. One map
     shows both signs: the negative part fades from red to white and the positive
     part runs white → ``name`` (whose own lowest colour is replaced by white,
-    so a zero background reads as paper). ``low >= 0`` gives the plain
+    so a zero background reads as paper). ``low >= 0``, or ``low`` no further
+    below zero than :data:`NEGLIGIBLE_NEGATIVE` of ``high``, gives the plain
     white-based map.
 
     Parameters
@@ -242,7 +251,7 @@ def signed_colormap(name: str, low: float, high: float) -> pg.ColorMap:
     stops = np.linspace(0.0, 1.0, 9)
     colours = np.array(base.map(stops, mode=pg.ColorMap.FLOAT), dtype=float)
     colours[0] = (1.0, 1.0, 1.0, 1.0)
-    if low >= 0:
+    if low >= -NEGLIGIBLE_NEGATIVE * high:
         # pg.ColorMap reads numeric colours on a 0–255 scale.
         return pg.ColorMap(stops, 255 * colours)
     zero = -low / (high - low)
@@ -268,6 +277,10 @@ def is_uniform(axis: np.ndarray) -> bool:
 
 class MapPlot(Plot):
     """A false-colour image with a colour bar.
+
+    Dragging the colour bar's ends (or the bar) changes the colour scale of
+    this map alone; a double-click returns the view and the scale to the ones
+    last shown.
 
     Parameters
     ----------
@@ -305,11 +318,13 @@ class MapPlot(Plot):
         self.addItem(self.image)
         self.bar = pg.ColorBarItem(
             colorMap=signed_colormap(colours, 0.0, 1.0) if white else colormap(colours),
-            interactive=False,
+            interactive=True,
             width=10,
             colorMapMenu=False,
         )
         self.bar.setImageItem(self.image, insert_in=self.item)
+        self.bar.sigLevelsChanged.connect(self._follow_levels)
+        self._levels = (0.0, 1.0)  # the scale last shown, for a double-click
         _style_axis(self.bar.axis, unit)
         self.message = pg.TextItem("", color=PALETTE.muted, anchor=(0.5, 0.5))
         self.addItem(self.message, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
@@ -366,12 +381,24 @@ class MapPlot(Plot):
 
     def set_levels(self, levels: tuple[float, float]) -> None:
         """Change the colour bar's span without touching the data."""
-        low, high = float(levels[0]), float(levels[1])
-        if self.signed and high > 0 and low < 0:
+        self._levels = (float(levels[0]), float(levels[1]))
+        self.bar.setLevels(values=self._levels)
+        self._follow_levels()
+
+    def _follow_levels(self, _bar: object = None) -> None:
+        """Keep a signed map's white at zero, wherever the span is dragged."""
+        if not self.signed:
+            return
+        low, high = self.bar.levels()
+        if high > 0 > low:
             self.bar.setColorMap(signed_colormap(self.colours, low, high))
-        elif self.signed:
+        else:
             self.bar.setColorMap(signed_colormap(self.colours, 0.0, 1.0))
-        self.bar.setLevels(values=(low, high))
+
+    def reset_view(self) -> None:
+        """Return to the view and the colour scale last shown."""
+        super().reset_view()
+        self.set_levels(self._levels)
 
     def value_at(self, x: float, y: float) -> float | None:
         """The sample nearest ``(x, y)``, or ``None`` outside the image."""
@@ -494,6 +521,13 @@ class LinePlot(Plot):
         self.curves = list(curves)
         self.log_y = log_y
         self.item.setLogMode(False, log_y)
+        # A tick at each decade only, as matplotlib's log axes: pyqtgraph also
+        # labels the 2…9 between decades, which pile up on a short plot.
+        left = self.item.getAxis("left")
+        if log_y:
+            left.setTickSpacing(1.0, 1.0)
+        else:
+            left.setTickSpacing()
         named = [c for c in curves if c.name]
         if len(named) > 1 and self.legend is None:
             self.legend = self.item.addLegend(

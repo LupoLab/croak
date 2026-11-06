@@ -1,7 +1,9 @@
 """A titled plot of one screen view, which can leave the window as a figure.
 
 :class:`ViewPanel` shows a view of :mod:`croak.plotting.screen` on a pyqtgraph
-plot (:func:`draw_line_view`, :func:`draw_map_view`). A right-click offers the
+plot (:func:`draw_line_view`, :func:`draw_map_view`), on the spectral axis and
+logarithmic range of the display settings (:mod:`croak.gui.display`), and
+redraws it when they change. A right-click offers the
 plot as a publication figure, drawn by matplotlib from the same view
 (:mod:`croak.plotting.export`), or as an image of the screen.
 :func:`page_figure` lays out every plot a page shows as one figure, and
@@ -28,8 +30,10 @@ from PySide6.QtWidgets import (
 )
 
 from ..plotting import screen as sc
+from ..plotting.display import displayed
 from ..plotting.export import save_figure, views_figure
 from ..plotting.screen import ROLE_STYLE
+from .display import current, hub
 from .plots import PEN_WIDTH, Curve, LinePlot, MapPlot, curve_reader, map_reader
 from .theme import NOTICE_MS, label, set_flag
 
@@ -122,7 +126,8 @@ class ViewPanel(QWidget):
     Attributes
     ----------
     view : MapView or LineView or None
-        What the plot shows now; ``None`` before anything is drawn.
+        What the plot shows now, as the display settings show it; ``None``
+        before anything is drawn.
     """
 
     def __init__(
@@ -138,6 +143,7 @@ class ViewPanel(QWidget):
         self.colours = colours
         self.white = white
         self.view: sc.MapView | sc.LineView | None = None
+        self._source: tuple[sc.MapView | sc.LineView, str] | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -157,9 +163,12 @@ class ViewPanel(QWidget):
         layout.addWidget(self.plot, stretch=1)
         self.plot.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.plot.customContextMenuRequested.connect(self.show_menu)
+        hub().changed.connect(self.redisplay)
 
     def show_view(self, view: sc.MapView | sc.LineView, notes: str = "") -> None:
         """Draw ``view``; ``notes`` (or a line view's own) go beside the title."""
+        self._source = (view, notes)
+        view = displayed(view, current())
         self.view = view
         self.title.setText(view.title)
         if isinstance(view, sc.MapView):
@@ -175,9 +184,15 @@ class ViewPanel(QWidget):
         self.notes.setText(notes or "   ".join(text for text, _ in view.notes))
         set_flag(self.notes, "warn", any(warn for _, warn in view.notes))
 
+    def redisplay(self) -> None:
+        """Draw the shown view again, with the display settings now in force."""
+        if self._source is not None:
+            self.show_view(*self._source)
+
     def say(self, title: str, text: str) -> None:
         """Show ``text`` in place of a map (there is nothing to draw)."""
         self.view = None
+        self._source = None
         self.title.setText(title)
         cast(MapPlot, self.plot).say(text)
         self.notes.setText("")

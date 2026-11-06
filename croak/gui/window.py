@@ -42,6 +42,7 @@ from ..session import retarget
 from . import settings
 from .about import About
 from .branding import app_icon
+from .display import DisplayBar
 from .home import ENTRY_TILES, Home
 from .stage import PageBase
 from .state import WizardState
@@ -136,9 +137,13 @@ class MainWindow(QMainWindow):
         middle.addWidget(self._make_drawer())
         column.addLayout(middle, stretch=1)
         self._make_menus()
+        # The foot of the window: notices on the left and, in a session, the
+        # display settings every plot follows on the right.
         status = self.statusBar()
+        self.display_bar = DisplayBar()
+        status.addPermanentWidget(self.display_bar)
         status.hide()
-        status.messageChanged.connect(lambda text: status.setVisible(bool(text)))
+        status.messageChanged.connect(lambda _text: self._show_status())
         self.setStyleSheet(stylesheet())
         self.state.retarget_requested.connect(self.retarget)
         for signal in (
@@ -352,6 +357,13 @@ class MainWindow(QMainWindow):
         for key in ("options", "python"):
             self.actions_[key].setEnabled(bool(progress.entry))
         self.actions_["figure"].setEnabled(self.stage in self.pages)
+        self.display_bar.setVisible(in_session)
+        self._show_status()
+
+    def _show_status(self) -> None:
+        """Show the foot of the window while it has a notice or a session."""
+        status = self.statusBar()
+        status.setVisible(bool(self.pages) or bool(status.currentMessage()))
 
     def go(self, stage: Stage) -> bool:
         """Show ``stage`` if it can be opened; say why not otherwise."""

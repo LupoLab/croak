@@ -44,6 +44,10 @@ group them by domain:
 ``export``
     Those views drawn as publication figures, for the GUI's "Export … as a
     figure" (:mod:`croak.plotting.export`).
+``display``
+    Those views on the spectral axis (wavelength or frequency, with the density
+    Jacobian) and logarithmic range the viewer chose
+    (:mod:`croak.plotting.display`).
 """
 
 from .artists import (

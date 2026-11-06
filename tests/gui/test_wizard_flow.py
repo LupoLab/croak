@@ -2466,17 +2466,25 @@ def test_retrieve_convergence_redraw_is_throttled(qtbot, monkeypatch):
 
 
 # -- spectrum axis and preview cadence -------------------------------------------------
-def test_retrieve_spectrum_axis_defaults_to_frequency_and_is_remembered(qtbot):
+def test_retrieve_follows_the_display_axis_and_remembers_it(qtbot):
+    from croak.gui.display import current, set_display
+    from croak.plotting.display import Display
+
     w = Driver(qtbot)
     rs = _run_synthetic_retrieval(w, qtbot)
-    assert rs.spectrum_axis_combo.currentText() == "frequency"
     spectrum = rs.pages.boxes["spectral"].plot
+    measured = rs.pages.boxes["measured_log"].plot
+    # As computed: the retrieval's own frequency axis
     assert spectrum.item.getAxis("bottom").labelText == "Frequency (PHz)"
-    rs.spectrum_axis_combo.setCurrentText("wavelength")  # re-presents the result
+    set_display(Display(axis="wavelength", db_range=50.0))  # redraws in place
     assert spectrum.item.getAxis("bottom").labelText == "Wavelength (nm)"
-    assert settings.text("retrieve/spectrum_axis", "frequency") == "wavelength"
-    again = Driver(qtbot)
-    assert again.stages[3].spectrum_axis_combo.currentText() == "wavelength"
+    assert measured.item.getAxis("left").labelText == "Wavelength (nm)"
+    assert measured.bar.levels() == pytest.approx((-50.0, 0.0))
+    # the figures drawn from the result follow it too
+    data = rs.overview()
+    assert data is not None
+    assert (data.spectral_axis, data.tracedb) == ("wavelength", 50.0)
+    assert current() == Display(axis="wavelength", db_range=50.0)  # remembered
 
 
 def test_retrieve_preview_reports_its_cost_to_the_worker(qtbot):

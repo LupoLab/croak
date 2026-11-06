@@ -170,6 +170,28 @@ def test_result_page_exports_its_figure(qtbot, data, tmp_path, monkeypatch):
     assert messages[-1] == "There is nothing to save as a figure yet."
 
 
+def test_result_page_on_wavelength_exports_its_plots_as_shown(qtbot, data):
+    from croak.gui.display import set_display
+    from croak.plotting.display import Display
+
+    page = ResultPage(WizardState(), "overview", lambda: data)
+    qtbot.addWidget(page)
+    page.on_enter()
+    page.resize(1200, 800)
+    page.show()
+    qtbot.waitExposed(page)
+    set_display(Display(axis="wavelength"))
+    figure = page.figure()
+    assert figure is not None
+    # croak's page figure draws its traces against frequency; this is the
+    # screen's own layout, on wavelength
+    labels = {ax.get_ylabel() for ax in figure.axes} | {
+        ax.get_xlabel() for ax in figure.axes
+    }
+    assert "Wavelength (nm)" in labels
+    assert "Frequency (PHz)" not in labels
+
+
 def test_view_panel_draws_bars_bands_spans_points_and_levels(qtbot):
     from test_plotting_screen import _estimate
 
