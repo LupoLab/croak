@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-06
+
 ### Added
 
 - Two GUI display settings, at the foot of the window, hold for every plot and are remembered between launches: **Spectral axis** draws every spectral plot, maps and curves, against wavelength or frequency, with the density Jacobian, or keeps each on the axis it was computed on; **Log range** sets how far below its peak every logarithmic map reaches (5–120 dB). A map's colour bar can also be dragged to change that map's scale alone. Retrieve's own Spectrum axis control and Check's marginal axis control give way to them. `croak.plotting.display` does the conversion from a script.
@@ -37,8 +39,8 @@ semantic versioning.
 
 - The GUI now says when the retrieval grid's λ range cuts off signal that is still in the trace: Prepare shows the share of the trace the edge taper removes and how to widen the range. The warning used to reach only the terminal.
 - The help for Retrieve's "Live full-plot preview" gives its real rate: up to four redraws a second, fewer when drawing is slow (it said about once a second).
-- A signed linear map in the GUI no longer paints its whole zero background red when its only negative values are rounding noise (Prepare's filtered and regridded traces), and the synthetic generator's spectrum preview is now a wavelength density, as its spectrogram already was. Log axes are labelled at decades only, so a short convergence plot no longer piles its labels up.
-- The synthetic generator's trace preview shows the trace that Continue hands on, sampled onto the λ window; it used to show a featureless stripe. A flat phase no longer fills its axis with rounding noise: phase axes span at least ±1 rad, in the GUI and in croak's figures.
+- The synthetic generator's spectrum preview is now a wavelength density, as its spectrogram already was.
+- A flat phase no longer fills its axis with rounding noise: phase axes span at least ±1 rad, in the GUI and in croak's figures.
 
 ## [0.3.1] - 2026-10-20
 
@@ -724,7 +726,8 @@ Added in the run-up to the release:
   materials (missing `SiO2-Franta`); and `croak.solver`'s docstring described
   `Retriever` as the base of two solvers rather than of all of them.
 
-[Unreleased]: https://github.com/LupoLab/croak/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/LupoLab/croak/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/LupoLab/croak/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/LupoLab/croak/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/LupoLab/croak/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/LupoLab/croak/compare/v0.1.0...v0.2.0
