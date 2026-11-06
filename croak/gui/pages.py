@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
+from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -29,6 +30,7 @@ from ..session.pipeline import (
 )
 from .base import Stage
 from .help import HelpDialog
+from .home import ENTRY_TILES
 from .retrieval_views import ResultPage
 from .stage import PageBase
 from .stage_dispersion import StageDispersion
@@ -41,12 +43,15 @@ from .stage_synthetic import StageSynthetic
 from .stage_uncertainty import StageUncertainty
 from .state import WizardState
 from .theme import frame, set_flag
+from .view_panel import file_name
 from .workflow import Stage as Place
 
 __all__ = ["AnalysePage", "DataPage", "RAIL_WIDTH", "default_pages"]
 
 RAIL_WIDTH = 170
 """The width of Analyse's rail, logical px."""
+
+_ENTRY_TITLES = {entry: title for entry, title, _ in ENTRY_TILES}
 
 
 class DataPage(PageBase):
@@ -108,6 +113,9 @@ class DataPage(PageBase):
 
     def show_help(self) -> HelpDialog | None:
         return self.entry_page.show_help()
+
+    def figure_name(self) -> str:
+        return file_name(_ENTRY_TITLES[self.state.entry])
 
     # -- session replay -----------------------------------------------------
     def restore(self) -> bool:
@@ -257,6 +265,12 @@ class AnalysePage(PageBase):
 
     def show_help(self) -> HelpDialog | None:
         return self.pages[self.key].show_help()
+
+    def figure(self) -> Figure | None:
+        return self.pages[self.key].figure()
+
+    def figure_name(self) -> str:
+        return self.pages[self.key].figure_name()
 
 
 def default_pages(state: WizardState) -> Mapping[Place, PageBase]:

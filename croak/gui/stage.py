@@ -18,8 +18,11 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from .help import HelpDialog, HelpSections
 from .sheet import AdviceBox, DerivedGrid, Form, ProgressStrip, Sheet
 from .state import WizardState
+from .view_panel import export_figure, file_name, page_figure
 
 if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+
     from ..plotting import RetrievalPlotData
 
 __all__ = ["PageBase", "StagePage"]
@@ -90,6 +93,22 @@ class PageBase(QWidget):
     def overview(self) -> RetrievalPlotData | None:
         """The retrieval this page shows, for a saved session's overview PDF."""
         return None
+
+    def figure(self) -> Figure | None:
+        """The page as a publication figure; ``None`` while it shows nothing.
+
+        By default every plot on the page, laid out as on the screen
+        (:func:`~croak.gui.view_panel.page_figure`).
+        """
+        return page_figure(self)
+
+    def figure_name(self) -> str:
+        """The file name a saved figure of the page is offered under."""
+        return file_name(self.HELP_TITLE)
+
+    def export_figure(self) -> str:
+        """Ask where to save :meth:`figure`; return the path, or ``""``."""
+        return export_figure(self, self.figure(), self.figure_name(), self.message.emit)
 
     def show_help(self) -> HelpDialog | None:
         """Open (or raise) the page's help dialog; ``None`` if it has no help."""

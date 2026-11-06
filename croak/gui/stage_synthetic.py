@@ -38,8 +38,8 @@ from .controls import (
     group,
     spin,
 )
-from .retrieval_views import ViewPanel
 from .stage_load import seed_preproc_defaults
+from .view_panel import ViewPanel
 from .widgets import RangeControl, ValueControl
 
 # dispersion slider ranges follow StageDispersion (fs² / fs³ / fs⁴)

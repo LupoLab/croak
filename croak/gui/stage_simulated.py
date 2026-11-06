@@ -44,8 +44,8 @@ from ..session.pipeline import (
 )
 from .base import Stage
 from .controls import add_wide_row, check, combo, group
-from .retrieval_views import ViewPanel
 from .stage_load import seed_preproc_defaults
+from .view_panel import ViewPanel
 from .widgets import RangeControl
 
 # TG-FROG keeps the carrier (no doubling), so only the χ³ interactions apply.

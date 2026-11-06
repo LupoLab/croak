@@ -25,10 +25,11 @@ stage onto the library, replays a saved session and writes a session's files;
 the GUI, `croak replay` and `croak script` all go through it. The screen layer,
 `croak.plotting.screen`, turns the data behind a figure into the arrays an
 interactive view draws, using the same helpers as the matplotlib panels, so
-the screen and an exported figure agree.
+the screen and an exported figure agree; `croak.plotting.export` draws any
+screen view as a matplotlib figure, for the GUI's figure export.
 
 On top of them, `croak.gui.window.MainWindow` takes a session from Home through
-Data, Prepare, Retrieve and Analyse. The route between the stages is a set of
+Data, Check, Prepare, Retrieve and Analyse. The route between the stages is a set of
 pure rules (`croak.gui.workflow`); each stage is a page that binds its controls
 to the session's parameters and hands long computations to worker threads; and
 every on-screen plot is a pyqtgraph view of screen data. Numerics belong in the

@@ -331,3 +331,18 @@ def test_window_primary_actions_reach_retrieve_and_uncertainty(qtbot, monkeypatc
         "uncertainty run",
         "uncertainty stop",
     ]
+
+
+def test_window_figures_come_from_the_page_on_screen(qtbot):
+    d = Driver(qtbot, "synthetic")
+    d.data.on_enter()  # the generator draws its four plots
+    assert d.data.figure_name() == "synthetic_trace"
+    figure = d.data.figure()
+    assert figure is not None
+    titles = {ax.get_title(loc="left") for ax in figure.axes} - {""}
+    assert titles == {"Temporal", "Spectral", "Spectrogram", "Synthetic FROG trace"}
+    d.analyse.show_page("dispersion")
+    assert d.analyse.figure_name() == "dispersion"
+    assert d.analyse.figure() is None  # nothing retrieved: nothing drawn
+    d.analyse.show_page("traces")
+    assert d.analyse.figure_name() == "traces"

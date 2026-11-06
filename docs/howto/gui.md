@@ -6,8 +6,8 @@ same calculations as the Python interface. If this is your first visit, follow
 [installing the GUI](../getting_started/gui.md), then try a synthetic trace
 whose pulse is known.
 
-A session runs through four stages — **Data → Prepare → Retrieve → Analyse** —
-which you reach from **Home**. The top bar always shows where you are, which
+A session runs through five stages — **Data → Check → Prepare → Retrieve →
+Analyse** — which you reach from **Home**. The top bar always shows where you are, which
 stages you can open and the one action that moves the session on.
 
 ## Launching
@@ -42,16 +42,18 @@ so they look the same as the figures a script makes.
 
 The window is laid out for displays of **1366×768 logical pixels and up** (a
 1920×1080 monitor at Windows' 125 % scaling is 1536×864 logical pixels). Each
-stage puts its settings on the left and its plots on the right; when the window
-is narrower than 1000 pixels the plots move below the settings instead. The
+stage puts its settings in a narrow column on the left (340 pixels) and gives the
+rest of the window to its plots; when the window is narrower than 1000 pixels
+the plots move below the settings instead. The
 settings are grouped in sections that fold, and Retrieve's
 advanced sections start folded, so a laptop screen shows the settings you use
 most without scrolling. The numeric read-out beneath Retrieve's plots folds away
 with a click on its header, and returns the height to the plots.
 
-Plot text stays at the same size whatever the window size. Figures written by
-**Export ▾ → Figure…** or by a **Save** are drawn afresh at their own design
-size, so they do not depend on the window either.
+Plot text stays at the same size whatever the window size. Exported figures
+(see [Figures for publication](#figures-for-publication)) and the files a
+**Save** writes are drawn afresh at their own design size, so they do not depend
+on the window either.
 
 ### Desktop integration
 
@@ -80,7 +82,9 @@ data:
   dispersion and noise, and test a retrieval against the known answer.
 
 Beneath the tiles, **Open a session…** reopens a saved session from its
-`options.toml` (see [Sessions](#sessions)). The **Recent sessions** list on the
+`options.toml` (see [Sessions](#sessions)), and **About croak** opens the About
+page: the version, links to this manual, the source on GitHub, the package on
+PyPI and the issue tracker, the authors, and the copyright and licences. The **Recent sessions** list on the
 right holds the last six sessions you saved or opened, named by their folder,
 with the folder's location and the time the session was last saved; a session
 whose file has gone is left out. Click one to reopen it.
@@ -93,20 +97,23 @@ or **Cancel**; **Save session…** in the ⋯ menu keeps it.
 
 The top bar carries, from left to right:
 
-- the **croak** brand, which returns to Home. The session stays open: its stage
-  buttons are still there, so you can go back to it;
-- a context label: what the session is (*Measured trace*, *Simulated scan* or
-  *Synthetic trace*) and, once it has been saved or opened, its folder's name;
-- the four stage buttons **Data · Prepare · Retrieve · Analyse**. A stage that
-  cannot be opened yet is greyed out, and its tooltip says why;
+- the **croak** brand and a context label: what the session is (*Measured
+  trace*, *Simulated scan* or *Synthetic trace*) and, once it has been saved or
+  opened, its folder's name;
+- **Home**, which returns to Home (so does the brand). The session stays open:
+  its stage buttons are still there, so you can go back to it;
+- the five stage buttons **Data · Check · Prepare · Retrieve · Analyse**. A
+  stage that cannot be opened yet is greyed out, and its tooltip says why;
 - the **primary action**, the one button that moves the session on;
-- the **⋯** menu: **Save session…**, **Open a session…**, **Show the settings
-  (options.toml)**, **Show as a Python script** and **Help for this stage**.
+- the **⋯** menu: **Save session…**, **Open a session…**, **Export this page as
+  a figure…**, **Show the settings (options.toml)**, **Show as a Python
+  script**, **Help for this stage** and **About croak**.
 
-The menu bar repeats these under **File** (Home, Open a session… and Save
-session…, with the platform's Open and Save shortcuts), **View** (the settings
-and the script) and **Help** (Help for this stage, F1 on Windows and Linux, ⌘?
-on macOS). Passing notices, such as "Saved …" or why a stage cannot open,
+The menu bar repeats these under **File** (Home, Open a session…, Save
+session… and Export this page as a figure…, with the platform's Open and Save
+shortcuts and Ctrl+E, ⌘E on macOS), **View** (the settings and the script) and
+**Help** (Help for this stage, F1 on Windows and Linux, ⌘? on macOS, and About
+croak, which macOS moves to the application menu). Passing notices, such as "Saved …" or why a stage cannot open,
 appear in a status bar at the foot of the window, which hides again when there
 is nothing to say.
 
@@ -117,12 +124,15 @@ Which stages can be opened depends only on what the session holds:
 | Stage | Opens once |
 |---|---|
 | Data | a session has started |
+| Check | a trace has been loaded |
 | Prepare | a trace has been loaded |
 | Retrieve | the trace has been prepared |
 | Analyse | a retrieval has run |
 
 A simulated scan loaded with **Skip filtering & regrid** is retrieved on its own
-grid, so it goes from Data straight to Retrieve and Prepare stays disabled.
+grid, so it goes from Data straight to Retrieve and Prepare stays disabled
+(Check stays open, to look at the scan, and its Continue also goes to
+Retrieve).
 Changing a setting upstream clears what was derived from it — a new trace clears
 the prepared trace and the retrieval — so the GUI never shows a pulse retrieved
 from superseded settings, and the later stages close again until they are
@@ -132,7 +142,8 @@ The primary action follows the stage:
 
 | Where | Primary action |
 |---|---|
-| Data | **Continue**: from the loader to the marginal check, then to Prepare |
+| Data | **Continue**: load or generate the trace and go on to Check |
+| Check | **Continue** to Prepare |
 | Prepare | **Continue** to Retrieve |
 | Retrieve | **Retrieve**, **Stop** while it runs, then **Retrieve again** |
 | Analyse | **Save** (the session); on the Uncertainty page **Estimate**, or **Stop** while it runs |
@@ -171,18 +182,39 @@ shows the positive part of the signal; negative samples, left by background
 subtraction, show on the linear maps, which run from white to viridis for
 positive values and from white to red for negative ones.
 
+**Right-click** a plot for its own menu: **Export this plot as a figure…**,
+**Save as an image…** (a PNG of the plot as it is on screen) and **Copy as an
+image**.
+
 The pages on Analyse also have **Export ▾**: **Figure…** saves that page as a
-PDF, PNG or SVG drawn by matplotlib, and **Pop out** opens it in a window of its
-own, which follows later results.
+figure (as **Export this page as a figure…** does), and **Pop out** opens it in
+a window of its own, which follows later results.
+
+### Figures for publication
+
+Any page, or any single plot, can be saved as a figure drawn by matplotlib:
+**Export this page as a figure…** (⋯ menu, File menu or Ctrl+E) for the page on
+screen, or **Export this plot as a figure…** from a plot's right-click menu.
+Choose **PDF** or **SVG** for a vector figure, or **PNG**. In a vector figure the
+axes, curves and text stay sharp and the text stays editable text; the colour
+maps are embedded as images at 300 dpi (rasterized), so a trace map stays small
+and opens quickly. A PNG is written at 300 dpi.
+
+The figure shows the same data as the screen, with the same colours, line styles
+and labels, sized for print: each plot is 3.4 × 2.6 inches (a journal's single
+column) in 8-point type, and a page keeps its plots' arrangement. Analyse's
+Overview, Traces, Pulse and Diagnostics pages are saved as croak's own figure of
+that page ({func}`~croak.plotting.plot_retrieval_page`), as a script makes it.
+From a script, {mod}`croak.plotting.export` draws the same screen views.
 
 ## The stages
 
 ### Data
 
-Data has two steps, shown as segments at the top of the page: the loader for the
-session's kind of data, then **Check the marginal**. The check step opens once a
-trace is loaded. **Continue** on the loader moves to the check, and Continue on
-the check moves to Prepare.
+Data holds the loader for the session's kind of data. **Continue** loads (or
+generates) the trace and moves on to [Check](#check). Check opens as soon as a
+trace is loaded, so a measured trace loaded with **Load & Preview** can be
+checked from the top bar straight away.
 
 #### Load the trace (measured)
 
@@ -217,7 +249,7 @@ signal so an aggressive efficiency tilt cannot wash the image out.
 Load a numerically simulated `scansave` scan and preview it live. A
 **thickness** dropdown selects which saved propagation depth to retrieve from a
 multi-thickness scan (disabled for older single-thickness files). Continue loads
-the scan and moves to the marginal check; with **Skip filtering & regrid (raw →
+the scan and moves to Check; with **Skip filtering & regrid (raw →
 retrieval)** ticked it builds the as-simulated trace on its native grid and goes
 straight to Retrieve. See
 [Loading numerically simulated traces](loading_simulated.md).
@@ -235,11 +267,11 @@ delay and wavelength samplings each expose an interlocked **count** and
 downstream (range / step / # points); by default it **mirrors the FROG-trace λ
 window**, scaled to the fundamental (×2 for SHG). With it present, the
 marginal-check overlay and the SHG marginal correction work on synthetic traces
-too. Continue generates the trace and moves to the marginal check. The known
+too. Continue generates the trace and moves to Check. The known
 pulse (its temporal intensity envelope `It`) is carried through, shown beneath
 the retrieved pulse, and saved with the result.
 
-#### Check the marginal
+### Check
 
 Compare the trace's frequency marginal with the marginal **predicted** from the
 independent spectrum ({mod}`croak.marginal_checks`): exact for SHG (the spectral
@@ -260,9 +292,8 @@ predicted SHG autoconvolution
 ({func}`~croak.marginal_checks.apply_marginal_correction`), is enabled only for
 an SHG trace with an independent spectrum, and previews the snap onto the
 prediction live (the correction itself is applied in Prepare). All three kinds
-of session pass through this step, except a raw simulated scan; see
-[Marginal consistency checks](marginal_checks.md). The trace and the marginal
-comparison share a draggable divider, so either plot can be given the height.
+of session pass through this stage, except a raw simulated scan; see
+[Marginal consistency checks](marginal_checks.md).
 
 ### Prepare
 

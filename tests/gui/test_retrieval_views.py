@@ -170,13 +170,13 @@ def test_result_page_exports_its_figure(qtbot, data, tmp_path, monkeypatch):
     nothing.message.connect(messages.append)
     qtbot.addWidget(nothing)
     assert nothing.export_figure() == ""
-    assert "Run a retrieval first" in messages[-1]
+    assert messages[-1] == "There is nothing to save as a figure yet."
 
 
 def test_view_panel_draws_bars_bands_spans_points_and_levels(qtbot):
     from test_plotting_screen import _estimate
 
-    from croak.gui.retrieval_views import ViewPanel
+    from croak.gui.view_panel import ViewPanel
     from croak.plotting.screen import uncertainty_views
 
     panels = [ViewPanel("line") for _ in range(3)]

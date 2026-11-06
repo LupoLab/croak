@@ -44,7 +44,16 @@ from .branding import app_icon
 from .home import ENTRY_TILES, Home
 from .stage import PageBase
 from .state import WizardState
-from .theme import ASSETS, button, frame, label, load_fonts, set_flag, stylesheet
+from .theme import (
+    ASSETS,
+    NOTICE_MS,
+    button,
+    frame,
+    label,
+    load_fonts,
+    set_flag,
+    stylesheet,
+)
 from .workflow import (
     STAGES,
     Action,
@@ -69,8 +78,6 @@ DRAWER_WIDTH = 440
 """The width of the settings drawer, logical px."""
 TOP_BAR_HEIGHT = 52
 """The height of the top bar, logical px."""
-NOTICE_MS = 20_000
-"""How long a passing notice stays in the status bar, ms."""
 
 _ENTRY_TITLES = {entry: title for entry, title, _ in ENTRY_TILES}
 
@@ -238,6 +245,11 @@ class MainWindow(QMainWindow):
                 "Show the settings (options.toml)", self.show_options
             ),
             "python": self._action("Show as a Python script", self.show_python),
+            "figure": self._action(
+                "Export this page as a figure…",
+                self.export_figure,
+                QKeySequence("Ctrl+E"),
+            ),
             "help": self._action(
                 "Help for this stage", self.show_help, QKeySequence(keys.HelpContents)
             ),
@@ -246,7 +258,7 @@ class MainWindow(QMainWindow):
         # On macOS, Qt moves it to the application menu, where About belongs.
         self.actions_["about"].setMenuRole(QAction.MenuRole.AboutRole)
         overflow = QMenu(self)
-        for key in ("save", "open"):
+        for key in ("save", "open", "figure"):
             overflow.addAction(self.actions_[key])
         overflow.addSeparator()
         for key in ("options", "python"):
@@ -257,7 +269,7 @@ class MainWindow(QMainWindow):
         self.overflow.setMenu(overflow)
         bar = self.menuBar()
         file_menu = bar.addMenu("&File")
-        for key in ("home", "open", "save"):
+        for key in ("home", "open", "save", "figure"):
             file_menu.addAction(self.actions_[key])
         view_menu = bar.addMenu("&View")
         for key in ("options", "python"):
@@ -327,6 +339,7 @@ class MainWindow(QMainWindow):
         self.actions_["save"].setEnabled(progress.has_result)
         for key in ("options", "python"):
             self.actions_[key].setEnabled(bool(progress.entry))
+        self.actions_["figure"].setEnabled(self.stage in self.pages)
 
     def go(self, stage: Stage) -> bool:
         """Show ``stage`` if it can be opened; say why not otherwise."""
@@ -358,6 +371,11 @@ class MainWindow(QMainWindow):
     def go_home(self) -> None:
         """Show Home (the session stays open until a new one starts)."""
         self.show_home()
+
+    def export_figure(self) -> str:
+        """Save the page on screen as a publication figure; return the path."""
+        page = self.pages.get(self.stage)
+        return page.export_figure() if page is not None else ""
 
     def show_about(self) -> None:
         """Show About, keeping any open session."""

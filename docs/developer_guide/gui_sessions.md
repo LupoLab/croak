@@ -46,13 +46,15 @@ tested without a window.
 |---|---|
 | `window` | `MainWindow`: top bar, stage stack, drawer, menus, and the session actions (new, open, replay, retarget, save) |
 | `workflow` | the route as pure rules: `Stage`, `Progress`, `blocked_reason`, `next_stage`, `primary_action`, `remember_recent` |
-| `home` | Home: the entry tiles, Open a session… and the recent sessions |
-| `pages` | `default_pages` (the page factory), `DataPage` (loader and marginal check as two steps) and `AnalysePage` (the rail) |
+| `home` | Home: the entry tiles, Open a session…, About croak and the recent sessions |
+| `about` | About: the version, links, authors and copyright, from the package metadata |
+| `pages` | `default_pages` (the page factory), `DataPage` (the entry's loader, and a reopened session's restore) and `AnalysePage` (the rail) |
 | `stage` | `PageBase`, the hooks the window reads, and `StagePage`, a page that is a sheet |
 | `base` | `Stage`, the interface the stage modules are written against (`controls`, `set_plot_area`, `set_status`, `advance`), and `RunControls` |
 | `sheet` | the sheet's parts: `Form`, `Section`, `ReadyLine`, `Segments`, `AdviceBox`, `DerivedGrid`, `ProgressStrip` and `Sheet` itself |
-| `stage_load`, `stage_simulated`, `stage_synthetic` | the three loaders (Data's first step) |
+| `stage_load`, `stage_simulated`, `stage_synthetic` | the three loaders (Data) |
 | `stage_marginal_check`, `stage_preprocess`, `stage_retrieve`, `stage_dispersion`, `stage_uncertainty` | the other stage pages |
+| `view_panel` | `ViewPanel`, a titled plot of one screen view with its right-click menu, and the figure export of a plot or a page (`page_figure`, `export_figure`) |
 | `retrieval_views` | the retrieval's panels on screen (`RetrievalPanels`) and Analyse's result pages (`ResultPage`, with Export and Pop out) |
 | `plots` | the pyqtgraph views: `Plot`, `MapPlot`, `LinePlot`, the colour maps and the hover readers |
 | `theme` | the palette, type scale, style sheet and the role helpers (`label`, `button`, `frame`, `set_flag`) |
@@ -116,9 +118,13 @@ shows only the positive part, leaving negative samples to the signed linear maps
 pages and the exported figures share the panel names and layouts
 ({data}`~croak.plotting.RETRIEVAL_PAGES`). A live retrieval calls
 `RetrievalPanels.set_data` on the plots it already has, which replaces their data
-without rebuilding the widgets. Exported figures — **Export ▾ → Figure…**, the
-pages' **Save…** buttons, a saved session's `retrieval.pdf` — go through the
-matplotlib `draw_*` and `plot_*` functions.
+without rebuilding the widgets. The figures of Analyse's result pages, the
+pages' **Save…** buttons and a saved session's `retrieval.pdf` go through the
+matplotlib `draw_*` and `plot_*` functions. Every other figure — a plot's
+**Export this plot as a figure…**, or **Export this page as a figure…** on a page
+without a figure of its own — is drawn from the screen views themselves by
+`croak.plotting.export`, with the same role colours (`screen.ROLE_STYLE`), so a
+new view can be exported without writing its figure.
 
 The screen functions are Qt-free and tested in `tests/test_plotting_screen.py`;
 a new view starts there.
@@ -151,8 +157,8 @@ environment), driving the real widgets through `qtbot`. They count towards the
 
 Many stage tests were written for the old six-stage wizard.
 `tests/gui/gui_session.py` keeps them working: its `Driver` builds a
-`MainWindow`, maps the old stage numbers onto the window (1 the loader and 2 the
-marginal check on Data, 3 Prepare, 4 Retrieve, 5 Dispersion and 6 Uncertainty on
+`MainWindow`, maps the old stage numbers onto the window (1 the loader on Data,
+2 Check, 3 Prepare, 4 Retrieve, 5 Dispersion and 6 Uncertainty on
 Analyse) and hands back the stage pages, which keep their behaviour. `goto`
 bypasses the route rules, as the old stage setter did, so a test can look at a
 page before its input exists. Tests of navigation itself use the window and the

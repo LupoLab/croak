@@ -34,7 +34,7 @@ from ..processing import process_result, spectrogram
 from .base import Stage
 from .controls import combo, group
 from .mirror_stack import MirrorStack
-from .retrieval_views import ViewPanel
+from .view_panel import ViewPanel
 from .widgets import SciSpinBox, ValueControl
 
 _GAS_NONE = "(none)"

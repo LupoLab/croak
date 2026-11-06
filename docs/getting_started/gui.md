@@ -69,11 +69,11 @@ un-maximised, it returns to the size you last left it. It opens on **Home**:
 Pick a tile on Home — **Measured trace** (an HDF5 or `.npz` file, with an
 optional independent spectrum from HDF5, `.npz` or CSV and calibration curves
 from CSV), **Simulated scan** or **Synthetic trace** (a pulse you specify, to try
-croak without data). The session then runs through four stages, shown as
+croak without data). The session then runs through five stages, shown as
 buttons in the top bar:
 
-- **Data** — load (or generate) the trace, then check its frequency marginal
-  against the independent spectrum;
+- **Data** — load (or generate) the trace;
+- **Check** — compare its frequency marginal with the independent spectrum;
 - **Prepare** — filtering, background removal, windowing and regridding;
 - **Retrieve** — choose a solver and run it, with a live preview;
 - **Analyse** — the retrieval's pages of panels, then **Dispersion** (tuning with
@@ -82,10 +82,12 @@ buttons in the top bar:
 
 The button at the right of the top bar does the next thing — **Continue**,
 **Retrieve**, **Save** — and a stage you cannot open yet is greyed out, with the
-reason in its tooltip. Settings are on the left of each page and plots on the
-right; hover over a control for help with that setting, and over a plot to read
+reason in its tooltip; **Home** at the start of the row goes back to Home.
+Settings are in a narrow column on the left of each page and the plots fill the
+rest; hover over a control for help with that setting, and over a plot to read
 its values. Scroll to zoom, drag to pan, and double-click to return to the
-starting view.
+starting view. Right-click a plot, or press Ctrl+E (⌘E) for the whole page, to
+save it as a figure for publication: a vector PDF or SVG drawn by matplotlib.
 
 ```{image} ../_static/gui_retrieve.png
 :alt: Retrieve after a run — the solver settings on the left, the measured and retrieved traces above the retrieved pulse and spectrum on the right, and the numeric read-out beneath.

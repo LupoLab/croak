@@ -47,7 +47,7 @@ from ..preprocess import (
 from ..session.pipeline import assemble_load_data, assemble_simulated_load_data
 from .base import Stage
 from .controls import add_wide_row, check, combo, dspin, group
-from .retrieval_views import ViewPanel
+from .view_panel import ViewPanel
 from .widgets import RangeControl
 
 # Number of uniform angular-frequency samples used to resample the independent

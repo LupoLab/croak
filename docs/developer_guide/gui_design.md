@@ -95,10 +95,13 @@ and `error`, which `theme.set_flag` sets and re-applies.
 
 - **Target**: 1366×768 logical pixels and up, opened maximised.
 - **Top bar**: 52 px high, with a hairline beneath. Brand and context at the
-  left, the stage buttons in the middle, the primary action and ⋯ at the right.
-- **Sheet**: the form (at least 360 px) and the plots share the width 2 : 3.
-  Below a window width of 1000 px the plots move under the form. The form
-  scrolls on its own; its help line and ready line stay at its foot.
+  left; Home, a hairline divider and the stage buttons in the middle; the
+  primary action and ⋯ at the right.
+- **Sheet**: the form is a fixed 340 px column (`sheet.FORM_WIDTH`) and the plots
+  take the rest of the width. Below a window width of 1000 px the plots move
+  under the form, which then spans the window. The form scrolls on its own; its
+  help line and ready line stay at its foot, and its combo boxes shrink to the
+  column rather than widen it.
 - **Sections** fold in place. Settings most sessions leave alone start folded
   and remember their state (a `settings_key`), as Retrieve's advanced sections
   do.
@@ -109,6 +112,10 @@ and `error`, which `theme.set_flag` sets and re-applies.
 - **Strips** beneath the plots that have a natural height (Retrieve's numeric
   read-out) fold away and hand their height back to the plots.
 - **Analyse** has a 170 px rail of pages on the left.
+- **Export**: every plot has a right-click menu (figure, image, copy), and every
+  page a figure (`PageBase.figure`), saved by Ctrl+E. Figures are drawn from the
+  screen views by `croak.plotting.export`, with maps rasterized in a vector
+  file.
 - **Drawer**: 440 px on the right, for text the user may copy (the settings,
   the script).
 
@@ -116,9 +123,10 @@ and `error`, which `theme.set_flag` sets and re-applies.
 
 | Place | Page | Primary action | Plots |
 |---|---|---|---|
-| Home | tiles, Open a session…, recent sessions | none | none |
+| Home | tiles, Open a session…, About croak, recent sessions | none | none |
+| About | version, links (manual, GitHub, PyPI, issues), authors, copyright | none | none |
 | Data | Load the trace / Load the scan / Generate the trace | Continue | the loaded trace; for a scan its maps and marginals; for a synthetic pulse the pulse, spectrum, spectrogram and trace |
-| Data | Check the marginal | Continue | the trace and the marginal comparison |
+| Check | — | Continue | the trace and the marginal comparison |
 | Prepare | — | Continue | measured, filtered and regridded traces in dB and linear (2×3) |
 | Retrieve | — | Retrieve / Stop / Retrieve again | the live overview, or convergence before the first preview; the numeric read-out |
 | Analyse | Overview, Traces, Pulse, Diagnostics | Save | the retrieval's panels, two by two |
@@ -132,10 +140,11 @@ These are known gaps, kept out of the redesign to keep it reviewable:
 - **A dark theme.** The style sheet is built from one `Palette`, so a dark one
   would be a second instance, but the plots' white background and colour maps
   would need choosing too.
-- **The unused sheet parts.** `sheet.AdviceBox` (an amber box saying what went
-  wrong and what to do), `DerivedGrid` (numbers derived from the settings) and
-  `ProgressStrip` (state, bar and figures over the plots while work runs) are
-  built but no stage uses them yet; a run's progress is on the ready line.
+- **The unused sheet parts.** `sheet.DerivedGrid` (numbers derived from the
+  settings) and `ProgressStrip` (state, bar and figures over the plots while
+  work runs) are built but no stage uses them yet; a run's progress is on the
+  ready line. `AdviceBox` so far carries one piece of advice: Prepare's, when
+  the λ grid clips the trace.
 - **The stage pages' interface.** The stage modules still build through
   `base.Stage`, which keeps the calls they were written against for the old
   wizard; moving them onto `StagePage` directly is a later clean-up.

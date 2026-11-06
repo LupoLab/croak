@@ -28,8 +28,8 @@ from ..plotting.screen import raw_trace_map
 from ..session.pipeline import assemble_load_data
 from .base import Stage
 from .controls import check, combo, group
-from .retrieval_views import ViewPanel
 from .state import PreprocParams
+from .view_panel import ViewPanel
 from .widgets import SciSpinBox
 
 _LAM_UNITS = ["nm", "µm", "m"]

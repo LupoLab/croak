@@ -37,6 +37,9 @@ __all__ = [
 _log = logging.getLogger(__name__)
 
 ASSETS = Path(__file__).parent / "assets"
+
+NOTICE_MS = 20_000
+"""How long a passing notice stays in the status bar, ms."""
 """Where the fonts and the drawn assets live."""
 
 FONT_FAMILY = "IBM Plex Sans"

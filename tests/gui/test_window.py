@@ -275,6 +275,17 @@ def test_window_about_opens_with_or_without_a_session(window, route):
     assert window.go(Stage.DATA)
 
 
+def test_window_exports_the_page_on_screen_as_a_figure(window, monkeypatch):
+    assert not window.actions_["figure"].isEnabled()  # Home has no figure
+    assert window.export_figure() == ""
+    window.new_session("synthetic")
+    assert window.actions_["figure"].isEnabled()
+    page = window.pages[Stage.DATA]
+    monkeypatch.setattr(page, "export_figure", lambda: "data.pdf")
+    assert window.export_figure() == "data.pdf"
+    assert window.actions_["figure"].shortcut().toString() == "Ctrl+E"
+
+
 def test_window_new_session_asks_before_discarding_data(window, monkeypatch):
     window.new_session("experimental")
     window.state.set_load_data({"trace": 1})

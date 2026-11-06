@@ -41,7 +41,7 @@ from .controls import (
     group,
     spin,
 )
-from .retrieval_views import ViewPanel
+from .view_panel import ViewPanel
 from .widgets import RangeControl, SciSpinBox
 from .worker import PreprocessWorker
 
