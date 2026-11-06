@@ -51,7 +51,7 @@ tested without a window.
 | `pages` | `default_pages` (the page factory), `DataPage` (the entry's loader, and a reopened session's restore) and `AnalysePage` (the rail) |
 | `stage` | `PageBase`, the hooks the window reads, and `StagePage`, a page that is a sheet |
 | `base` | `Stage`, the interface the stage modules are written against (`controls`, `set_plot_area`, `set_status`, `advance`), and `RunControls` |
-| `sheet` | the sheet's parts: `Form`, `Section`, `ReadyLine`, `Segments`, `AdviceBox`, `DerivedGrid`, `ProgressStrip` and `Sheet` itself |
+| `sheet` | the sheet's parts: `Form`, `Section`, `ReadyLine`, `Segments`, `AdviceBox`, `DerivedGrid` and `Sheet` itself |
 | `stage_load`, `stage_simulated`, `stage_synthetic` | the three loaders (Data) |
 | `stage_marginal_check`, `stage_preprocess`, `stage_retrieve`, `stage_dispersion`, `stage_uncertainty` | the other stage pages |
 | `view_panel` | `ViewPanel`, a titled plot of one screen view, drawn as the display settings show it, with its right-click menu, and the figure export of a plot or a page (`page_figure`, `export_figure`) |

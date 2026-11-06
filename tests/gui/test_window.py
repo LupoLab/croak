@@ -338,9 +338,6 @@ def test_stage_page_base_hooks_have_defaults(qtbot):
     with pytest.raises(ValueError, match="no 'retrieve' action"):
         page.act("retrieve")
     assert page.show_help() is None  # no help written
-    assert page.derived.isHidden()
-    page.add_derived("FWHM")
-    assert not page.derived.isHidden()
     plots = QWidget()
     page.set_plots(plots)
     assert plots.parent() is not None

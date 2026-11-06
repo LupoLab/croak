@@ -92,7 +92,7 @@ class Palette:
     popup_border: str = "#d7dce2"
     """Popups and dashed placeholders."""
     track: str = "#e8ebee"
-    """Slider grooves and progress tracks."""
+    """Slider grooves and scroll-bar handles."""
     text_selection: str = "#bcdbe8"
     """Selected text in an input."""
     ok: str = "#1c7a4a"
@@ -237,7 +237,7 @@ def stylesheet(p: Palette = PALETTE) -> str:
         f" background: {p.advice_bg}; }}",
         f"QFrame#placeholder {{ border: 1px dashed {p.popup_border};"
         f" border-radius: 8px; background: {p.background}; }}",
-        # sliders and progress
+        # sliders
         f"QSlider::groove:horizontal {{ height: 6px; border-radius: 3px;"
         f" background: {p.track}; }}",
         f"QSlider::sub-page:horizontal {{ border-radius: 3px;"
@@ -246,13 +246,6 @@ def stylesheet(p: Palette = PALETTE) -> str:
         f" border-radius: 8px; background: {p.accent}; }}",
         f"QSlider::sub-page:horizontal:disabled, QSlider::handle:horizontal:disabled"
         f" {{ background: {p.accent_off}; }}",
-        f"QFrame#strip {{ border-bottom: 1px solid {p.hairline};"
-        f" background: {p.background}; }}",
-        f"QProgressBar#progress {{ border: 0; border-radius: 3px;"
-        f" background: {p.track}; min-height: 6px; max-height: 6px;"
-        " color: transparent; }",
-        f"QProgressBar#progress::chunk {{ border-radius: 3px;"
-        f" background: {p.accent}; }}",
         # Analyse
         f"QFrame#rail {{ border-right: 1px solid {p.hairline};"
         f" background: {p.background}; }}",

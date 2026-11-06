@@ -3,8 +3,8 @@
 The window owns the navigation and the one primary action; a page says what it
 can do through a few hooks (:class:`PageBase`) and does it in :meth:`~PageBase.act`.
 Most pages are a :class:`StagePage`: a :class:`~croak.gui.sheet.Sheet` with a form
-of folding sections on the left and, on the right, an advice box, a progress
-strip, the derived numbers and the stage's plots. Pages made of other pages
+of folding sections on the left and, on the right, an advice box over the
+stage's plots. Pages made of other pages
 (Data's loader, Analyse's rail) build on :class:`PageBase` directly.
 """
 
@@ -16,7 +16,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from .help import HelpDialog, HelpSections
-from .sheet import AdviceBox, DerivedGrid, Form, ProgressStrip, Sheet
+from .sheet import AdviceBox, Form, Sheet
 from .state import WizardState
 from .view_panel import export_figure, file_name, page_figure
 
@@ -134,32 +134,17 @@ class StagePage(PageBase):
         super().__init__(state)
         self.form = Form(find=find)
         self.advice = AdviceBox()
-        self.strip = ProgressStrip()
-        self.derived = DerivedGrid()
-        self.derived.hide()  # shown once a page adds a number
         right = QWidget()
         right.setObjectName("page")
-        self.plot_column = QVBoxLayout(right)
-        self.plot_column.setContentsMargins(0, 0, 0, 0)
-        self.plot_column.setSpacing(0)
-        self.plot_column.addWidget(self.strip)
-        body = QWidget()
-        self.body = QVBoxLayout(body)
+        self.body = QVBoxLayout(right)
         self.body.setContentsMargins(16, 12, 16, 12)
         self.body.setSpacing(10)
         self.body.addWidget(self.advice)
-        self.body.addWidget(self.derived)
-        self.plot_column.addWidget(body, stretch=1)
         self.sheet = Sheet(self.form, right)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.sheet)
 
-    def add_derived(self, name: str, tooltip: str = "") -> None:
-        """Add a derived number above the plots (shown as an en dash until set)."""
-        self.derived.add(name, tooltip)
-        self.derived.show()
-
     def set_plots(self, plots: QWidget) -> None:
-        """Put the stage's plots under its derived numbers; they take the room."""
+        """Put the stage's plots under its advice box; they take the room."""
         self.body.addWidget(plots, stretch=1)

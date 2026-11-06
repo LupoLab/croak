@@ -149,10 +149,8 @@ These are known gaps, kept out of the redesign to keep it reviewable:
 - **A dark theme.** The style sheet is built from one `Palette`, so a dark one
   would be a second instance, but the plots' white background and colour maps
   would need choosing too.
-- **The unused sheet parts.** `sheet.ProgressStrip` (state, bar and figures
-  over the plots while work runs) is built but no stage uses it yet; a run's
-  progress is on the ready line and Retrieve's numbers. `DerivedGrid` holds
-  only Retrieve's numbers so far. `AdviceBox` so far carries one piece of advice: Prepare's, when
+- **Few derived numbers.** `sheet.DerivedGrid` holds only Retrieve's numbers so
+  far; a run's progress is on the ready line and those numbers. `AdviceBox` so far carries one piece of advice: Prepare's, when
   the λ grid clips the trace.
 - **The stage pages' interface.** The stage modules still build through
   `base.Stage`, which keeps the calls they were written against for the old

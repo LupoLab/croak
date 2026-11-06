@@ -8,7 +8,6 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import (
     QCheckBox,
-    QLabel,
     QLineEdit,
     QScrollArea,
     QSpinBox,
@@ -22,7 +21,6 @@ from croak.gui.sheet import (
     AdviceBox,
     DerivedGrid,
     Form,
-    ProgressStrip,
     ReadyLine,
     Section,
     Segments,
@@ -240,18 +238,6 @@ def test_sheet_segments_choose_one_value(qtbot):
         seg.set_value("time")
     with pytest.raises(ValueError, match="not one of"):
         Segments([("a", "A")], "b")
-
-
-def test_sheet_progress_strip_clamps_its_bar(qtbot):
-    strip = ProgressStrip()
-    qtbot.addWidget(strip)
-    assert strip.isHidden()
-    strip.add_end(QLabel("sparkline"))
-    strip.show_progress("Retrieving", 1.7, "iteration 10")
-    assert strip.bar.value() == 1000 and not strip.isHidden()
-    strip.show_progress("Retrieving", -1.0, "")
-    assert strip.bar.value() == 0
-    assert strip.state.text() == "Retrieving"
 
 
 def test_sheet_combo_boxes_shrink_to_the_column(qtbot):

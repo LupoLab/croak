@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -45,7 +44,6 @@ __all__ = [
     "AdviceBox",
     "DerivedGrid",
     "Form",
-    "ProgressStrip",
     "ReadyLine",
     "Section",
     "Segments",
@@ -488,35 +486,3 @@ class Segments(QFrame):
             set_flag(b, "current", key == value)
         if emit and changed:
             self.changed.emit(value)
-
-
-class ProgressStrip(QFrame):
-    """A thin strip over the plots while work runs: state, bar and figures."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.setObjectName("strip")
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 8, 16, 8)
-        layout.setSpacing(14)
-        self.state = label("", "h3")
-        self.bar = QProgressBar()
-        self.bar.setObjectName("progress")
-        self.bar.setTextVisible(False)
-        self.bar.setRange(0, 1000)
-        self.figures = label("", "note")
-        layout.addWidget(self.state)
-        layout.addWidget(self.bar, stretch=1)
-        layout.addWidget(self.figures)
-        self.hide()
-
-    def add_end(self, widget: QWidget) -> None:
-        """Add a widget at the strip's right end (a sparkline, a lamp, …)."""
-        self.layout().addWidget(widget)  # pyright: ignore[reportOptionalMemberAccess]
-
-    def show_progress(self, state: str, fraction: float, figures: str) -> None:
-        """Show ``state``, a bar at ``fraction`` (clamped to [0, 1]) and ``figures``."""
-        self.state.setText(state)
-        self.bar.setValue(round(1000 * min(max(fraction, 0.0), 1.0)))
-        self.figures.setText(figures)
-        self.show()
