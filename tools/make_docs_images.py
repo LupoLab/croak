@@ -181,7 +181,7 @@ def make_gui_screenshots(folder: Path) -> list[Path]:
     """Drive the window through a synthetic retrieval and grab three views.
 
     Follows the route a user takes: Home, a synthetic trace (Continue generates
-    it and checks its marginal, Continue again prepares it), then Retrieve. A
+    it and opens Check, Continue again prepares it), then Retrieve. A
     synthetic session is used deliberately — it carries the known ground truth,
     so the read-out's ``truth`` row is populated and the plots gain the truth
     overlay.
@@ -198,7 +198,7 @@ def make_gui_screenshots(folder: Path) -> list[Path]:
     paths = [_grab(window, folder / "gui_home.png")]
 
     window.new_session("synthetic")
-    window.do_primary()  # generate the trace -> the marginal check
+    window.do_primary()  # generate the trace -> Check
     # Widen the spectral window and lengthen the time range before preparing.
     # The seeded defaults regrid onto only 24 frequency points (dt = 10.5 fs),
     # which is too coarse to represent a 10 fs pulse: the retrieval still reaches
