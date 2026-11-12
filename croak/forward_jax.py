@@ -133,7 +133,7 @@ def _smear_scale_pair(smear_scale) -> tuple[jnp.ndarray, jnp.ndarray]:
 
 
 def _static_props(material, omega, omega0, thickness, npoints, quadrature):
-    """``(input_prop, signal_prop, weights)`` for a fixed medium, as ForwardModel.
+    """``(input_prop, gate_prop, signal_prop, weights)`` for a fixed medium.
 
     Propagation phase matrices ``(N, Q)`` in DFT-bin order: the field travels to
     depth ``z_q``, the signal born there the rest of the path, which in a tilted
@@ -144,11 +144,11 @@ def _static_props(material, omega, omega0, thickness, npoints, quadrature):
     beta_in = np.fft.ifftshift(prop.beta_in)
     beta_sig = np.fft.ifftshift(prop.beta_sig)
     sig_amp = np.fft.ifftshift(prop.sig_amp)
-    input_prop = np.exp(1j * np.outer(beta_in, nodes))
+    input_prop, gate_prop = prop.arm_props(beta_in, np.fft.ifftshift(omega), nodes)
     signal_prop = sig_amp[:, None] * np.exp(
         1j * np.outer(beta_sig, prop.path_length - nodes)
     )
-    return input_prop, signal_prop, weights
+    return input_prop, gate_prop, signal_prop, weights
 
 
 class _SignalConstants:
@@ -164,6 +164,7 @@ class _SignalConstants:
         "n",
         "omega_bin",
         "input_prop",
+        "gate_prop",
         "signal_prop",
         "weights",
         "signal_map",
@@ -180,7 +181,7 @@ class _SignalConstants:
             inter, material, float(thickness), npoints, omega, omega0, quadrature
         )
         omega_bin = np.fft.ifftshift(omega)
-        input_prop, signal_prop, weights = _static_props(
+        input_prop, gate_prop, signal_prop, weights = _static_props(
             material, omega, omega0, float(thickness), npoints, quadrature
         )
 
@@ -188,6 +189,7 @@ class _SignalConstants:
         self.n = int(omega.size)
         self.omega_bin = jnp.asarray(omega_bin)
         self.input_prop = jnp.asarray(input_prop)
+        self.gate_prop = jnp.asarray(gate_prop)
         self.signal_prop = jnp.asarray(signal_prop)
         self.weights = jnp.asarray(weights)
         self.signal_map = _JAX_INTERACTIONS[inter.name]
@@ -208,7 +210,7 @@ def _signal_with_tape(
     phase = jnp.exp(1j * c.omega_bin * tau)
     # (N, Q) propagated input spectra for the test (undelayed) and gate (delayed)
     e0 = ew_bin[:, None] * c.input_prop
-    etau = (ew_bin * phase)[:, None] * c.input_prop
+    etau = (ew_bin * phase)[:, None] * c.gate_prop
     test = jnp.fft.fft(e0, axis=0)
     gate = jnp.fft.fft(etau, axis=0)
     sig = c.signal_map(test, gate)
@@ -241,7 +243,7 @@ def _adjoint(
     phase = jnp.exp(1j * c.omega_bin * tau)
     ew_bar_bin = (
         jnp.conj(c.input_prop) * e0_bar
-        + jnp.conj(phase[:, None] * c.input_prop) * etau_bar
+        + jnp.conj(phase[:, None] * c.gate_prop) * etau_bar
     ).sum(axis=1)
     return jnp.fft.fftshift(ew_bar_bin)
 
@@ -816,16 +818,21 @@ def make_param_trace_fn(
             weights = thk * w_hat
             return input_prop, signal_prop, weights if dw is None else weights * dw
 
+        def gate_props(thk: jnp.ndarray | float, input_prop: jnp.ndarray):
+            """Gate arm's propagator: the test arm's, for an isotropic slab."""
+            return input_prop
+
         def depth_remaining(thk: jnp.ndarray | float) -> jnp.ndarray:
             """Remaining slab ``L - z_q`` per depth node, differentiable in ``L``."""
             return thk * (1.0 - xi)
     else:
         # Thickness held fixed: bake the propagation matrices once, exactly as the
         # standard forward model (handles the thin single-node case).
-        input_np, signal_np, weights0 = _static_props(
+        input_np, gate_np, signal_np, weights0 = _static_props(
             material, omega, omega0, float(thickness), npoints, quadrature
         )
         input_prop_c = jnp.asarray(input_np)
+        gate_prop_c = jnp.asarray(gate_np)
         signal_prop_c = jnp.asarray(signal_np)
         weights_c = jnp.asarray(weights0) if dw is None else jnp.asarray(weights0) * dw
         # depth_transverse only (refused for a crystal), so the path is the plate
@@ -834,6 +841,10 @@ def make_param_trace_fn(
 
         def props(thk: jnp.ndarray | float):
             return input_prop_c, signal_prop_c, weights_c
+
+        def gate_props(thk: jnp.ndarray | float, input_prop: jnp.ndarray):
+            """Gate arm's propagator (differs for a crystal's arm drift)."""
+            return gate_prop_c
 
         def depth_remaining(thk: jnp.ndarray | float) -> jnp.ndarray:
             """Remaining slab ``L - z_q`` per depth node (thickness held fixed)."""
@@ -844,7 +855,7 @@ def make_param_trace_fn(
         phase = jnp.exp(1j * omega_bin * (tau - tau0_v))
         input_prop, signal_prop, weights = props(thickness_v)
         e0 = ew_bin[:, None] * input_prop
-        etau = (ew_bin * phase)[:, None] * input_prop
+        etau = (ew_bin * phase)[:, None] * gate_props(thickness_v, input_prop)
         test = jnp.fft.fft(e0, axis=0)
         gate = jnp.fft.fft(etau, axis=0)
         sig = signal_map(test, gate)

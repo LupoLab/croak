@@ -270,48 +270,60 @@ def test_depth_points_subsample_a_fine_grid():
     )
 
 
-# -- the neglected signal tilt ----------------------------------------------------
-def test_tilt_phase_error_vanishes_out_of_the_principal_plane():
+# -- the arms' delay drift --------------------------------------------------------
+def test_arm_shift_is_the_first_order_tilt_rate():
+    # kappa = (n_e'/n_s) sin(alpha) / c at the signal carrier, signed by the side of
+    # the delayed beam; independent of omega_s (it cancels).
     geometry = TwoBeamGeometry(5e-3, 0.1)
-    parallel = _tuned(geometry=geometry, polarization="parallel")
-    assert crystals.tilt_phase_error(parallel, GRID.omega, W0, 100e-6) == 0.0
-    assert crystals.tilt_phase_error(_tuned(), GRID.omega, W0, 100e-6) == 0.0
-    perpendicular = _tuned(geometry=geometry, polarization="perpendicular")
-    assert crystals.tilt_phase_error(perpendicular, GRID.omega, W0, 0.0) == 0.0
-
-
-def test_tilt_phase_error_scales_with_thickness_and_angle():
-    def error(separation, thickness):
-        setup = _tuned(
-            geometry=TwoBeamGeometry(separation, 0.1), polarization="perpendicular"
-        )
-        return crystals.tilt_phase_error(setup, GRID.omega, W0, thickness)
-
-    base = error(3.5e-3, 10e-6)  # ~1 degree half-angle
-    assert base > 0.0
-    assert error(3.5e-3, 100e-6) == pytest.approx(10 * base, rel=1e-3)
-    # linear in sin(alpha) (to the ~1e-3 the solved angle and path move with alpha)
-    assert error(7.0e-3, 10e-6) == pytest.approx(2 * base, rel=2e-2)
-
-
-def test_tilt_phase_error_matches_a_direct_estimate():
-    # One pair, by hand: the grid's extreme pair dominates.
-    geometry = TwoBeamGeometry(3.5e-3, 0.1)
-    setup = _tuned(geometry=geometry, polarization="perpendicular")
-    estimate = crystals.tilt_phase_error(setup, GRID.omega, W0, 100e-6)
-    theta = setup.internal_angle(W0)
-    alpha = geometry.crossing_half_angle
-    half = float(np.max(np.abs(GRID.omega)))
-    w1, w2 = W0 + half, W0 - half  # the widest pair still on the signal grid
-    ws = w1 + w2
-    lam = wlfreq(ws)
-    n_o, n_e = BBO.n_o(np.array([lam])), BBO.n_e(np.array([lam]))
+    toward = _tuned(
+        geometry=geometry, polarization="perpendicular", delayed_beam="toward_axis"
+    )
+    away = _tuned(
+        geometry=geometry, polarization="perpendicular", delayed_beam="away_from_axis"
+    )
+    theta = toward.internal_angle(W0)
+    lam = np.array([400e-9])
+    n_o, n_e = BBO.n_o(lam), BBO.n_e(lam)
     n_s = crystals.extraordinary_index(n_o, n_e, theta)[0]
-    dn = crystals._dn_dtheta(n_o, n_e, theta)[0]
-    by_hand = ws / C * abs(dn) * (w1 - w2) * math.sin(alpha) / (ws * n_s) * 50e-6
-    by_hand /= math.cos(setup.internal_tilt(W0))
-    # the subsampled pair grid reaches the extreme pair to within a grid step
-    assert estimate == pytest.approx(by_hand, rel=2e-2)
+    expected = (
+        crystals._dn_dtheta(n_o, n_e, theta)[0]
+        / n_s
+        * math.sin(geometry.crossing_half_angle)
+        / C
+    )
+    assert toward.arm_shift(W0) == pytest.approx(expected, rel=1e-12)
+    assert away.arm_shift(W0) == -toward.arm_shift(W0)
+    # BBO at 800 nm, 1.43 degrees: -0.567 fs per 100 um (the explainer's number)
+    assert toward.arm_shift(W0) * 100e-6 == pytest.approx(-0.567e-15, abs=0.001e-15)
+
+
+def test_arm_shift_vanishes_out_of_the_principal_plane():
+    geometry = TwoBeamGeometry(5e-3, 0.1)
+    assert _tuned(geometry=geometry, polarization="parallel").arm_shift(W0) == 0.0
+    assert _tuned().arm_shift(W0) == 0.0
+
+
+@pytest.mark.parametrize("delayed_beam", [None, "upstream"])
+def test_principal_plane_needs_the_delayed_beam_side(delayed_beam):
+    with pytest.raises(ValueError, match="delayed_beam"):
+        _tuned(
+            geometry=TwoBeamGeometry(5e-3, 0.1),
+            polarization="perpendicular",
+            delayed_beam=delayed_beam,
+        )
+
+
+def test_signal_direction_solves_the_self_consistent_equation():
+    # k0 n_e(theta + psi) sin(psi) = k_x, to rounding, for a spread of k_x.
+    theta = 0.51
+    lam = np.array([400e-9])
+    n_o, n_e = BBO.n_o(lam), BBO.n_e(lam)
+    n_s = float(crystals.extraordinary_index(n_o, n_e, theta)[0])
+    k0 = 2 * W0 / C
+    k_x = np.linspace(-0.01, 0.01, 11) * k0 * n_s
+    psi = crystals._signal_direction(n_o, n_e, theta, k0, k_x, n_s)
+    residual = k0 * crystals.extraordinary_index(n_o, n_e, theta + psi) * np.sin(psi)
+    np.testing.assert_allclose(residual, k_x, rtol=0, atol=1e-9 * k0)
 
 
 def test_crossing_wavevector_matches_internal_refraction():

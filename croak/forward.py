@@ -182,7 +182,12 @@ class ForwardModel:
 
         # Propagation phase matrices, shape (N, Q), in DFT-bin order: the field
         # travels to depth z_q, the signal born there travels the rest of the path.
-        self.input_prop = np.exp(1j * np.outer(beta_in_bin, nodes))
+        # The two arms differ only for a crystal crossed in its principal plane,
+        # where their delays drift apart with depth (crystals.CrystalSetup.arm_shift);
+        # otherwise gate_prop is input_prop.
+        self.input_prop, self.gate_prop = prop.arm_props(
+            beta_in_bin, self.omega_bin, nodes
+        )
         self.signal_prop = sig_amp_bin[:, None] * np.exp(
             1j * np.outer(beta_sig_bin, self.path_length - nodes)
         )
@@ -229,7 +234,7 @@ class ForwardModel:
         phase = np.exp(1j * self.omega_bin * tau)
         # (N, Q) propagated input spectra for test (undelayed) and gate (delayed)
         e0 = ew_bin[:, None] * self.input_prop
-        etau = (ew_bin * phase)[:, None] * self.input_prop
+        etau = (ew_bin * phase)[:, None] * self.gate_prop
         test = _fft0(e0)
         gate = _fft0(etau)
         sig = self.interaction.signal(test, gate)
@@ -366,7 +371,7 @@ class ForwardModel:
         phase = np.exp(1j * self.omega_bin * tau)
         ew_bar_bin = (
             np.conj(self.input_prop) * e0_bar
-            + np.conj(phase[:, None] * self.input_prop) * etau_bar
+            + np.conj(phase[:, None] * self.gate_prop) * etau_bar
         ).sum(axis=1)
         return scipy.fft.fftshift(ew_bar_bin)
 

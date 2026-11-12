@@ -77,7 +77,9 @@ def _pair_sum(setup, thickness, ew, tau, beta_sig_pair=None):
     psi = np.zeros(n, dtype=complex)
     for k in range(n):
         m = (k - j) % n
-        bs = b_sig[k] if beta_sig_pair is None else beta_sig_pair(j, m, k)
+        # the model: the signal along the bisector, plus the arms' delay drift
+        model = b_sig[k] + prop.arm_shift * (w[j] - w[m])
+        bs = model if beta_sig_pair is None else beta_sig_pair(j, m, k)
         a = b_in[j] + b_in[m] - bs
         h = np.exp(1j * bs * path) * _depth_integral(a, path)
         psi[k] = amp[k] * np.sum(e[j] * e_tau[m] * h)
@@ -85,10 +87,20 @@ def _pair_sum(setup, thickness, ew, tau, beta_sig_pair=None):
 
 
 # -- agreement with the exact pair sum ------------------------------------------
+# The geometries: out of the principal plane, and in it with the arms' delay drift.
+GEOMETRIES = {
+    "parallel": dict(geometry=GEOMETRY, polarization="parallel"),
+    "principal": dict(
+        geometry=GEOMETRY, polarization="perpendicular", delayed_beam="toward_axis"
+    ),
+}
+
+
+@pytest.mark.parametrize("plane", GEOMETRIES)
 @pytest.mark.parametrize("thickness", [10e-6, 100e-6])
 @pytest.mark.parametrize("tau", [-15e-15, 0.0, 8e-15])
-def test_signal_matches_the_exact_pair_sum(thickness, tau):
-    setup = _setup(geometry=GEOMETRY, polarization="parallel")
+def test_signal_matches_the_exact_pair_sum(thickness, tau, plane):
+    setup = _setup(**GEOMETRIES[plane])
     ew = _pulse(GRID)
     model = _model(setup, thickness, np.array([tau]))
     psi = model.signal_single(ew, tau)
@@ -174,66 +186,91 @@ def _tilted_signal(setup, thickness):
         ws = w[k] + 2 * W0
         lam = 2 * np.pi * C / ws
         n_o, n_e = BBO.n_o(np.array([lam])), BBO.n_e(np.array([lam]))
-        n_s = crystals.extraordinary_index(n_o, n_e, theta)[0]
-        dtheta = (w1 - w2) * sin_a / (ws * n_s)
-        n_tilted = crystals.extraordinary_index(n_o, n_e, theta + dtheta)
-        k_x = (w1 - w2) * sin_a / C
-        k_mag = ws / C * n_tilted
-        return np.sqrt(k_mag**2 - k_x**2) - beta1 * w[k]
+        k0 = ws / C
+        sign = 1.0 if setup.delayed_beam == "toward_axis" else -1.0
+        k_x = sign * (w1 - w2) * sin_a / C
+
+        # Self-consistent direction psi: k0 n_e(theta + psi) sin(psi) = k_x, solved
+        # by bisection over +-10 mrad (independently of the library's Newton).
+        def f(p):
+            return (
+                k0 * crystals.extraordinary_index(n_o, n_e, theta + p) * np.sin(p) - k_x
+            )
+
+        lo, hi = np.full_like(k_x, -1e-2), np.full_like(k_x, 1e-2)
+        for _ in range(60):
+            mid = 0.5 * (lo + hi)
+            below = f(mid) < 0
+            lo, hi = np.where(below, mid, lo), np.where(below, hi, mid)
+        psi = 0.5 * (lo + hi)
+        n_psi = crystals.extraordinary_index(n_o, n_e, theta + psi)
+        return k0 * n_psi * np.cos(psi) - beta1 * w[k]
 
     return beta_sig_pair
 
 
-def _band(ew):
-    """The pulse's band (absolute rad/s), where its spectrum exceeds 1e-3 of peak."""
-    return crystals.spectral_band(GRID.omega + W0, np.abs(ew) ** 2)
-
-
-def test_the_tilt_estimate_over_the_band_bounds_the_neglected_term():
-    thickness = 100e-6
-    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
-    ew = _pulse(GRID)
-    band = _band(ew)
-    estimate = crystals.tilt_phase_error(setup, GRID.omega, W0, thickness, band)
-    whole_grid = crystals.tilt_phase_error(setup, GRID.omega, W0, thickness)
-    cheap = _pair_sum(setup, thickness, ew, 0.0)
-    exact = _pair_sum(setup, thickness, ew, 0.0, _tilted_signal(setup, thickness))
-    error = np.max(np.abs(cheap - exact)) / np.max(np.abs(exact))
-    # A phase error phi changes a pair's term by at most |exp(i phi) - 1| ~ phi, so
-    # the band's worst pair bounds the field's error; the whole grid's worst pair,
-    # at edges without light, overstates it far more.
-    assert 0.0 < error < estimate < whole_grid
-
-
 DELAYS = np.linspace(-24e-15, 24e-15, 9)
+PRINCIPAL = dict(geometry=GEOMETRY, polarization="perpendicular")
 
 
-def test_tilt_field_error_is_the_pair_sum_difference():
-    # The library's estimate against this module's own tilted reference.
-    thickness = 100e-6
-    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
-    amp = np.abs(_pulse(GRID, gdd=0.0))
-    tilted = _tilted_signal(setup, thickness)
+def _worst(setup, thickness, amp, beta_sig_pair):
+    """Largest |model - reference| over DELAYS, relative to the reference's peak."""
+    reference = _tilted_signal(setup, thickness)
     pairs = [
         (
-            _pair_sum(setup, thickness, amp, t),
-            _pair_sum(setup, thickness, amp, t, tilted),
+            _pair_sum(setup, thickness, amp, t, beta_sig_pair),
+            _pair_sum(setup, thickness, amp, t, reference),
         )
         for t in DELAYS
     ]
     worst = max(np.max(np.abs(a - b)) for a, b in pairs)
-    peak = max(np.max(np.abs(b)) for _, b in pairs)
-    error = crystals.tilt_field_error(setup, GRID.omega, W0, thickness, amp, DELAYS)
-    assert error == pytest.approx(worst / peak, rel=1e-9)
+    return worst / max(np.max(np.abs(b)) for _, b in pairs)
 
 
-def test_tilt_field_error_is_far_larger_away_from_zero_delay():
-    # At zero delay the first-order term cancels between (w1, w2) and (w2, w1).
-    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
+@pytest.mark.parametrize("side", ["toward_axis", "away_from_axis"])
+def test_arm_drift_captures_the_signal_tilt(side):
+    # 12 fs in 100 um crossing at 1.43 degrees in the principal plane. Against each
+    # pair's signal in its own self-consistent direction: with the arms' drift the
+    # model is within 0.1 % (the residual is second order in the tilt); without it,
+    # about 5 % off.
+    setup = _setup(**PRINCIPAL, delayed_beam=side)
     amp = np.abs(_pulse(GRID, gdd=0.0))
-    at_zero = crystals.tilt_field_error(setup, GRID.omega, W0, 100e-6, amp, [0.0])
-    scanned = crystals.tilt_field_error(setup, GRID.omega, W0, 100e-6, amp, DELAYS)
-    assert scanned > 5 * at_zero
+    with_drift = _worst(setup, 100e-6, amp, None)
+    prop = crystals.propagation(setup, GRID.omega, W0, 100e-6)
+    b_sig = scipy.fft.ifftshift(prop.beta_sig)
+    without = _worst(setup, 100e-6, amp, lambda j, m, k: b_sig[k])
+    assert with_drift < 1e-3
+    assert without > 0.03
+
+
+def test_the_wrong_side_is_the_delay_mirror():
+    # Flipping the side is the same as mirroring the delay axis (swapping the arms
+    # of SHG), to quadrature accuracy; the two sides differ, so the data can tell.
+    delays = np.linspace(-30e-15, 30e-15, 13)
+    ew = _pulse(GRID, fwhm=8e-15, gdd=40e-30)
+    toward = _model(_setup(**PRINCIPAL, delayed_beam="toward_axis"), 100e-6, delays)
+    away = _model(_setup(**PRINCIPAL, delayed_beam="away_from_axis"), 100e-6, delays)
+    a = toward.trace(ew, normalize=False)
+    b = away.trace(ew, normalize=False)
+    # The discrete grid is not exactly symmetric (an even N runs from -N/2 to N/2-1),
+    # so even a trace without the drift departs from its mirror at the grid edges;
+    # the side flip must match the mirror to that same level, here about 5e-5.
+    plain = _model(_setup(geometry=GEOMETRY, polarization="parallel"), 100e-6, delays)
+    c = plain.trace(ew, normalize=False)
+    grid_asymmetry = np.max(np.abs(c - c[:, ::-1])) / c.max()
+    assert np.max(np.abs(a - b[:, ::-1])) / a.max() < 2 * grid_asymmetry
+    assert np.max(np.abs(a - b)) > 0.03 * a.max()
+
+
+def test_tilt_field_error_is_the_pair_sum_difference():
+    # The library's residual estimate against this module's own reference.
+    setup = _setup(**PRINCIPAL, delayed_beam="toward_axis")
+    amp = np.abs(_pulse(GRID, gdd=0.0))
+    expected = _worst(setup, 100e-6, amp, None)
+    error = crystals.tilt_field_error(setup, GRID.omega, W0, 100e-6, amp, DELAYS)
+    # two independent root solves (Newton here, bisection in the test) agree to
+    # about 1e-15 rad; the differences they leave are far below the residual
+    assert error == pytest.approx(expected, rel=1e-6)
 
 
 def test_tilt_field_error_vanishes_out_of_the_principal_plane():
@@ -245,32 +282,25 @@ def test_tilt_field_error_vanishes_out_of_the_principal_plane():
 
 
 def test_check_tilt_warns_above_one_percent():
-    # 12 fs in 100 um at a 1.43 degree crossing: about 5 % (first order, off zero
-    # delay).
-    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
-    amp = np.abs(_pulse(GRID, gdd=0.0))
-    with pytest.warns(CrystalApproximationWarning, match="neglects the signal's tilt"):
-        error = crystals.check_tilt(setup, GRID.omega, W0, 100e-6, amp, DELAYS)
+    # A 5 fs pulse, 300 um, crossing at 2.86 degrees: the second-order residual
+    # reaches about 3 %.
+    setup = _setup(
+        geometry=TwoBeamGeometry(beam_separation=10e-3, focal_length=0.1),
+        polarization="perpendicular",
+        delayed_beam="toward_axis",
+    )
+    amp = np.abs(_pulse(GRID, fwhm=5e-15, gdd=0.0))
+    with pytest.warns(CrystalApproximationWarning, match="first order only"):
+        error = crystals.check_tilt(setup, GRID.omega, W0, 300e-6, amp, DELAYS)
     assert error > crystals.TILT_ERROR_WARN
 
 
 def test_check_tilt_is_silent_below_one_percent():
-    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
+    setup = _setup(**PRINCIPAL, delayed_beam="toward_axis")
     amp = np.abs(_pulse(GRID, gdd=0.0))
-    assert crystals.check_tilt(setup, GRID.omega, W0, 5e-6, amp, DELAYS) < 0.01
+    assert crystals.check_tilt(setup, GRID.omega, W0, 100e-6, amp, DELAYS) < 0.01
 
 
-def test_a_band_without_pairs_has_no_tilt_error():
-    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
-    assert crystals.tilt_phase_error(setup, GRID.omega, W0, 100e-6, (1.0, 2.0)) == 0.0
-
-
-def test_spectral_band_needs_light():
-    with pytest.raises(ValueError, match="no positive intensity"):
-        crystals.spectral_band([1.0, 2.0], [0.0, 0.0])
-
-
-# -- guards ------------------------------------------------------------------------
 def test_an_isotropic_slab_cannot_model_shg():
     with pytest.raises(ValueError, match="dispersive propagation in an isotropic"):
         ForwardModel(
@@ -284,8 +314,9 @@ def test_a_crystal_models_shg_only():
 
 
 # -- the JAX models -----------------------------------------------------------------
-def test_jax_trace_matches_numpy():
-    setup = _setup(geometry=GEOMETRY, polarization="parallel")
+@pytest.mark.parametrize("plane", GEOMETRIES)
+def test_jax_trace_matches_numpy(plane):
+    setup = _setup(**GEOMETRIES[plane])
     thickness = 50e-6
     ew = _pulse(GRID)
     delays = np.linspace(-20e-15, 20e-15, 7)
@@ -320,9 +351,10 @@ def test_jax_crystal_refuses_slab_only_options(option):
 
 
 # -- the hand-derived adjoint ---------------------------------------------------
-def test_adjoint_matches_finite_differences():
+@pytest.mark.parametrize("plane", GEOMETRIES)
+def test_adjoint_matches_finite_differences(plane):
     rng = np.random.default_rng(11)
-    setup = _setup()
+    setup = _setup(**GEOMETRIES[plane])
     thickness = 50e-6
     ew = _pulse(GRID) + 0.05 * (
         rng.standard_normal(GRID.n) + 1j * rng.standard_normal(GRID.n)
@@ -378,10 +410,13 @@ def test_tilt_field_error_skips_absorbed_signal_frequencies():
         phase_match_wavelength=800e-9,
         geometry=GEOMETRY,
         polarization="perpendicular",
+        delayed_beam="toward_axis",
     )
     amp = np.abs(_pulse(GRID, gdd=0.0))
     full = crystals.tilt_field_error(
-        _setup(geometry=GEOMETRY, polarization="perpendicular"),
+        _setup(
+            geometry=GEOMETRY, polarization="perpendicular", delayed_beam="toward_axis"
+        ),
         GRID.omega,
         W0,
         100e-6,

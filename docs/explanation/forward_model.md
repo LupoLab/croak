@@ -180,19 +180,46 @@ transparency range, and the models refuse fewer nodes. It grows with the grid's
 width: for 100 µm of BBO tuned to 800 nm, about 18 nodes on a 560–1440 nm grid and
 about 50 on a grid twice as wide.
 
-**What is neglected.** Walk-off (the crystal is thin), Type II, and the signal's
-own small tilt: the signal of a pair leaves at
-$\delta\theta \approx (\omega_1-\omega_2)\sin\alpha/(\omega_s n_s)$ to the bisector. When
-the beams cross in the crystal's principal plane (the fundamental polarised
-perpendicular to the crossing plane) this changes $n_e(\theta)$ to first order.
-The extra mismatch is odd in $\omega_1-\omega_2$, so at zero delay its first-order
-effect cancels between the pairs $(\omega_1,\omega_2)$ and $(\omega_2,\omega_1)$; away
-from zero delay it does not. For BBO at 800 nm crossing at 1.4°, it changes the
-signal by about 0.5 % for a 12 fs pulse in 10 µm, 5 % in 100 µm, and 1 % for a 5 fs
-pulse in only 10 µm. {func}`croak.crystals.tilt_field_error` computes this change
-for a given spectrum and set of delays by an exact pair sum, and
-{func}`croak.crystals.check_tilt` warns above 1 %. Polarised in the crossing plane,
-the principal plane is perpendicular to it and the term vanishes.
+**The signal's tilt, and asymmetric SHG traces.** The signal of a pair
+$(\omega_1,\omega_2)$ (test, gate) inherits the transverse wavevector
+$k_x = (\omega_1-\omega_2)\sin\alpha/c$, so it leaves at an angle $\psi$ to the
+bisector. As an extraordinary wave its index depends on that direction, and $\psi$
+solves $(\omega_s/c)\, n_e(\theta+\psi)\sin\psi = k_x$; to first order
+$\psi = c k_x/(\omega_s n_s)$, the self-consistency entering only at second order.
+When the beams cross in the crystal's principal plane (the fundamental polarised
+perpendicular to the crossing plane), the tilt changes the signal's angle to the
+optic axis, so its index changes to first order, by $n_e'\psi$. The extra mismatch
+is $\kappa(\omega_1-\omega_2)$ with $\kappa = (n_e'/n_s)\sin\alpha/c$, and over the
+remaining path it factorises into opposite delays of the two arms,
+$\pm\kappa(P-z)$, that drift apart with depth. The model includes this
+({meth}`~croak.crystals.CrystalSetup.arm_shift`): about 0.57 fs per 100 µm per arm
+for BBO at 800 nm crossing at 1.4°.
+
+Two consequences follow:
+
+- **The trace is not symmetric in delay.** The drift distinguishes the two arms, so
+  $I(\omega,\tau) \ne I(\omega,-\tau)$, unlike the ideal SHG FROG trace. For BBO
+  at 800 nm crossing at 1.4° the term changes the signal by about 0.5 % for a
+  12 fs pulse in 10 µm, 5 % in 100 µm, and 1 % for a 5 fs pulse in 10 µm. At zero
+  delay its first-order effect cancels between the pairs $(\omega_1,\omega_2)$ and
+  $(\omega_2,\omega_1)$, so it shows away from zero delay.
+- **Its sign depends on which beam is nearer the optic axis**
+  (`delayed_beam="toward_axis"` or `"away_from_axis"`), which a real crystal's
+  markings do not reveal: they give the plane of the optic axis and the cut angle,
+  not which way it leans. Flipping the sign gives exactly the trace mirrored in
+  delay, so the data decide it: retrieve with both and keep the better fit. A
+  doubtful delay-axis convention is the same mirror.
+
+What remains is second order in the tilt. {func}`croak.crystals.tilt_field_error`
+computes it for a given spectrum and set of delays, against an exact pair sum with
+each pair's signal in its own self-consistent direction, and
+{func}`croak.crystals.check_tilt` warns above 1 %. It is under 0.3 % for pulses of
+5-12 fs in up to 100 µm at 1.4°. Polarised in the crossing plane, the principal
+plane is perpendicular to the crossing plane and the first-order term vanishes.
+
+**What is neglected.** The beams' spatial walk-off (the crystal is thin), Type II,
+the remainder of the signal tilt above, and the dispersion of the refraction at the
+entrance face.
 
 ```python
 import numpy as np
