@@ -367,3 +367,27 @@ def test_a_tilted_crystal_integrates_over_its_effective_path():
     np.testing.assert_allclose(
         model.signal_single(ew, 5e-15), exact, atol=1e-5 * np.max(np.abs(exact))
     )
+
+
+def test_tilt_field_error_skips_absorbed_signal_frequencies():
+    # Signal bins outside the transparency range carry no signal in either sum.
+    narrow = crystals.UniaxialCrystal("BBO-like", BBO.n_o, BBO.n_e, (380e-9, 1500e-9))
+    setup = CrystalSetup(
+        narrow,
+        math.radians(29.2),
+        phase_match_wavelength=800e-9,
+        geometry=GEOMETRY,
+        polarization="perpendicular",
+    )
+    amp = np.abs(_pulse(GRID, gdd=0.0))
+    full = crystals.tilt_field_error(
+        _setup(geometry=GEOMETRY, polarization="perpendicular"),
+        GRID.omega,
+        W0,
+        100e-6,
+        amp,
+        DELAYS,
+    )
+    error = crystals.tilt_field_error(setup, GRID.omega, W0, 100e-6, amp, DELAYS)
+    # the absorbed bins lie in the far wings, so the error barely moves
+    assert error == pytest.approx(full, rel=0.2)
