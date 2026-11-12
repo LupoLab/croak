@@ -198,6 +198,19 @@ $\tau - 2\kappa(P-z)$. The model includes this
 ({meth}`~croak.crystals.CrystalSetup.arm_shift`): about 0.57 fs per 100 µm per arm
 for BBO at 800 nm crossing at 1.4°.
 
+The same term has a picture in space. The crossing beams' wavefronts make the
+delay between the arms vary across the focal spot, $\tau + 2x\sin\alpha/c$ (the
+gradient behind the geometric delay smearing). The SH, an extraordinary wave,
+carries its energy at the walk-off angle $\rho = -n_e'/n_s$ (68 mrad for BBO), so
+SH made at depth $z$ leaves the crystal displaced sideways by $\rho(P-z)$, at a
+point where the local delay differs by $2\rho\sin\alpha\,(P-z)/c = 2\lvert\kappa\rvert
+(P-z)$. Light from every depth adds coherently at each exit point, each with its own
+effective delay. The spectrometer sees it, though it records only the SH spectrum,
+because the phase depends on $\omega_1-\omega_2$ rather than on $\omega_s$: it
+changes how the pairs that make one signal frequency interfere. Crossing out of the
+principal plane, the SH walks off along the direction in which the delay does not
+vary, and the term vanishes.
+
 Two consequences follow:
 
 - **The trace is not symmetric in delay.** The drift distinguishes the two arms, so
@@ -221,9 +234,13 @@ each pair's signal in its own self-consistent direction, and
 5-12 fs in up to 100 µm at 1.4°. Polarised in the crossing plane, the principal
 plane is perpendicular to the crossing plane and the first-order term vanishes.
 
-**What is neglected.** The beams' spatial walk-off (the crystal is thin), Type II,
-the remainder of the signal tilt above, and the dispersion of the refraction at the
-entrance face.
+**What is neglected.** The SH's walk-off is kept only through its effect on the
+delay (above); its other consequence, the SH beam moving sideways out of the
+fundamentals' overlap, is neglected (the crystal is much thinner than the focal
+spot over the walk-off angle: 6.8 µm of walk-off in 100 µm against a spot of tens
+of µm). The fundamentals are ordinary waves and do not walk off. Also neglected:
+Type II, the remainder of the signal tilt above, and the dispersion of the
+refraction at the entrance face.
 
 ```python
 import numpy as np

@@ -68,15 +68,19 @@ crossing geometry is taken at normal incidence.
 
 Validity
 --------
-* Type I only, fundamentals ordinary; no spatial walk-off of the beams (a thin
-  crystal, full collection).
+* Type I only, fundamentals ordinary (they do not walk off). The SH's walk-off
+  enters only through the arms' delay drift below, its spatial picture; the SH
+  beam's sideways shift out of the fundamentals' overlap is neglected (a crystal
+  much thinner than the spot size over the walk-off angle; full collection).
 * The signal of a pair :math:`(\omega_1,\omega_2)` leaves at a small angle
   :math:`\delta\theta \approx (\omega_1-\omega_2)\sin\alpha/(\omega_s n_s)` to the
   bisector. When the beams cross in the crystal's principal plane (fundamental
   polarisation perpendicular to the crossing plane), that tilt changes
   :math:`n_e(\theta)` to first order. The model keeps that first-order term, as
   opposite delays of the two arms that drift with depth
-  (:meth:`CrystalSetup.arm_shift`), and neglects what is left;
+  (:meth:`CrystalSetup.arm_shift`); in space, it is the SH's walk-off carrying it
+  across the transverse delay gradient of the crossing beams. What is left is
+  neglected;
   :func:`tilt_field_error` computes the remainder's change to a pulse's signal, and
   :func:`check_tilt` warns above :data:`TILT_ERROR_WARN`. When the polarisation
   lies in the crossing plane, the principal plane is perpendicular to it and the
