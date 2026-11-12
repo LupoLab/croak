@@ -8,7 +8,8 @@ distance ``beam_separation`` apart and focuses both with one optic of focal leng
 
 each beam at :math:`\pm\alpha` to their bisector, along which the signal leaves.
 The same :math:`\alpha` sets two effects: the phase mismatch of the crystal (the
-fundamentals' longitudinal wavevector shrinks as :math:`\cos\alpha`; see
+fundamentals' longitudinal wavevector shrinks as the cosine of the refracted,
+internal half-angle; see
 :mod:`croak.crystals`) and the delay smearing across the focal spot. Both read it
 from one :class:`TwoBeamGeometry`, so they can never use different angles.
 """

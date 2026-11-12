@@ -13,6 +13,7 @@ import math
 
 import numpy as np
 import pytest
+import scipy.optimize
 from numpy.polynomial.legendre import leggauss
 
 from croak import crystals
@@ -90,7 +91,7 @@ def test_crossing_raises_the_phase_matching_angle():
 
 
 def test_phase_matching_angle_raises_without_a_solution():
-    # Below ~410 nm BBO cannot phase-match type I SHG (its UV absorption edge).
+    # Below ~410 nm BBO's birefringence cannot cancel its dispersion: no type I SHG.
     with pytest.raises(ValueError, match="cannot phase-match"):
         crystals.phase_matching_angle(BBO, 380e-9)
 
@@ -121,7 +122,45 @@ def test_explicit_tilt_refracts_with_snell():
     gamma_int = math.asin(math.sin(math.radians(10.0)) / n)
     assert setup.internal_angle(W0) == pytest.approx(math.radians(29.0) + gamma_int)
     assert setup.external_tilt(W0) == math.radians(10.0)
-    assert setup.path_length(10e-6, W0) == pytest.approx(10e-6 / math.cos(gamma_int))
+
+
+@pytest.mark.parametrize(
+    ("cut_deg", "tilt_deg", "wavelength"),
+    [(23.2, 10.0, 650e-9), (23.2, 10.0, 600e-9), (29.2, -10.0, 650e-9)],
+)
+def test_effective_path_matches_the_exact_normal_mismatch(
+    cut_deg, tilt_deg, wavelength
+):
+    # Independent reference: a degenerate collinear pair in a plate tilted by
+    # gamma_int. The fundamentals' normal wavevector is 2 k_o cos(gamma_int); the
+    # signal keeps their transverse wavevector k_t = 2 k_o sin(gamma_int) and its
+    # direction psi to the normal solves K(psi) sin(psi) = k_t, with K the
+    # extraordinary wavevector at theta_c + psi; its normal component is
+    # K cos(psi). The phase over the plate is (normal mismatch) * L.
+    setup = CrystalSetup(BBO, math.radians(cut_deg), tilt=math.radians(tilt_deg))
+    gamma_int = setup.internal_tilt(W0)
+    omega = float(wlfreq(wavelength))
+    lam_s = np.array([wavelength / 2])
+    n_o_s, n_e_s = BBO.n_o(lam_s), BBO.n_e(lam_s)
+    k_o = omega / C * float(BBO.n_o(np.array([wavelength]))[0])
+
+    def big_k(psi):
+        n = crystals.extraordinary_index(n_o_s, n_e_s, setup.cut_angle + psi)[0]
+        return 2 * omega / C * n
+
+    k_t = 2 * k_o * math.sin(gamma_int)
+    psi = scipy.optimize.brentq(
+        lambda p: big_k(p) * math.sin(p) - k_t, gamma_int - 0.1, gamma_int + 0.1
+    )
+    exact = (big_k(psi) * math.cos(psi) - 2 * k_o * math.cos(gamma_int)) * 100e-6
+    # the model: the mismatch along the beams over the effective path
+    theta = setup.internal_angle(W0)
+    dk = 2 * omega / C * crystals.extraordinary_index(n_o_s, n_e_s, theta)[0] - 2 * k_o
+    model = dk * setup.path_length(100e-6, W0)
+    # First order in the mismatch (|dk L| ~ 30-55 rad here): the residual is second
+    # order, under 0.3 % (the old L / cos(gamma_int) path was off by about 1 %).
+    assert model == pytest.approx(exact, rel=3e-3)
+    assert dk * 100e-6 / math.cos(gamma_int) != pytest.approx(exact, rel=3e-3)
 
 
 def test_tuned_setup_solves_the_tilt_consistently():
@@ -136,8 +175,8 @@ def test_tuned_setup_solves_the_tilt_consistently():
 
 
 def test_tuning_beyond_total_internal_reflection_raises():
-    # a 0-degree cut tuned to 800 nm needs ~29 degrees inside: n sin(29) > 1? no,
-    # but a 80-degree cut needs ~-51 degrees inside, which no external angle gives.
+    # An 80-degree cut tuned to 800 nm needs about -51 degrees inside, which no
+    # external angle gives (n_o sin(51 degrees) > 1).
     setup = CrystalSetup(BBO, math.radians(80.0), phase_match_wavelength=800e-9)
     with pytest.raises(ValueError, match="total internal reflection"):
         setup.external_tilt(W0)
@@ -273,3 +312,54 @@ def test_tilt_phase_error_matches_a_direct_estimate():
     by_hand /= math.cos(setup.internal_tilt(W0))
     # the subsampled pair grid reaches the extreme pair to within a grid step
     assert estimate == pytest.approx(by_hand, rel=2e-2)
+
+
+def test_crossing_wavevector_matches_internal_refraction():
+    # Independent form: an ordinary beam entering at external angle alpha refracts to
+    # asin(sin(alpha)/n_o) and its component along the bisector is k_o cos of that.
+    alpha = math.radians(2.0)
+    omega = np.array([W0])
+    n_o = float(BBO.n_o(np.array([800e-9]))[0])
+    k_o = W0 / C * n_o
+    expected = k_o * math.cos(math.asin(math.sin(alpha) / n_o))
+    got = crystals._k_fundamental(BBO, omega, math.sin(alpha))[0]
+    assert got == pytest.approx(expected, rel=1e-14)
+
+
+def test_transparency_limits_the_signal_and_the_depth_count():
+    narrow = UniaxialCrystal("BBO-like", BBO.n_o, BBO.n_e, (380e-9, 1500e-9))
+    setup = CrystalSetup(narrow, math.radians(29.2), phase_match_wavelength=800e-9)
+    prop = crystals.propagation(setup, GRID.omega, W0, 50e-6)
+    outside = ~narrow.transparent(GRID.omega + 2 * W0)
+    assert outside.any()
+    assert np.all(prop.sig_amp[outside] == 0.0)
+    assert np.all(prop.beta_sig[outside] == 0.0)
+    # pairs whose signal is absorbed no longer drive the node count
+    wide = crystals.depth_points(_tuned(), GRID.omega, W0, 100e-6)
+    assert crystals.depth_points(setup, GRID.omega, W0, 100e-6) < wide
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "omega0", "match"),
+    [
+        (dict(tilt=0.0), 0.0, "omega0 > 0"),
+        (dict(tilt=math.radians(60.0)), W0, "outside 0-90 degrees"),
+    ],
+)
+def test_setup_rejects_an_invalid_angle_or_carrier(kwargs, omega0, match):
+    setup = CrystalSetup(BBO, math.radians(85.0), **kwargs)
+    with pytest.raises(ValueError, match=match):
+        setup.internal_angle(omega0)
+
+
+@pytest.mark.parametrize(
+    ("thickness", "quadrature", "match"),
+    [(-1e-6, "gausslegendre", "thickness must be >= 0"), (50e-6, "uniform", "Gauss")],
+)
+def test_check_medium_rejects_bad_crystal_inputs(thickness, quadrature, match):
+    from croak.interactions import get_interaction
+
+    with pytest.raises(ValueError, match=match):
+        crystals.check_medium(
+            get_interaction("shg"), _tuned(), thickness, 99, GRID.omega, W0, quadrature
+        )

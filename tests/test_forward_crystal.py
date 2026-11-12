@@ -205,18 +205,59 @@ def test_the_tilt_estimate_over_the_band_bounds_the_neglected_term():
     assert 0.0 < error < estimate < whole_grid
 
 
-def test_check_tilt_warns_above_the_threshold():
+DELAYS = np.linspace(-24e-15, 24e-15, 9)
+
+
+def test_tilt_field_error_is_the_pair_sum_difference():
+    # The library's estimate against this module's own tilted reference.
+    thickness = 100e-6
     setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
-    band = _band(_pulse(GRID, fwhm=5e-15))  # a broad pulse
+    amp = np.abs(_pulse(GRID, gdd=0.0))
+    tilted = _tilted_signal(setup, thickness)
+    pairs = [
+        (
+            _pair_sum(setup, thickness, amp, t),
+            _pair_sum(setup, thickness, amp, t, tilted),
+        )
+        for t in DELAYS
+    ]
+    worst = max(np.max(np.abs(a - b)) for a, b in pairs)
+    peak = max(np.max(np.abs(b)) for _, b in pairs)
+    error = crystals.tilt_field_error(setup, GRID.omega, W0, thickness, amp, DELAYS)
+    assert error == pytest.approx(worst / peak, rel=1e-9)
+
+
+def test_tilt_field_error_is_far_larger_away_from_zero_delay():
+    # At zero delay the first-order term cancels between (w1, w2) and (w2, w1).
+    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
+    amp = np.abs(_pulse(GRID, gdd=0.0))
+    at_zero = crystals.tilt_field_error(setup, GRID.omega, W0, 100e-6, amp, [0.0])
+    scanned = crystals.tilt_field_error(setup, GRID.omega, W0, 100e-6, amp, DELAYS)
+    assert scanned > 5 * at_zero
+
+
+def test_tilt_field_error_vanishes_out_of_the_principal_plane():
+    amp = np.abs(_pulse(GRID))
+    parallel = _setup(geometry=GEOMETRY, polarization="parallel")
+    args = (GRID.omega, W0, 100e-6, amp, DELAYS)
+    assert crystals.tilt_field_error(parallel, *args) == 0.0
+    assert crystals.tilt_field_error(_setup(), *args) == 0.0
+
+
+def test_check_tilt_warns_above_one_percent():
+    # 12 fs in 100 um at a 1.43 degree crossing: about 5 % (first order, off zero
+    # delay).
+    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
+    amp = np.abs(_pulse(GRID, gdd=0.0))
     with pytest.warns(CrystalApproximationWarning, match="neglects the signal's tilt"):
-        error = crystals.check_tilt(setup, GRID.omega, W0, 300e-6, band)
-    assert error > crystals.TILT_PHASE_WARN
+        error = crystals.check_tilt(setup, GRID.omega, W0, 100e-6, amp, DELAYS)
+    assert error > crystals.TILT_ERROR_WARN
 
 
-def test_check_tilt_is_silent_below_the_threshold():
+def test_check_tilt_is_silent_below_one_percent():
     setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
-    band = _band(_pulse(GRID))
-    assert crystals.check_tilt(setup, GRID.omega, W0, 10e-6, band) < 0.1
+    amp = np.abs(_pulse(GRID, gdd=0.0))
+    assert crystals.check_tilt(setup, GRID.omega, W0, 5e-6, amp, DELAYS) < 0.01
 
 
 def test_a_band_without_pairs_has_no_tilt_error():
@@ -311,3 +352,18 @@ def test_adjoint_matches_finite_differences():
         d_im = (loss(ew + 1j * step) - loss(ew - 1j * step)) / (2 * h)
         assert 2 * ew_bar[idx].real == pytest.approx(d_re, rel=1e-6, abs=1e-6)
         assert 2 * ew_bar[idx].imag == pytest.approx(d_im, rel=1e-6, abs=1e-6)
+
+
+def test_a_tilted_crystal_integrates_over_its_effective_path():
+    # A 23.2 degree cut tilted by 10 degrees: the path differs from the plate by
+    # 1.3 %, a few tenths of a radian of the mismatch phase, so quadrature over the
+    # plate instead would miss the pair sum.
+    setup = CrystalSetup(BBO, math.radians(23.2), tilt=math.radians(10.0))
+    thickness = 100e-6
+    assert abs(setup.path_length(thickness, W0) / thickness - 1) > 0.01
+    ew = _pulse(GRID)
+    model = _model(setup, thickness, np.array([5e-15]))
+    exact = _pair_sum(setup, thickness, ew, 5e-15)
+    np.testing.assert_allclose(
+        model.signal_single(ew, 5e-15), exact, atol=1e-5 * np.max(np.abs(exact))
+    )

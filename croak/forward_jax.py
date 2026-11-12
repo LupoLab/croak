@@ -176,7 +176,9 @@ class _SignalConstants:
         inter = get_interaction(interaction)
         omega = np.asarray(omega, dtype=float)
         # Same guard and propagation as ForwardModel (croak.crystals).
-        crystals.check_medium(inter, material, float(thickness), npoints, omega, omega0)
+        crystals.check_medium(
+            inter, material, float(thickness), npoints, omega, omega0, quadrature
+        )
         omega_bin = np.fft.ifftshift(omega)
         input_prop, signal_prop, weights = _static_props(
             material, omega, omega0, float(thickness), npoints, quadrature
@@ -662,7 +664,13 @@ def make_param_trace_fn(
         )
     # Same guard as the forward model: SHG needs a crystal (croak.crystals).
     crystals.check_medium(
-        inter, material, float(thickness), npoints, np.asarray(omega, float), omega0
+        inter,
+        material,
+        float(thickness),
+        npoints,
+        np.asarray(omega, float),
+        omega0,
+        quadrature,
     )
     # The paths below that build on a single propagation constant (thickness
     # fitting, the focal mixture, depth_transverse) take the isotropic slab only.

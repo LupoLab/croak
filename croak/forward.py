@@ -157,7 +157,13 @@ class ForwardModel:
         # An SHG signal lives near 2ω0, so it needs its own propagation constant:
         # only a crystal supplies one (croak.crystals). PG/SD share the material's.
         crystals.check_medium(
-            self.interaction, material, self.thickness, npoints, self.omega, omega0
+            self.interaction,
+            material,
+            self.thickness,
+            npoints,
+            self.omega,
+            omega0,
+            quadrature,
         )
         prop = crystals.propagation(material, self.omega, omega0, self.thickness)
         self.path_length = prop.path_length

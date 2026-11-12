@@ -138,9 +138,11 @@ carries $e^{-i\Delta k\,z}$ with the exact mismatch
 $\Delta k = k_s(\omega_1+\omega_2) - k_z(\omega_1) - k_z(\omega_2)$: the frame terms
 add up to $-\beta_1\Omega_s L$, independent of $z$, a linear spectral phase the
 trace cannot see. The depth sum turns this into the pair's phase-matching
-response, $L\,\mathrm{sinc}(\Delta k L/2)$ in amplitude. Over a full period of
-delays the frequency marginal is therefore the sum over pairs of
-$\lvert E(\omega_1)E(\omega_2)\rvert^2 L^2\mathrm{sinc}^2(\Delta k L/2)$, which
+response, $P\,\mathrm{sinc}(\Delta k P/2)$ in amplitude over the path $P$ (the
+plate thickness $L$ without a tilt; see below). Over a full period of delays the
+frequency marginal is therefore the sum over pairs of
+$a^2\lvert E(\omega_1)E(\omega_2)\rvert^2 P^2\mathrm{sinc}^2(\Delta k P/2)$, with
+$a$ the generation prefactor below, which
 `tests/test_forward_crystal.py` checks to the quadrature's accuracy.
 
 **Generation prefactor.** The generated second-harmonic field grows as
@@ -154,26 +156,43 @@ matter.
 manufacturer's cut angle $\theta_c$ and either the external tilt $\gamma$ or the
 wavelength the crystal was tuned to phase-match, the usual case when it was rotated
 for the strongest signal. The beams refract to $\gamma_\mathrm{int} =
-\arcsin(\sin\gamma/n_o)$, so $\theta = \theta_c + \gamma_\mathrm{int}$ and the path
-is $L/\cos\gamma_\mathrm{int}$. Nothing is derived from the retrieval grid. The
+\arcsin(\sin\gamma/n_o)$, so $\theta = \theta_c + \gamma_\mathrm{int}$. In the tilted
+plate the mismatch builds up along the face normal. The fundamentals' normal
+wavevectors are $k\cos\gamma_\mathrm{int}$; the signal keeps their transverse
+wavevector, so its direction $\psi$ solves $K(\psi)\sin\psi = k_t$ with
+$K = k_s(\theta_c+\psi)$. Expanding about $\psi = \gamma_\mathrm{int}$ to first
+order in the mismatch $\Delta k$ gives a normal mismatch
+$\Delta k/(\cos\gamma_\mathrm{int} + (n_e'/n_e)\sin\gamma_\mathrm{int})$, so the model
+integrates over the effective path
+$P = L/(\cos\gamma_\mathrm{int} + (n_e'/n_e)\sin\gamma_\mathrm{int})$, with
+$n_e' = \mathrm dn_e/\mathrm d\theta$ at the signal carrier. A test checks it against
+the exact solve (agreement within 0.3 % of $\Delta k L$ at a 10° tilt, where
+$L/\cos\gamma_\mathrm{int}$ is about 1 % off). Nothing is derived from the
+retrieval grid. The
 crossing angle comes from a {class}`~croak.geometry.TwoBeamGeometry` (beam
 separation and focal length), the one place it is set.
 
 **Depth resolution.** Each pair's depth integrand oscillates through
 $\Delta k L$ rad. Gauss–Legendre integrates it to $10^{-6}$ of $L$ with
 $\lceil\lvert\Delta k\rvert L/2\rceil + 3$ nodes; {func}`croak.crystals.depth_points`
-takes the maximum over every pair of grid frequencies, and the models refuse fewer
-nodes. For a 100 µm BBO crystal and an 800 nm pulse on a 500–1300 nm grid this is
-about 33 nodes.
+takes the maximum over every pair of grid frequencies within the crystal's
+transparency range, and the models refuse fewer nodes. It grows with the grid's
+width: for 100 µm of BBO tuned to 800 nm, about 18 nodes on a 560–1440 nm grid and
+about 50 on a grid twice as wide.
 
 **What is neglected.** Walk-off (the crystal is thin), Type II, and the signal's
 own small tilt: the signal of a pair leaves at
 $\delta\theta \approx (\omega_1-\omega_2)\sin\alpha/(\omega_s n_s)$ to the bisector. When
 the beams cross in the crystal's principal plane (the fundamental polarised
 perpendicular to the crossing plane) this changes $n_e(\theta)$ to first order.
-{func}`croak.crystals.tilt_phase_error` bounds the phase it adds over the pulse's
-band, and {func}`croak.crystals.check_tilt` warns above 0.1 rad. Polarised in the
-crossing plane, the principal plane is perpendicular to it and the term vanishes.
+The extra mismatch is odd in $\omega_1-\omega_2$, so at zero delay its first-order
+effect cancels between the pairs $(\omega_1,\omega_2)$ and $(\omega_2,\omega_1)$; away
+from zero delay it does not. For BBO at 800 nm crossing at 1.4°, it changes the
+signal by about 0.5 % for a 12 fs pulse in 10 µm, 5 % in 100 µm, and 1 % for a 5 fs
+pulse in only 10 µm. {func}`croak.crystals.tilt_field_error` computes this change
+for a given spectrum and set of delays by an exact pair sum, and
+{func}`croak.crystals.check_tilt` warns above 1 %. Polarised in the crossing plane,
+the principal plane is perpendicular to it and the term vanishes.
 
 ```python
 import numpy as np

@@ -56,8 +56,11 @@ The manufacturer specifies the cut angle :math:`\theta_c` between the optic axis
 and the face normal. A crystal tilted by the external angle :math:`\gamma` (in the
 principal plane; positive increases the angle to the optic axis) refracts the beams
 to :math:`\gamma_\mathrm{int} = \arcsin(\sin\gamma / n_o)`, so that
-:math:`\theta = \theta_c + \gamma_\mathrm{int}`, and the path through a plate of
-thickness :math:`L` is :math:`L/\cos\gamma_\mathrm{int}`. :class:`CrystalSetup`
+:math:`\theta = \theta_c + \gamma_\mathrm{int}`. The mismatch in a tilted plate
+of thickness :math:`L` builds up along the face normal, which to first order is the
+mismatch along the beams over the effective path
+:math:`L/(\cos\gamma_\mathrm{int} + (n_e'/n_e)\sin\gamma_\mathrm{int})`
+(:meth:`CrystalSetup.path_length`). :class:`CrystalSetup`
 takes either :math:`\gamma` or the wavelength the crystal was tuned to
 phase-match, from which :math:`\theta` is solved. Approximations: the refraction
 uses :math:`n_o` at one wavelength (the phase-matched one, else the carrier), and the
@@ -65,14 +68,16 @@ crossing geometry is taken at normal incidence.
 
 Validity
 --------
-* Type I only, fundamentals ordinary; no walk-off (thin crystal, full collection).
+* Type I only, fundamentals ordinary; no spatial walk-off of the beams (a thin
+  crystal, full collection).
 * The signal of a pair :math:`(\omega_1,\omega_2)` leaves at a small angle
   :math:`\delta\theta \approx (\omega_1-\omega_2)\sin\alpha/(\omega_s n_s)` to the
   bisector, which the model neglects. When the beams cross in the crystal's
   principal plane (fundamental polarisation perpendicular to the crossing plane),
   that tilt changes :math:`n_e(\theta)` to first order;
-  :func:`tilt_phase_error` estimates the phase it adds over the pulse's band, and
-  :func:`check_tilt` warns above :data:`TILT_PHASE_WARN`. When the polarisation
+  :func:`tilt_phase_error` bounds the phase it adds, :func:`tilt_field_error`
+  computes the change it makes to a pulse's signal, and :func:`check_tilt` warns
+  above :data:`TILT_ERROR_WARN`. When the polarisation
   lies in the crossing plane, the principal plane is perpendicular to it and the
   first-order term vanishes.
 
@@ -98,7 +103,7 @@ from .interactions import Interaction
 from .maths import derivative, wlfreq
 
 __all__ = [
-    "TILT_PHASE_WARN",
+    "TILT_ERROR_WARN",
     "CrystalSetup",
     "CrystalApproximationWarning",
     "Propagation",
@@ -110,12 +115,14 @@ __all__ = [
     "phase_matching_angle",
     "propagation",
     "spectral_band",
+    "tilt_field_error",
     "tilt_phase_error",
 ]
 
-#: Phase (rad) of the neglected signal-tilt term above which the forward models warn.
-#: At 0.1 rad the per-pair sinc² response changes by under 1 % of its peak.
-TILT_PHASE_WARN = 0.1
+#: Relative change of the signal field (at zero delay, transform-limited pulse) from
+#: the neglected signal tilt above which :func:`check_tilt` warns: 1 % in field is
+#: about 2 % in the trace, the order of a good retrieval's residual.
+TILT_ERROR_WARN = 0.01
 
 #: Largest grid used to estimate the mismatch over all component pairs; finer grids
 #: are subsampled. The mismatch varies smoothly, so 256 points resolve its extremes.
@@ -126,7 +133,7 @@ Polarization = Literal["parallel", "perpendicular"]
 
 
 class CrystalApproximationWarning(UserWarning):
-    """The crystal model's neglected signal-tilt phase is not small."""
+    """The crystal model's neglected signal tilt changes the signal noticeably."""
 
 
 @dataclass(frozen=True)
@@ -140,11 +147,29 @@ class UniaxialCrystal:
     n_o, n_e : callable
         Ordinary and principal extraordinary index as functions of the vacuum
         wavelength (m), vectorised over NumPy arrays.
+    transparency : tuple of float or None, optional
+        Vacuum wavelengths ``(lo, hi)`` (m) over which the indices hold, e.g. a
+        Sellmeier formula's stated range. Outside it the signal is absorbed (its
+        prefactor is zero) and component pairs do not count towards
+        :func:`depth_points`; there a Sellmeier formula runs into its poles.
+        ``None`` (default) trusts the indices wherever they are finite.
     """
 
     name: str
     n_o: Index
     n_e: Index
+    transparency: tuple[float, float] | None = None
+
+    def transparent(self, omega: ArrayLike) -> NDArray[np.bool_]:
+        """Return where angular frequencies ``omega`` (rad/s) lie in the range."""
+        omega = np.asarray(omega, dtype=float)
+        inside = omega > 0
+        if self.transparency is not None:
+            lo, hi = self.transparency
+            with np.errstate(divide="ignore"):
+                lam = wlfreq(np.where(inside, omega, np.inf))
+            inside &= (lam >= lo) & (lam <= hi)
+        return inside
 
 
 def extraordinary_index(
@@ -329,11 +354,31 @@ class CrystalSetup:
             Pulse carrier (rad/s); refracts an explicit ``tilt``, unused when the
             crystal is tuned to ``phase_match_wavelength``.
         """
+        if not omega0 > 0.0:
+            raise ValueError(
+                f"a crystal needs the pulse carrier omega0 > 0, got {omega0!r}"
+            )
         if self.phase_match_wavelength is not None:
-            return phase_matching_angle(
+            theta = phase_matching_angle(
                 self.crystal, self.phase_match_wavelength, self.crossing_half_angle
             )
-        return self.cut_angle + self._refract(float(self.tilt or 0.0), omega0)
+            n = self._n_refraction(omega0)
+            if abs(n * math.sin(theta - self.cut_angle)) > 1.0:
+                raise ValueError(
+                    f"phase matching at {self.phase_match_wavelength * 1e9:.1f} nm "
+                    f"needs an internal tilt of "
+                    f"{math.degrees(theta - self.cut_angle):.1f} degrees, beyond "
+                    f"total internal reflection for this "
+                    f"{math.degrees(self.cut_angle):.1f}-degree cut"
+                )
+            return theta
+        theta = self.cut_angle + self._refract(float(self.tilt or 0.0), omega0)
+        if not 0.0 <= theta <= 0.5 * math.pi:
+            raise ValueError(
+                f"the tilt puts the beams at {math.degrees(theta):.1f} degrees to the "
+                f"optic axis, outside 0-90 degrees"
+            )
+        return theta
 
     def internal_tilt(self, omega0: float) -> float:
         r"""Return the internal tilt :math:`\theta - \theta_c` (rad)."""
@@ -343,21 +388,38 @@ class CrystalSetup:
         r"""External tilt :math:`\gamma` (rad): the given one, or the one solved."""
         if self.tilt is not None:
             return self.tilt
-        gamma_int = self.internal_tilt(omega0)
-        n = float(self.crystal.n_o(np.array([self._refraction_wavelength(omega0)]))[0])
-        sin_gamma = n * math.sin(gamma_int)
-        if abs(sin_gamma) > 1.0:
-            raise ValueError(
-                f"phase matching at {float(self.phase_match_wavelength or 0) * 1e9:.1f}"
-                f" nm needs an internal tilt of {math.degrees(gamma_int):.1f} degrees,"
-                f" beyond total internal reflection for this "
-                f"{math.degrees(self.cut_angle):.1f}-degree cut"
-            )
-        return math.asin(sin_gamma)
+        # internal_tilt has checked that this is reachable
+        return math.asin(
+            self._n_refraction(omega0) * math.sin(self.internal_tilt(omega0))
+        )
 
     def path_length(self, thickness: float, omega0: float) -> float:
-        """Path through a plate of ``thickness`` (m): ``thickness / cos(gamma_int)``."""
-        return thickness / math.cos(self.internal_tilt(omega0))
+        r"""Effective path (m) through a plate of ``thickness`` (m).
+
+        In a plate tilted by :math:`\gamma_\mathrm{int}` the phase that builds up
+        is the mismatch of the wavevectors' components along the face normal. The
+        fundamentals' normal components are :math:`k\cos\gamma_\mathrm{int}`; the
+        signal, generated with their transverse wavevector, runs at a slightly
+        different angle, and its normal component shifts with the extraordinary
+        index's angular dispersion. To first order in the mismatch,
+        :math:`\Delta k_\perp L = \Delta k\, L_\mathrm{eff}` with
+
+        .. math:: L_\mathrm{eff} = \frac{L}{\cos\gamma_\mathrm{int}
+           + (n_e'/n_e)\sin\gamma_\mathrm{int}},
+
+        :math:`n_e' = \mathrm dn_e/\mathrm d\theta` at the signal carrier
+        :math:`2\omega_0` (derived in ``docs/explanation/forward_model.md``; it
+        agrees with an exact boundary-value solve to the mismatch's second order,
+        ``tests/test_crystals.py``). Without a tilt it is ``thickness``.
+        """
+        gamma = self.internal_tilt(omega0)
+        theta = self.internal_angle(omega0)
+        lam = np.array([float(wlfreq(2.0 * omega0))])
+        n_o, n_e = self.crystal.n_o(lam), self.crystal.n_e(lam)
+        ratio = float(
+            _dn_dtheta(n_o, n_e, theta)[0] / extraordinary_index(n_o, n_e, theta)[0]
+        )
+        return thickness / (math.cos(gamma) + ratio * math.sin(gamma))
 
     def _refraction_wavelength(self, omega0: float) -> float:
         """Return the wavelength whose ordinary index refracts the tilt (m)."""
@@ -365,10 +427,14 @@ class CrystalSetup:
             return self.phase_match_wavelength
         return float(wlfreq(omega0))
 
+    def _n_refraction(self, omega0: float) -> float:
+        """Return the ordinary index that refracts the tilt."""
+        lam = np.array([self._refraction_wavelength(omega0)])
+        return float(self.crystal.n_o(lam)[0])
+
     def _refract(self, gamma: float, omega0: float) -> float:
         """Refract an external tilt ``gamma`` inside (Snell, ordinary index)."""
-        n = float(self.crystal.n_o(np.array([self._refraction_wavelength(omega0)]))[0])
-        return math.asin(math.sin(gamma) / n)
+        return math.asin(math.sin(gamma) / self._n_refraction(omega0))
 
 
 @dataclass(frozen=True)
@@ -440,12 +506,16 @@ def propagation(
     k_s0 = float(_k_signal(crystal, np.array([2.0 * omega0]), theta)[0])
     with np.errstate(divide="ignore", invalid="ignore"):
         sig_amp = (omega_s**2 / k_sig) / ((2.0 * omega0) ** 2 / k_s0)
-    # As materials.beta: a non-positive frequency or one outside the indices' range
-    # carries no light; zero it rather than let NaN reach the FFTs. The positivity
-    # masks are explicit because a Sellmeier formula, even in lambda^2, returns a
-    # finite (meaningless) index at a negative "wavelength".
-    beta_in[~(np.isfinite(beta_in) & (omega + omega0 > 0))] = 0.0
-    bad_sig = ~(np.isfinite(beta_sig) & np.isfinite(sig_amp) & (omega_s > 0))
+    # Outside the transparency range, at a non-positive frequency or without a
+    # finite index, the indices mean nothing (a Sellmeier formula, even in lambda^2,
+    # returns a finite index at a negative "wavelength"). As materials.beta does,
+    # the propagation constant is zeroed there, so a field component passes
+    # unpropagated; the signal's prefactor is zeroed too, so none is generated.
+    bad_in = ~(np.isfinite(beta_in) & crystal.transparent(omega + omega0))
+    beta_in[bad_in] = 0.0
+    bad_sig = ~(
+        np.isfinite(beta_sig) & np.isfinite(sig_amp) & crystal.transparent(omega_s)
+    )
     beta_sig[bad_sig] = 0.0
     sig_amp[bad_sig] = 0.0
     return Propagation(
@@ -490,7 +560,12 @@ def _pair_mismatch(
             - _k_fundamental(crystal, w1, sin_alpha)
             - _k_fundamental(crystal, w2, sin_alpha)
         )
-    ok = np.isfinite(dk) & (w1 > 0) & (w2 > 0)
+    ok = (
+        np.isfinite(dk)
+        & crystal.transparent(w1)
+        & crystal.transparent(w2)
+        & crystal.transparent(w1 + w2)
+    )
     return dk[ok], w1[ok], w2[ok], theta
 
 
@@ -596,6 +671,7 @@ def check_medium(
     npoints: int,
     omega: ArrayLike,
     omega0: float,
+    quadrature: str = "gausslegendre",
 ) -> None:
     r"""Check that a medium suits the interaction; the forward models' shared guard.
 
@@ -609,6 +685,9 @@ def check_medium(
         Plate thickness (m).
     npoints : int
         Depth quadrature nodes the model will use.
+    quadrature : str, optional
+        The depth quadrature; a crystal's node rule is for ``"gausslegendre"``
+        (default).
     omega : array_like
         Centred angular-frequency grid (rad/s).
     omega0 : float
@@ -643,13 +722,25 @@ def check_medium(
             f"{interaction.name.upper()}; give a material name for a "
             f"{interaction.name.upper()} slab"
         )
-    if not is_crystal or not thickness:
+    if not is_crystal:
         return
+    material.internal_angle(omega0)  # the carrier, the angle and the tilt are valid
+    if thickness < 0.0:
+        raise ValueError(f"the crystal thickness must be >= 0, got {thickness!r}")
+    if not thickness:
+        return
+    if quadrature != "gausslegendre":
+        raise ValueError(
+            f"a crystal needs Gauss-Legendre depth quadrature (its node rule, "
+            f"depth_points, is derived for it), got {quadrature!r}"
+        )
     needed = depth_points(material, omega, omega0, thickness)
     if npoints < needed:
         raise ValueError(
-            f"{npoints} depth nodes under-resolve the crystal's phase mismatch over "
-            f"this grid: use npoints >= {needed} (croak.crystals.depth_points)"
+            f"{npoints} depth nodes under-resolve the crystal's phase mismatch: use "
+            f"npoints >= {needed} (croak.crystals.depth_points; the count is set by "
+            f"the widest component pairs on the grid within the crystal's "
+            f"transparency range)"
         )
 
 
@@ -691,14 +782,83 @@ def spectral_band(
     return float(above.min()), float(above.max())
 
 
-def check_tilt(
+def _pair_signal(
+    setup: CrystalSetup,
+    omega: NDArray[np.float64],
+    omega0: float,
+    thickness: float,
+    amplitude: NDArray[np.float64],
+    tau: float,
+    *,
+    tilted: bool,
+) -> NDArray[np.complex128]:
+    r"""Signal at delay ``tau`` as the exact sum over component pairs, centred order.
+
+    The depth integral of each pair is done analytically. With ``tilted`` the
+    signal of each pair propagates in its own direction, at
+    :math:`\delta\theta` to the bisector (to first order), which the model
+    neglects.
+    """
+    prop = propagation(setup, omega, omega0, thickness)
+    path = prop.path_length
+    n = omega.size
+    w = np.fft.ifftshift(omega)
+    b_in = np.fft.ifftshift(prop.beta_in)
+    b_sig = np.fft.ifftshift(prop.beta_sig)
+    amp = np.fft.ifftshift(prop.sig_amp)
+    e = np.fft.ifftshift(amplitude).astype(complex)
+    e_tau = e * np.exp(1j * w * tau)
+    theta = setup.internal_angle(omega0)
+    sin_alpha = math.sin(setup.crossing_half_angle)
+    beta1 = _group_delay(setup.crystal, omega0, sin_alpha)
+    j = np.arange(n)
+    psi = np.zeros(n, dtype=complex)
+    for k in range(n):
+        if amp[k] == 0.0:
+            continue
+        m = (k - j) % n
+        bs = np.full(n, b_sig[k])
+        if tilted:
+            w1, w2 = w[j] + omega0, w[m] + omega0
+            ws = w[k] + 2.0 * omega0
+            lam = np.array([float(wlfreq(ws))])
+            n_o, n_e = setup.crystal.n_o(lam), setup.crystal.n_e(lam)
+            n_s = float(extraordinary_index(n_o, n_e, theta)[0])
+            dtheta = (w1 - w2) * sin_alpha / (ws * n_s)
+            k_mag = ws / C * extraordinary_index(n_o, n_e, theta + dtheta)
+            k_x = (w1 - w2) * sin_alpha / C
+            bs = np.sqrt(k_mag**2 - k_x**2) - beta1 * w[k]
+        a = b_in[j] + b_in[m] - bs
+        with np.errstate(divide="ignore", invalid="ignore"):
+            depth = (np.exp(1j * a * path) - 1.0) / (1j * a)
+        depth = np.where(np.abs(a * path) < 1e-12, path, depth)
+        psi[k] = amp[k] * np.sum(e[j] * e_tau[m] * np.exp(1j * bs * path) * depth)
+    return np.fft.fftshift(psi)
+
+
+def tilt_field_error(
     setup: CrystalSetup,
     omega: ArrayLike,
     omega0: float,
     thickness: float,
-    band: tuple[float, float],
+    amplitude: ArrayLike,
+    delays: ArrayLike,
 ) -> float:
-    """Warn if the neglected signal tilt matters for light in ``band``.
+    r"""Relative change of the signal field that the neglected signal tilt makes.
+
+    Evaluates the signal of a transform-limited pulse with spectral amplitude
+    ``amplitude`` at each of ``delays`` twice, by the exact sum over component
+    pairs: as the model has it, and with each pair's signal propagating in its own
+    direction (:func:`tilt_phase_error` describes the term). Returns the largest
+    difference relative to the largest signal over all the delays. ``0`` out of
+    the principal plane (``polarization="parallel"``) or collinear.
+
+    The delays matter: the extra mismatch is odd in :math:`\omega_1-\omega_2`, so
+    at zero delay, where the pairs :math:`(\omega_1,\omega_2)` and
+    :math:`(\omega_2,\omega_1)` enter alike, its first-order effect cancels; away
+    from zero delay it does not, and is tens of times larger. Delays out to about
+    the pulse duration capture the worst case. It costs :math:`N^2` operations per
+    delay for an :math:`N`-point grid.
 
     Parameters
     ----------
@@ -710,29 +870,74 @@ def check_tilt(
         Pulse carrier (rad/s).
     thickness : float
         Plate thickness (m).
-    band : tuple of float
-        Absolute angular frequencies ``(lo, hi)`` of the fundamental's light, e.g.
-        from :func:`spectral_band` of the independent spectrum.
+    amplitude : array_like
+        Spectral amplitude on ``omega`` (centred), e.g. the square root of the
+        independent spectrum resampled there.
+    delays : array_like
+        Delays (s) to evaluate, e.g. a coarse sampling of the measured delay axis
+        out to about twice the pulse duration.
 
     Returns
     -------
     float
-        The estimate of :func:`tilt_phase_error` over the band (rad).
+        The relative field change.
+    """
+    if setup.geometry is None or setup.polarization != "perpendicular" or not thickness:
+        return 0.0
+    omega = np.asarray(omega, dtype=float)
+    amplitude = np.abs(np.asarray(amplitude, dtype=float))
+    worst, peak = 0.0, 0.0
+    for tau in np.asarray(delays, dtype=float).ravel():
+        args = (setup, omega, omega0, thickness, amplitude, float(tau))
+        model = _pair_signal(*args, tilted=False)
+        exact = _pair_signal(*args, tilted=True)
+        worst = max(worst, float(np.max(np.abs(model - exact))))
+        peak = max(peak, float(np.max(np.abs(exact))))
+    return worst / peak
+
+
+def check_tilt(
+    setup: CrystalSetup,
+    omega: ArrayLike,
+    omega0: float,
+    thickness: float,
+    amplitude: ArrayLike,
+    delays: ArrayLike,
+) -> float:
+    """Warn if the neglected signal tilt changes this pulse's signal noticeably.
+
+    Parameters
+    ----------
+    setup : CrystalSetup
+        The crystal.
+    omega : array_like
+        Centred angular-frequency grid (rad/s).
+    omega0 : float
+        Pulse carrier (rad/s).
+    thickness : float
+        Plate thickness (m).
+    amplitude : array_like
+        Spectral amplitude on ``omega`` (see :func:`tilt_field_error`).
+    delays : array_like
+        Delays (s) to evaluate (see :func:`tilt_field_error`).
+
+    Returns
+    -------
+    float
+        The relative field change of :func:`tilt_field_error`.
 
     Warns
     -----
     CrystalApproximationWarning
-        If it exceeds :data:`TILT_PHASE_WARN`.
+        If it exceeds :data:`TILT_ERROR_WARN`.
     """
-    error = tilt_phase_error(setup, omega, omega0, thickness, band)
-    if error > TILT_PHASE_WARN:
+    error = tilt_field_error(setup, omega, omega0, thickness, amplitude, delays)
+    if error > TILT_ERROR_WARN:
         warnings.warn(
             f"the crystal model neglects the signal's tilt in the principal plane, "
-            f"which here shifts the phase of the widest component pairs by up to "
-            f"{error:.2f} rad (above {TILT_PHASE_WARN} rad): the model is "
-            f"approximate in the spectral wings. A thinner crystal, a smaller "
-            f"crossing angle, or the fundamental polarised in the crossing plane "
-            f"avoids it",
+            f"which changes this pulse's signal by up to {error:.1%} of its peak "
+            f"(above {TILT_ERROR_WARN:.0%}). A thinner crystal, a smaller crossing "
+            f"angle, or the fundamental polarised in the crossing plane avoids it",
             CrystalApproximationWarning,
             stacklevel=2,
         )
