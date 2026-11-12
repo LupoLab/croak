@@ -1479,9 +1479,9 @@ class TraceData:
     lams_lims : tuple or None
         Wavelength window (m) applied to the independent **fundamental
         spectrum**, independent of ``lamm_lims``; ``None`` when there is no
-        spectrum to window. Use this for post-retrieval spectral windowing of the
-        retrieved field (see :func:`~croak.processing.post_filter`), which also
-        lives at the fundamental.
+        spectrum to window. To window the retrieved field use
+        :attr:`fundamental_window`, which is this for SHG and ``lamm_lims`` for
+        PG/SD.
     taper_loss : float
         Fraction of the measured trace removed by :func:`regrid`'s edge taper
         (see :data:`TAPER_COLLAR_BINS`). A band chosen with room to spare leaves
@@ -1536,20 +1536,32 @@ class TraceData:
 
 
 def _check_spectrum_window(
-    lam_spec: NDArray[np.float64], lams_lims: tuple[float, float]
+    lam_spec: NDArray[np.float64],
+    Ilam_spec: ArrayLike,
+    lams_lims: tuple[float, float],
 ) -> None:
-    """Raise unless ``lams_lims`` is an ordered window holding spectrum samples."""
+    """Raise unless ``lams_lims`` is an ordered window holding spectral signal.
+
+    The band is open, as in :func:`filter_spectrum`, which normalises to the
+    peak strictly inside it.
+    """
     lo, hi = lams_lims
     if not lo < hi:
         raise ValueError(
             f"the spectrum window lams_lims needs its low edge below its high edge, "
             f"got ({lo * 1e9:.1f}, {hi * 1e9:.1f}) nm"
         )
-    if not np.any((lam_spec >= lo) & (lam_spec <= hi)):
+    band = (lam_spec > lo) & (lam_spec < hi)
+    if not np.any(band):
         raise ValueError(
             f"the spectrum window lams_lims ({lo * 1e9:.1f}, {hi * 1e9:.1f}) nm "
-            f"holds no sample of the spectrum, which spans "
-            f"{lam_spec.min() * 1e9:.1f}-{lam_spec.max() * 1e9:.1f} nm"
+            f"holds no sample of the spectrum strictly inside it; the spectrum "
+            f"spans {lam_spec.min() * 1e9:.1f}-{lam_spec.max() * 1e9:.1f} nm"
+        )
+    if not np.max(np.asarray(Ilam_spec, dtype=float)[band]) > 0.0:
+        raise ValueError(
+            f"the spectrum window lams_lims ({lo * 1e9:.1f}, {hi * 1e9:.1f}) nm "
+            f"holds no positive spectral intensity"
         )
 
 
@@ -1615,7 +1627,8 @@ def load_and_clean(
     lams_lims : tuple, optional
         Wavelength window (m) of the independent **fundamental spectrum**,
         applied to it before regridding and stored on the returned
-        :class:`TraceData` for post-retrieval windowing of the retrieved field.
+        :class:`TraceData` (for SHG, also the window of the retrieved field;
+        see :attr:`TraceData.fundamental_window`).
         Defaults to the spectrum's full extent. Requires ``lam_spec`` and
         ``Ilam_spec``.
     input_unit : {"position", "delay"}, optional
@@ -1795,7 +1808,7 @@ def load_and_clean(
         lam_spec = np.asarray(lam_spec, dtype=float)
         if lams_lims is None:
             lams_lims = (float(lam_spec.min()), float(lam_spec.max()))
-        _check_spectrum_window(lam_spec, lams_lims)
+        _check_spectrum_window(lam_spec, Ilam_spec, lams_lims)
         Ilam_spec_filt = filter_spectrum(lam_spec, Ilam_spec, *lams_lims)
     else:
         Ilam_spec_filt = None

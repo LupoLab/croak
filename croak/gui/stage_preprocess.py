@@ -136,8 +136,9 @@ class StagePreprocess(Stage):
                 (
                     "λs (nm)",
                     "Independent-spectrum window, in fundamental wavelengths: the "
-                    "spectrum is tapered to zero outside it. It also sets the "
-                    "post-filter's spectral window. Independent of λm; defaults "
+                    "spectrum is tapered to zero outside it. For SHG it is also "
+                    "the post-filter's spectral window (for PG/SD that is λm). "
+                    "Independent of λm; defaults "
                     "to the spectrum's full extent, and is off without a "
                     "spectrum.",
                 ),

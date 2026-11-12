@@ -255,7 +255,7 @@ def test_auto_exponent_root_at_a_bound_returns_that_bound():
 
 def test_auto_exponent_spectrum_window_without_signal_raises():
     lam, spec, marg = _tilted_marginal()
-    with pytest.raises(ValueError, match="independent spectrum has no signal"):
+    with pytest.raises(ValueError, match="no signal in the spectrum's trust window"):
         mc.auto_third_order_exponent(
             lam, marg, lam, spec, "pg", spectrum_window=(200e-9, 300e-9)
         )

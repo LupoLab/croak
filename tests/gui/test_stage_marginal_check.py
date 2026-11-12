@@ -396,6 +396,7 @@ def test_stage_marginal_check_spectrum_trust_outside_the_spectrum_shows_no_predi
         ("experimental", (1400e-9, 1800e-9), (1400.0, 1800.0)),
         # noise-free: the full range
         ("synthetic", (600e-9, 1200e-9), (600.0, 1200.0)),
+        ("simulated", (600e-9, 1200e-9), (600.0, 1200.0)),
     ],
 )
 def test_stage_marginal_check_spectrum_trust_default(stage, entry, extent, expected):

@@ -493,3 +493,19 @@ def test_stage_retrieve_spectral_post_filter_is_off_without_a_window(stage, run)
     assert not stage.pf_lam.isEnabled()
     assert "no spectral window" in stage.pf_lam.toolTip()
     assert stage.pf_tau.isEnabled()
+
+
+def test_stage_retrieve_spectral_post_filter_follows_a_re_prepared_trace(stage, run):
+    td = run[2]
+    stage.state.tracedata = _as_shg(td, lams_lims=(700e-9, 900e-9))
+    stage.state.result = run[3]
+    stage.on_enter()
+    assert stage.pf_lam.isEnabled()
+    # the spectrum is removed in Prepare and the stage re-entered: no window now
+    stage.state.tracedata = _as_shg(td, lams_lims=None)
+    stage.on_enter()
+    assert not stage.pf_lam.isEnabled()
+    # and added back
+    stage.state.tracedata = _as_shg(td, lams_lims=(700e-9, 900e-9))
+    stage.on_enter()
+    assert stage.pf_lam.isEnabled()

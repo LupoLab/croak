@@ -1379,6 +1379,10 @@ class StageRetrieve(RunControls, Stage):
             self.retarget_btn.setEnabled(True)
             self._enable_post_filters()
             self._update_view()
+        elif self._base_result is not None:
+            # The trace may have been re-prepared (a spectrum added or removed)
+            # since the result was drawn; the spectral window may have changed.
+            self._enable_post_filters()
 
     # -- retrieval ----------------------------------------------------------
     def _seeded_extras(self, seed) -> str:

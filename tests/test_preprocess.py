@@ -1357,8 +1357,30 @@ def test_fundamental_window_of_pg_is_the_trace_window(experiment):
         ((1700e-9, 1500e-9), "low edge below its high edge"),
         ((1600e-9, 1600e-9), "low edge below its high edge"),
         ((2300e-9, 3000e-9), "holds no sample of the spectrum"),
+        # the spectrum is sampled every ~1.25 nm from 1200 nm: a window between
+        # two samples holds none strictly inside it
+        ((1200.1e-9, 1201.0e-9), "holds no sample of the spectrum"),
     ],
 )
 def test_load_and_clean_rejects_an_unusable_spectrum_window(lams, match):
     with pytest.raises(ValueError, match=match):
         _shg_clean(lams_lims=lams)
+
+
+def test_load_and_clean_rejects_a_spectrum_window_without_signal():
+    exp, lam_spec, _, lam_min, lam_max = _shg_experiment()
+    dark = np.where(lam_spec < 1300e-9, 0.0, 1.0)
+    with pytest.raises(ValueError, match="no positive spectral intensity"):
+        preprocess.load_and_clean(
+            exp.trace,
+            exp.lam_nm * 1e-9,
+            exp.delay_fs * 1e-15,
+            "shg",
+            lam_min=lam_min,
+            lam_max=lam_max,
+            input_unit="delay",
+            taper_warn_level=0.0,
+            lam_spec=lam_spec,
+            Ilam_spec=dark,
+            lams_lims=(1210e-9, 1290e-9),
+        )

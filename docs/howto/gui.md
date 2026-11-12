@@ -351,7 +351,8 @@ Fringe/DC/low-pass filtering, windowing and regridding
 change a setting. The *Windowing* group has three windows: **λm** for the trace,
 in its own wavelengths (for SHG, around half the fundamental); **λs** for the
 independent spectrum, in fundamental wavelengths (its full range by default, and
-off without a spectrum; it is also the post-filter's spectral window); and
+off without a spectrum; for SHG it is also the post-filter's spectral window,
+which for PG/SD is λm); and
 **τm** for the delay axis. λm and λs are independent of each other. The plots show six maps in two rows of three — the measured,
 filtered and regridded trace, in dB above and linear below — with linked axes:
 all six share the delay axis, and the measured and filtered maps share the
