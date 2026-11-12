@@ -313,3 +313,15 @@ def test_reseeding_keeps_an_unset_spectrum_window_unset(loaded):
     seed_preproc_defaults(loaded.state, reset_values=False)
     assert p.lams_bound_min_nm == 600.0
     assert p.lams_min_nm is None and p.lams_max_nm is None
+
+
+def test_reseeding_resets_a_spectrum_window_that_misses_the_new_spectrum(loaded):
+    # Same trace, a spectrum in a different band: the kept window would clamp to a
+    # zero-width band at the new edge, so it falls back to the full extent instead.
+    _with_spectrum(loaded)
+    seed_preproc_defaults(loaded.state)
+    p = loaded.state.preproc
+    p.lams_min_nm, p.lams_max_nm = 650.0, 950.0
+    _with_spectrum(loaded, extent_nm=(1400.0, 1800.0))
+    seed_preproc_defaults(loaded.state, reset_values=False)
+    assert p.lams_min_nm is None and p.lams_max_nm is None

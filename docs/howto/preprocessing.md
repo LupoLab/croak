@@ -111,7 +111,9 @@ A few `load_and_clean` keywords do most of the work:
   different instruments, with noise at unrelated wavelengths, and for SHG lie an
   octave apart. `td.fundamental_window` gives the window to use on the retrieved
   field: λs when there is a spectrum, otherwise λm for PG/SD (whose trace sits at
-  the fundamental) and `None` for SHG.
+  the fundamental) and `None` for SHG. In croak 0.4 and earlier, λm also tapered
+  the spectrum (×2 for SHG); a session saved then reads back with λs unset, so set
+  λs to taper the spectrum as before.
 
 ## De-fringing: notch vs. Takeda low-pass
 

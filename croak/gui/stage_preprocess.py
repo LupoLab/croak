@@ -6,9 +6,10 @@ Three control groups:
   default 2× the scan delay range); ``τ range`` (the delay range to **use** —
   a hard crop of the delay axis); delay subsampling; time resampling; and the
   resampling pre-filter.
-* **Windowing** — measurement spectral window (λm) and delay filtering window
-  (τm, a smooth Planck taper); both always on, defaulting to the full
-  wavelength/delay extents and narrowed to taste.
+* **Windowing** — the trace's spectral window (λm, in the trace's wavelengths),
+  the independent spectrum's window (λs, in fundamental wavelengths, independent
+  of λm; off without a spectrum) and the delay filtering window (τm, a smooth
+  Planck taper); all default to the full extents and are narrowed to taste.
 * **Filtering** — signal-aware de-fringing (Takeda FTSI) and arPLS baseline
   removal, the legacy fringe-notch / DC / low-pass delay filters, and
   thresholding (the SHG marginal correction lives on the marginal-check stage).

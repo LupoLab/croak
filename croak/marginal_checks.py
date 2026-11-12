@@ -506,7 +506,9 @@ def auto_third_order_exponent(
         )
         spec_in = (lam_spec >= lo) & (lam_spec <= hi) & (Ilam_spec > 0)
         if np.count_nonzero(spec_in) < 3:
-            raise ValueError("independent spectrum has no signal in the trust window")
+            raise ValueError(
+                "independent spectrum has no signal in the spectrum's trust window"
+            )
         omega_spec = wlfreq(lam_spec[spec_in])
         s_omega = Ilam_spec[spec_in] * lam_spec[spec_in] ** 2
         target = predicted_centroid(omega_spec, s_omega, interaction)
@@ -514,7 +516,7 @@ def auto_third_order_exponent(
     # Measured marginal centroid as a function of n, also as an omega-density.
     in_window = (lam >= trace_window[0]) & (lam <= trace_window[1]) & (marginal > 0)
     if np.count_nonzero(in_window) < 3:
-        raise ValueError("trace marginal has no signal in the trust window")
+        raise ValueError("trace marginal has no signal in the trace's trust window")
     lam_w = lam[in_window]
     omega_w = wlfreq(lam_w)
     # omega-density of the *base* marginal, and (lambda/um)^1 raised to n below

@@ -663,6 +663,9 @@ def assemble_simulated_tracedata(p: SimulatedLoadParams) -> TraceData:
         Ilam_spec_meas=Ilam_spec,
         Ilam_spec_filt=Ilam_spec,
         scalecurve=np.ones(lam_frog.shape),
+        # The native-grid spectrum is not windowed; its signal band is the window
+        # for the retrieved field, as lamm_lims is for the trace.
+        lams_lims=None if lam_spec is None else (lam_min, lam_max),
     )
 
 
@@ -694,6 +697,12 @@ def build_tracedata(
     skip = _FAST_BASELINE_SKIP_BELOW if fast_baseline else 0.0
     # The spectrum window only means something with a spectrum; a window left
     # over from one that has since been removed is dropped, not an error.
+    if (p.lams_min_nm is None) != (p.lams_max_nm is None):
+        raise ValueError(
+            "the spectrum window needs both lams_min_nm and lams_max_nm, or neither "
+            f"(the spectrum's full extent); got {p.lams_min_nm!r} and "
+            f"{p.lams_max_nm!r}"
+        )
     lams_lims = None
     if (
         data["lam_spec"] is not None

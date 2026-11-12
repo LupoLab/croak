@@ -1337,3 +1337,16 @@ def test_fundamental_window_falls_back_to_lamm_only_at_the_fundamental(experimen
         *args, "shg", lamm_lims=lamm, taper_warn_level=0.0, **kw
     )
     assert shg.fundamental_window is None
+
+
+@pytest.mark.parametrize(
+    ("lams", "match"),
+    [
+        ((1700e-9, 1500e-9), "low edge below its high edge"),
+        ((1600e-9, 1600e-9), "low edge below its high edge"),
+        ((2300e-9, 3000e-9), "holds no sample of the spectrum"),
+    ],
+)
+def test_load_and_clean_rejects_an_unusable_spectrum_window(lams, match):
+    with pytest.raises(ValueError, match=match):
+        _shg_clean(lams_lims=lams)

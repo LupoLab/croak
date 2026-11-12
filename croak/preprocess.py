@@ -1479,7 +1479,7 @@ class TraceData:
     lams_lims : tuple or None
         Wavelength window (m) applied to the independent **fundamental
         spectrum**, independent of ``lamm_lims``; ``None`` when there is no
-        spectrum. Use this for post-retrieval spectral windowing of the
+        spectrum to window. Use this for post-retrieval spectral windowing of the
         retrieved field (see :func:`~croak.processing.post_filter`), which also
         lives at the fundamental.
     taper_loss : float
@@ -1532,9 +1532,27 @@ class TraceData:
         """
         if self.lams_lims is not None:
             return self.lams_lims
-        if self.omega0_trace == self.omega0_pulse:
+        if get_interaction(self.interaction).omega0_scale == 1.0:
             return self.lamm_lims
         return None
+
+
+def _check_spectrum_window(
+    lam_spec: NDArray[np.float64], lams_lims: tuple[float, float]
+) -> None:
+    """Raise unless ``lams_lims`` is an ordered window holding spectrum samples."""
+    lo, hi = lams_lims
+    if not lo < hi:
+        raise ValueError(
+            f"the spectrum window lams_lims needs its low edge below its high edge, "
+            f"got ({lo * 1e9:.1f}, {hi * 1e9:.1f}) nm"
+        )
+    if not np.any((lam_spec >= lo) & (lam_spec <= hi)):
+        raise ValueError(
+            f"the spectrum window lams_lims ({lo * 1e9:.1f}, {hi * 1e9:.1f}) nm "
+            f"holds no sample of the spectrum, which spans "
+            f"{lam_spec.min() * 1e9:.1f}-{lam_spec.max() * 1e9:.1f} nm"
+        )
 
 
 def load_and_clean(
@@ -1779,6 +1797,7 @@ def load_and_clean(
         lam_spec = np.asarray(lam_spec, dtype=float)
         if lams_lims is None:
             lams_lims = (float(lam_spec.min()), float(lam_spec.max()))
+        _check_spectrum_window(lam_spec, lams_lims)
         Ilam_spec_filt = filter_spectrum(lam_spec, Ilam_spec, *lams_lims)
     else:
         Ilam_spec_filt = None

@@ -456,3 +456,40 @@ def test_retrieve_form_finds_a_setting_by_name_or_help(qtbot):
     assert not regularisation.body.isHidden()  # unfolded to show the matches
     stage.form.find.setText("")
     assert regularisation.folded and regularisation.body.isHidden()
+
+
+# -- post-filter windows (issue #22) --------------------------------------------
+def _as_shg(td, *, lams_lims):
+    """``td`` relabelled as an SHG trace of its 800 nm pulse: λm around 400 nm."""
+    return replace(
+        td,
+        interaction="shg",
+        omega0_trace=2.0 * td.omega0_pulse,
+        lamm_lims=(350e-9, 450e-9),
+        lams_lims=lams_lims,
+    )
+
+
+def _energy(spectrum):
+    return float(np.sum(np.abs(spectrum) ** 2))
+
+
+def test_stage_retrieve_spectral_post_filter_keeps_an_shg_field(stage, run):
+    td = run[2]  # a 6 fs pulse at 800 nm
+    stage.state.tracedata = _as_shg(td, lams_lims=(700e-9, 900e-9))
+    stage.state.result = run[3]
+    stage.on_enter()
+    assert stage.pf_lam.isEnabled()
+    stage.pf_lam.setChecked(True)
+    # The fundamental window holds the pulse; the SHG trace window (half the
+    # wavelengths) would have removed it entirely.
+    assert _energy(stage.state.result.spectrum) > 0.5 * _energy(run[3].spectrum)
+
+
+def test_stage_retrieve_spectral_post_filter_is_off_without_a_window(stage, run):
+    stage.state.tracedata = _as_shg(run[2], lams_lims=None)
+    stage.state.result = run[3]
+    stage.on_enter()
+    assert not stage.pf_lam.isEnabled()
+    assert "no spectral window" in stage.pf_lam.toolTip()
+    assert stage.pf_tau.isEnabled()

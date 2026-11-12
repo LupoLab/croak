@@ -163,8 +163,14 @@ def _clamp_preproc_to_bounds(pp: PreprocParams) -> None:
         pp.lams_min_nm = pp.lams_max_nm = None
     elif pp.lams_min_nm is not None and pp.lams_max_nm is not None:
         lo, hi = pp.lams_bound_min_nm, pp.lams_bound_max_nm
-        pp.lams_min_nm = min(max(pp.lams_min_nm, lo), hi)
-        pp.lams_max_nm = min(max(pp.lams_max_nm, lo), hi)
+        low = min(max(pp.lams_min_nm, lo), hi)
+        high = min(max(pp.lams_max_nm, lo), hi)
+        # A window that misses a replaced spectrum would clamp to zero width at
+        # its edge; fall back to the full extent rather than keep a useless one.
+        if low < high:
+            pp.lams_min_nm, pp.lams_max_nm = low, high
+        else:
+            pp.lams_min_nm = pp.lams_max_nm = None
     for attr in ("tau_min_fs", "tau_max_fs", "taum_min_fs", "taum_max_fs"):
         v = getattr(pp, attr)
         setattr(pp, attr, min(max(v, pp.tau_bound_min_fs), pp.tau_bound_max_fs))

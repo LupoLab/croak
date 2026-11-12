@@ -553,3 +553,16 @@ def test_uniform_delay_core_drops_the_wings(tmp_path, simulated_truth):
     np.testing.assert_allclose(d, d[0], rtol=1e-9)
     # the kept columns are the core's, not the zero-padded wings
     assert core_only["trace"].max() > 0
+
+
+def test_native_grid_load_windows_the_field_to_the_signal_band(
+    tmp_path, simulated_truth
+):
+    from conftest import write_simulated_h5
+
+    path = write_simulated_h5(tmp_path / "w.h5", simulated_truth)
+    with_spec = assemble_simulated_tracedata(_params(path, use_spectrum=True))
+    assert with_spec.lams_lims == (with_spec.lam_min, with_spec.lam_max)
+    assert with_spec.fundamental_window == (with_spec.lam_min, with_spec.lam_max)
+    without = assemble_simulated_tracedata(_params(path, use_spectrum=False))
+    assert without.lams_lims is None

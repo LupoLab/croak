@@ -181,7 +181,7 @@ def test_auto_exponent_no_signal_raises():
     marg = np.exp(-((lam - 800e-9) ** 2) / (2 * (25e-9) ** 2))
     spec = np.ones_like(lam)
     # a trust window with no overlap leaves nothing to fit
-    with pytest.raises(ValueError, match="no signal in the trust window"):
+    with pytest.raises(ValueError, match="no signal in the trace's trust window"):
         mc.auto_third_order_exponent(
             lam, marg, lam, spec, "pg", trace_window=(200e-9, 300e-9)
         )
