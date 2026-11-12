@@ -1,7 +1,7 @@
 """Type I SHG crystal: indices, angles, propagation constants, depth resolution.
 
 The crystal used throughout is a three-term Sellmeier pair with BBO-like
-coefficients (Tamošauskas et al., Opt. Mater. Express 8, 1410 (2018), Eq. (1)),
+coefficients (Tamošauskas et al., Optical Materials Express 8, 1410 (2018), Eq. (1)),
 written out here so the tests do not depend on a material registry. They are a
 realistic negative uniaxial crystal; the physics tested does not depend on their
 exact values.

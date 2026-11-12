@@ -108,9 +108,94 @@ trace = croak.maketrace(g.omega, delays, ew, "pg",
                        material="SiO2", thickness=10e-6, npoints=20, omega0=omega0)
 ```
 
-Remember that dispersive propagation is supported for **PG** and **SD** only
-(their signal stays at the fundamental); SHG raises a `ValueError`. See
-[Interactions](interactions.md).
+A material slab like this serves **PG** and **SD**, whose signal stays at the
+fundamental. SHG needs a crystal, described next; an isotropic slab with SHG
+raises a `ValueError`. See [Interactions](interactions.md).
+
+## SHG in a Type I crystal
+
+The SHG signal is generated near $2\omega_0$, and in a Type I (oo→e) crystal it is
+the extraordinary wave while the two fundamentals are ordinary. It therefore needs
+its own propagation constant. {mod}`croak.crystals` supplies two, written on the
+model's centred grid and in **one** frame moving with the fundamental's group
+velocity $\beta_1$:
+
+```{math}
+\beta_\mathrm{in}(\Omega)  = k_z(\omega_0+\Omega) - \beta_1\Omega, \qquad
+\beta_\mathrm{sig}(\Omega) = k_s(2\omega_0+\Omega) - \beta_1\Omega,
+```
+
+with $k_z(\omega) = \sqrt{k_o(\omega)^2 - (\omega\sin\alpha/c)^2}$, the ordinary
+wavevector along the bisector of two beams crossing at the external half-angle
+$\alpha$, and $k_s(\omega) = \omega\, n_e(\theta,\omega)/c$, the extraordinary
+wavevector at the internal angle $\theta$ to the optic axis. In
+{eq}`dispersive`, $e^{i\beta z_q}$ becomes $e^{i\beta_\mathrm{in} z_q}$ and
+$e^{i\beta(L-z_q)}$ becomes $a(\Omega)\,e^{i\beta_\mathrm{sig}(L-z_q)}$.
+
+**Why this gives the phase matching.** Both constants keep their carrier
+wavevectors. A component pair $(\omega_1,\omega_2)$ generated at depth $z$ then
+carries $e^{-i\Delta k\,z}$ with the exact mismatch
+$\Delta k = k_s(\omega_1+\omega_2) - k_z(\omega_1) - k_z(\omega_2)$: the frame terms
+add up to $-\beta_1\Omega_s L$, independent of $z$, a linear spectral phase the
+trace cannot see. The depth sum turns this into the pair's phase-matching
+response, $L\,\mathrm{sinc}(\Delta k L/2)$ in amplitude. Over a full period of
+delays the frequency marginal is therefore the sum over pairs of
+$\lvert E(\omega_1)E(\omega_2)\rvert^2 L^2\mathrm{sinc}^2(\Delta k L/2)$, which
+`tests/test_forward_crystal.py` checks to the quadrature's accuracy.
+
+**Generation prefactor.** The generated second-harmonic field grows as
+$\omega_s/n_s$, so the model multiplies the signal by
+$a(\Omega) = (\omega_s/n_s)/(2\omega_0/n_s(2\omega_0))$. Other spectral factors (the
+beams' mode overlap, the dispersion of $\chi^{(2)}$, the detector's response) are
+not modelled; the solvers' per-frequency response `R_omega` absorbs any that
+matter.
+
+**The crystal's angle.** A {class}`~croak.crystals.CrystalSetup` takes the
+manufacturer's cut angle $\theta_c$ and either the external tilt $\gamma$ or the
+wavelength the crystal was tuned to phase-match, the usual case when it was rotated
+for the strongest signal. The beams refract to $\gamma_\mathrm{int} =
+\arcsin(\sin\gamma/n_o)$, so $\theta = \theta_c + \gamma_\mathrm{int}$ and the path
+is $L/\cos\gamma_\mathrm{int}$. Nothing is derived from the retrieval grid. The
+crossing angle comes from a {class}`~croak.geometry.TwoBeamGeometry` (beam
+separation and focal length), the one place it is set.
+
+**Depth resolution.** Each pair's depth integrand oscillates through
+$\Delta k L$ rad. Gauss–Legendre integrates it to $10^{-6}$ of $L$ with
+$\lceil\lvert\Delta k\rvert L/2\rceil + 3$ nodes; {func}`croak.crystals.depth_points`
+takes the maximum over every pair of grid frequencies, and the models refuse fewer
+nodes. For a 100 µm BBO crystal and an 800 nm pulse on a 500–1300 nm grid this is
+about 33 nodes.
+
+**What is neglected.** Walk-off (the crystal is thin), Type II, and the signal's
+own small tilt: the signal of a pair leaves at
+$\delta\theta \approx (\omega_1-\omega_2)\sin\alpha/(\omega_s n_s)$ to the bisector. When
+the beams cross in the crystal's principal plane (the fundamental polarised
+perpendicular to the crossing plane) this changes $n_e(\theta)$ to first order.
+{func}`croak.crystals.tilt_phase_error` bounds the phase it adds over the pulse's
+band, and {func}`croak.crystals.check_tilt` warns above 0.1 rad. Polarised in the
+crossing plane, the principal plane is perpendicular to it and the term vanishes.
+
+```python
+import numpy as np
+import croak
+from croak.crystals import CrystalSetup, UniaxialCrystal
+from croak.geometry import TwoBeamGeometry
+
+crystal = UniaxialCrystal("BBO", n_o, n_e)       # n(λ in m) callables
+setup = CrystalSetup(
+    crystal,
+    cut_angle=np.radians(29.2),
+    phase_match_wavelength=800e-9,               # tuned for the strongest signal
+    geometry=TwoBeamGeometry(beam_separation=5e-3, focal_length=0.1),
+    polarization="parallel",                     # to the crossing plane
+)
+omega0 = croak.maths.wlfreq(800e-9)
+npoints = croak.crystals.depth_points(setup, g.omega, omega0, 50e-6)
+trace = croak.maketrace(g.omega, delays, ew, "shg", material=setup,
+                        thickness=50e-6, npoints=npoints, omega0=omega0)
+```
+
+The retrieved field is the field at the crystal's entrance face.
 
 ## Quadrature convergence
 
