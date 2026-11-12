@@ -190,8 +190,11 @@ When the beams cross in the crystal's principal plane (the fundamental polarised
 perpendicular to the crossing plane), the tilt changes the signal's angle to the
 optic axis, so its index changes to first order, by $n_e'\psi$. The extra mismatch
 is $\kappa(\omega_1-\omega_2)$ with $\kappa = (n_e'/n_s)\sin\alpha/c$, and over the
-remaining path it factorises into opposite delays of the two arms,
-$\pm\kappa(P-z)$, that drift apart with depth. The model includes this
+remaining path it factorises into opposite delays of the two arms that drift
+apart with depth: in croak's convention (a factor $e^{i\Omega\tau}$ delays a field
+by $\tau$) the test arm is delayed by $+\kappa(P-z)$ and the gate by
+$-\kappa(P-z)$, so the gate-minus-test delay at depth $z$ is
+$\tau - 2\kappa(P-z)$. The model includes this
 ({meth}`~croak.crystals.CrystalSetup.arm_shift`): about 0.57 fs per 100 µm per arm
 for BBO at 800 nm crossing at 1.4°.
 
@@ -200,7 +203,8 @@ Two consequences follow:
 - **The trace is not symmetric in delay.** The drift distinguishes the two arms, so
   $I(\omega,\tau) \ne I(\omega,-\tau)$, unlike the ideal SHG FROG trace. For BBO
   at 800 nm crossing at 1.4° the term changes the signal by about 0.5 % for a
-  12 fs pulse in 10 µm, 5 % in 100 µm, and 0.5 % for a 5 fs pulse in 10 µm. At zero
+  12 fs pulse in 10 µm, 5 % in 100 µm, and about 1 % for a 5 fs pulse in 10 µm (on delays sampled finely enough to
+  catch its peak, about 1 fs apart). At zero
   delay its first-order effect cancels between the pairs $(\omega_1,\omega_2)$ and
   $(\omega_2,\omega_1)$, so it shows away from zero delay.
 - **Its sign depends on which beam is nearer the optic axis**

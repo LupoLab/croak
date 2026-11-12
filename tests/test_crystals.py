@@ -395,3 +395,13 @@ def test_tilt_field_error_needs_light():
     )
     with pytest.raises(ValueError, match="no positive value"):
         crystals.tilt_field_error(setup, GRID.omega, W0, 50e-6, np.zeros(GRID.n), [0.0])
+
+
+def test_tilt_field_error_needs_a_delay():
+    setup = _tuned(
+        geometry=TwoBeamGeometry(5e-3, 0.1),
+        polarization="perpendicular",
+        delayed_beam="toward_axis",
+    )
+    with pytest.raises(ValueError, match="at least one delay"):
+        crystals.tilt_field_error(setup, GRID.omega, W0, 50e-6, np.ones(GRID.n), [])

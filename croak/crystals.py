@@ -919,7 +919,7 @@ def tilt_field_error(
     Raises
     ------
     ValueError
-        If ``amplitude`` is zero everywhere.
+        If ``amplitude`` is zero everywhere or ``delays`` is empty.
     """
     if setup.geometry is None or setup.polarization != "perpendicular" or not thickness:
         return 0.0
@@ -927,8 +927,11 @@ def tilt_field_error(
     amplitude = np.abs(np.asarray(amplitude, dtype=float))
     if not np.max(amplitude) > 0.0:
         raise ValueError("the spectral amplitude has no positive value")
+    delays = np.asarray(delays, dtype=float).ravel()
+    if delays.size == 0:
+        raise ValueError("give at least one delay to evaluate")
     worst, peak = 0.0, 0.0
-    for tau in np.asarray(delays, dtype=float).ravel():
+    for tau in delays:
         args = (setup, omega, omega0, thickness, amplitude, float(tau))
         model = _pair_signal(*args, tilted=False)
         exact = _pair_signal(*args, tilted=True)
@@ -966,6 +969,11 @@ def check_tilt(
     -------
     float
         The relative field change of :func:`tilt_field_error`.
+
+    Raises
+    ------
+    ValueError
+        As :func:`tilt_field_error`.
 
     Warns
     -----
