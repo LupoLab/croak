@@ -59,7 +59,7 @@ to :math:`\gamma_\mathrm{int} = \arcsin(\sin\gamma / n_o)`, so that
 :math:`\theta = \theta_c + \gamma_\mathrm{int}`. The mismatch in a tilted plate
 of thickness :math:`L` builds up along the face normal, which to first order is the
 mismatch along the beams over the effective path
-:math:`L/(\cos\gamma_\mathrm{int} + (n_e'/n_e)\sin\gamma_\mathrm{int})`
+:math:`L/(\cos\gamma_\mathrm{int} + (n_e'/n_s)\sin\gamma_\mathrm{int})`
 (:meth:`CrystalSetup.path_length`). :class:`CrystalSetup`
 takes either :math:`\gamma` or the wavelength the crystal was tuned to
 phase-match, from which :math:`\theta` is solved. Approximations: the refraction
@@ -338,6 +338,11 @@ class CrystalSetup:
                 "give exactly one of tilt (the external tilt) and "
                 "phase_match_wavelength (the wavelength the crystal is tuned to)"
             )
+        if self.tilt is not None and not abs(self.tilt) < 0.5 * math.pi:
+            raise ValueError(
+                f"the external tilt must lie strictly between -pi/2 and pi/2 rad, "
+                f"got {self.tilt!r}"
+            )
         if not 0.0 <= self.cut_angle <= 0.5 * math.pi:
             raise ValueError(
                 f"cut_angle must lie in [0, pi/2] rad, got {self.cut_angle!r}"
@@ -432,11 +437,12 @@ class CrystalSetup:
         :math:`\Delta k_\perp L = \Delta k\, L_\mathrm{eff}` with
 
         .. math:: L_\mathrm{eff} = \frac{L}{\cos\gamma_\mathrm{int}
-           + (n_e'/n_e)\sin\gamma_\mathrm{int}},
+           + (n_e'/n_s)\sin\gamma_\mathrm{int}},
 
-        :math:`n_e' = \mathrm dn_e/\mathrm d\theta` at the signal carrier
-        :math:`2\omega_0` (derived in ``docs/explanation/forward_model.md``; it
-        agrees with an exact boundary-value solve to the mismatch's second order,
+        with :math:`n_s = n_e(\theta)` and :math:`n_e' = \mathrm dn_e/\mathrm
+        d\theta` at :math:`\theta` and the signal carrier :math:`2\omega_0`
+        (derived in ``docs/explanation/forward_model.md``; it agrees with an exact
+        boundary-value solve to the mismatch's second order,
         ``tests/test_crystals.py``). Without a tilt it is ``thickness``.
         """
         gamma = self.internal_tilt(omega0)
@@ -462,11 +468,14 @@ class CrystalSetup:
         :math:`\delta\theta = \pm(\omega_1-\omega_2)\sin\alpha/(\omega_s n_s)` to
         the bisector, which changes its index by :math:`n_e'\delta\theta`. Its
         mismatch grows by :math:`\kappa(\omega_1-\omega_2)` with
-        :math:`\kappa = \pm(n_e'/n_e)\sin\alpha/c`, taken at the signal carrier.
-        Over the rest of the path :math:`P-z` that is the phase
-        :math:`e^{i\kappa\Omega(P-z)}` on the test arm and its inverse on the gate:
-        opposite delays, :math:`\mp\kappa(P-z)`, that drift with depth. The sign
-        is ``+`` with the delayed beam toward the optic axis. ``0`` out of the
+        :math:`\kappa = \pm(n_e'/n_s)\sin\alpha/c`, with :math:`n_s = n_e(\theta)`,
+        taken at the signal carrier. Over the rest of the path :math:`P-z` that is
+        the phase :math:`e^{i\kappa\Omega(P-z)}` on the test arm and its inverse on
+        the gate. With croak's convention (a factor :math:`e^{i\Omega\tau}` delays a
+        field by :math:`\tau`) the test arm is delayed by :math:`+\kappa(P-z)` and
+        the gate by :math:`-\kappa(P-z)`, so the gate-minus-test delay at depth
+        :math:`z` is :math:`\tau - 2\kappa(P-z)`. The sign of :math:`\kappa` is
+        ``+`` with the delayed beam toward the optic axis. ``0`` out of the
         principal plane, where the term is second order.
         """
         if not self.in_principal_plane:
@@ -663,7 +672,10 @@ def depth_points(
     :math:`n \ge \lceil\varphi\rceil + 3` (checked for :math:`0.5 \le \varphi \le
     60` in ``tests/test_crystals.py``). :math:`\varphi` is the maximum over every
     pair of grid frequencies that lands on the signal grid, so the rule holds
-    wherever the retrieved field puts energy.
+    wherever the retrieved field puts energy. It leaves out the arms' delay drift
+    (:meth:`CrystalSetup.arm_shift`), which adds :math:`\kappa(\omega_1-\omega_2)`
+    to the mismatch: at most about one rad of :math:`\varphi` even for 500 µm at
+    a 5.7° half-angle, inside the rule's margin.
 
     Parameters
     ----------
@@ -709,13 +721,13 @@ def check_medium(
         Plate thickness (m).
     npoints : int
         Depth quadrature nodes the model will use.
-    quadrature : str, optional
-        The depth quadrature; a crystal's node rule is for ``"gausslegendre"``
-        (default).
     omega : array_like
         Centred angular-frequency grid (rad/s).
     omega0 : float
         Pulse carrier (rad/s).
+    quadrature : str, optional
+        The depth quadrature; a crystal's node rule is for ``"gausslegendre"``
+        (default).
 
     Raises
     ------
@@ -749,8 +761,10 @@ def check_medium(
     if not is_crystal:
         return
     material.internal_angle(omega0)  # the carrier, the angle and the tilt are valid
-    if thickness < 0.0:
-        raise ValueError(f"the crystal thickness must be >= 0, got {thickness!r}")
+    if not (math.isfinite(thickness) and thickness >= 0.0):
+        raise ValueError(
+            f"the crystal thickness must be finite and >= 0, got {thickness!r}"
+        )
     if not thickness:
         return
     if quadrature != "gausslegendre":
@@ -870,6 +884,10 @@ def tilt_field_error(
     delays. ``0`` out of the principal plane (``polarization="parallel"``) or
     collinear.
 
+    For a tilted plate both sums use the mismatch along the beams over the
+    effective path (:meth:`CrystalSetup.path_length`), so the comparison is exact
+    for an untilted plate and first order in the tilt otherwise.
+
     Scan the delays: the tilt's mismatch is odd in :math:`\omega_1-\omega_2`, so
     at zero delay, where the pairs :math:`(\omega_1,\omega_2)` and
     :math:`(\omega_2,\omega_1)` enter alike, much of its effect cancels. Delays
@@ -897,11 +915,18 @@ def tilt_field_error(
     -------
     float
         The relative field change.
+
+    Raises
+    ------
+    ValueError
+        If ``amplitude`` is zero everywhere.
     """
     if setup.geometry is None or setup.polarization != "perpendicular" or not thickness:
         return 0.0
     omega = np.asarray(omega, dtype=float)
     amplitude = np.abs(np.asarray(amplitude, dtype=float))
+    if not np.max(amplitude) > 0.0:
+        raise ValueError("the spectral amplitude has no positive value")
     worst, peak = 0.0, 0.0
     for tau in np.asarray(delays, dtype=float).ravel():
         args = (setup, omega, omega0, thickness, amplitude, float(tau))

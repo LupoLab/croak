@@ -162,9 +162,9 @@ wavevectors are $k\cos\gamma_\mathrm{int}$; the signal keeps their transverse
 wavevector, so its direction $\psi$ solves $K(\psi)\sin\psi = k_t$ with
 $K = k_s(\theta_c+\psi)$. Expanding about $\psi = \gamma_\mathrm{int}$ to first
 order in the mismatch $\Delta k$ gives a normal mismatch
-$\Delta k/(\cos\gamma_\mathrm{int} + (n_e'/n_e)\sin\gamma_\mathrm{int})$, so the model
+$\Delta k/(\cos\gamma_\mathrm{int} + (n_e'/n_s)\sin\gamma_\mathrm{int})$, so the model
 integrates over the effective path
-$P = L/(\cos\gamma_\mathrm{int} + (n_e'/n_e)\sin\gamma_\mathrm{int})$, with
+$P = L/(\cos\gamma_\mathrm{int} + (n_e'/n_s)\sin\gamma_\mathrm{int})$, with $n_s = n_e(\theta)$ and
 $n_e' = \mathrm dn_e/\mathrm d\theta$ at the signal carrier. A test checks it against
 the exact solve (agreement within 0.3 % of $\Delta k L$ at a 10° tilt, where
 $L/\cos\gamma_\mathrm{int}$ is about 1 % off). Nothing is derived from the
@@ -178,7 +178,7 @@ $\lceil\lvert\Delta k\rvert L/2\rceil + 3$ nodes; {func}`croak.crystals.depth_po
 takes the maximum over every pair of grid frequencies within the crystal's
 transparency range, and the models refuse fewer nodes. It grows with the grid's
 width: for 100 µm of BBO tuned to 800 nm, about 18 nodes on a 560–1440 nm grid and
-about 50 on a grid twice as wide.
+about 46 on a grid twice as wide.
 
 **The signal's tilt, and asymmetric SHG traces.** The signal of a pair
 $(\omega_1,\omega_2)$ (test, gate) inherits the transverse wavevector
@@ -200,7 +200,7 @@ Two consequences follow:
 - **The trace is not symmetric in delay.** The drift distinguishes the two arms, so
   $I(\omega,\tau) \ne I(\omega,-\tau)$, unlike the ideal SHG FROG trace. For BBO
   at 800 nm crossing at 1.4° the term changes the signal by about 0.5 % for a
-  12 fs pulse in 10 µm, 5 % in 100 µm, and 1 % for a 5 fs pulse in 10 µm. At zero
+  12 fs pulse in 10 µm, 5 % in 100 µm, and 0.5 % for a 5 fs pulse in 10 µm. At zero
   delay its first-order effect cancels between the pairs $(\omega_1,\omega_2)$ and
   $(\omega_2,\omega_1)$, so it shows away from zero delay.
 - **Its sign depends on which beam is nearer the optic axis**

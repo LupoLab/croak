@@ -366,7 +366,11 @@ def test_setup_rejects_an_invalid_angle_or_carrier(kwargs, omega0, match):
 
 @pytest.mark.parametrize(
     ("thickness", "quadrature", "match"),
-    [(-1e-6, "gausslegendre", "thickness must be >= 0"), (50e-6, "uniform", "Gauss")],
+    [
+        (-1e-6, "gausslegendre", "finite and >= 0"),
+        (math.nan, "gausslegendre", "finite and >= 0"),
+        (50e-6, "uniform", "Gauss"),
+    ],
 )
 def test_check_medium_rejects_bad_crystal_inputs(thickness, quadrature, match):
     from croak.interactions import get_interaction
@@ -375,3 +379,19 @@ def test_check_medium_rejects_bad_crystal_inputs(thickness, quadrature, match):
         crystals.check_medium(
             get_interaction("shg"), _tuned(), thickness, 99, GRID.omega, W0, quadrature
         )
+
+
+@pytest.mark.parametrize("tilt_deg", [90.0, -100.0])
+def test_setup_rejects_a_tilt_beyond_grazing(tilt_deg):
+    with pytest.raises(ValueError, match="external tilt"):
+        CrystalSetup(BBO, math.radians(29.2), tilt=math.radians(tilt_deg))
+
+
+def test_tilt_field_error_needs_light():
+    setup = _tuned(
+        geometry=TwoBeamGeometry(5e-3, 0.1),
+        polarization="perpendicular",
+        delayed_beam="toward_axis",
+    )
+    with pytest.raises(ValueError, match="no positive value"):
+        crystals.tilt_field_error(setup, GRID.omega, W0, 50e-6, np.zeros(GRID.n), [0.0])

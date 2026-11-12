@@ -21,7 +21,11 @@ from croak import crystals
 from croak.constants import C
 from croak.crystals import CrystalApproximationWarning, CrystalSetup
 from croak.forward import ForwardModel
-from croak.forward_jax import make_param_trace_fn, make_trace_fn
+from croak.forward_jax import (
+    make_forward_adjoint_fns,
+    make_param_trace_fn,
+    make_trace_fn,
+)
 from croak.geometry import TwoBeamGeometry
 from croak.grid import Grid
 
@@ -245,20 +249,17 @@ def test_arm_drift_captures_the_signal_tilt(side):
 
 def test_the_wrong_side_is_the_delay_mirror():
     # Flipping the side is the same as mirroring the delay axis (swapping the arms
-    # of SHG), to quadrature accuracy; the two sides differ, so the data can tell.
-    delays = np.linspace(-30e-15, 30e-15, 13)
+    # of SHG); the two sides differ, so the data can tell. On delays that are whole
+    # multiples of the grid step the identity is exact to rounding: off them, pairs
+    # whose sum wraps round the grid pick up a phase that differs between tau and
+    # -tau, which breaks it at the 5e-5 level.
+    delays = GRID.dt * np.arange(-10, 11)
     ew = _pulse(GRID, fwhm=8e-15, gdd=40e-30)
     toward = _model(_setup(**PRINCIPAL, delayed_beam="toward_axis"), 100e-6, delays)
     away = _model(_setup(**PRINCIPAL, delayed_beam="away_from_axis"), 100e-6, delays)
     a = toward.trace(ew, normalize=False)
     b = away.trace(ew, normalize=False)
-    # The discrete grid is not exactly symmetric (an even N runs from -N/2 to N/2-1),
-    # so even a trace without the drift departs from its mirror at the grid edges;
-    # the side flip must match the mirror to that same level, here about 5e-5.
-    plain = _model(_setup(geometry=GEOMETRY, polarization="parallel"), 100e-6, delays)
-    c = plain.trace(ew, normalize=False)
-    grid_asymmetry = np.max(np.abs(c - c[:, ::-1])) / c.max()
-    assert np.max(np.abs(a - b[:, ::-1])) / a.max() < 2 * grid_asymmetry
+    np.testing.assert_allclose(a, b[:, ::-1], rtol=0, atol=1e-10 * a.max())
     assert np.max(np.abs(a - b)) > 0.03 * a.max()
 
 
@@ -426,3 +427,34 @@ def test_tilt_field_error_skips_absorbed_signal_frequencies():
     error = crystals.tilt_field_error(setup, GRID.omega, W0, 100e-6, amp, DELAYS)
     # the absorbed bins lie in the far wings, so the error barely moves
     assert error == pytest.approx(full, rel=0.2)
+
+
+@pytest.mark.parametrize("plane", GEOMETRIES)
+def test_jax_hand_adjoint_matches_numpy(plane):
+    # The JAX twin of the hand adjoint, against the NumPy one (which the finite
+    # differences above pin), with and without the arms' delay drift.
+    rng = np.random.default_rng(5)
+    setup = _setup(**GEOMETRIES[plane])
+    thickness = 50e-6
+    npoints = crystals.depth_points(setup, GRID.omega, W0, thickness)
+    ew = _pulse(GRID)
+    psi_bar = rng.standard_normal(GRID.n) + 1j * rng.standard_normal(GRID.n)
+    tau = 6e-15
+    model = _model(setup, thickness, np.array([tau]))
+    model.signal_single(ew, tau, record=True)
+    expected = model.adjoint_single(psi_bar, tau)
+    signal_tape, adjoint = make_forward_adjoint_fns(
+        GRID.omega,
+        [tau],
+        "shg",
+        material=setup,
+        thickness=thickness,
+        npoints=npoints,
+        omega0=W0,
+    )
+    _, test, gate = signal_tape(ew, tau)
+    got = np.asarray(adjoint(psi_bar, test, gate, tau))
+    # the same FFTs and products in float64
+    np.testing.assert_allclose(
+        got, expected, rtol=1e-10, atol=1e-12 * np.abs(expected).max()
+    )
