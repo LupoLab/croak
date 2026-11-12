@@ -143,12 +143,15 @@ def post_filter(
     may be ``None``. Order matters: windowing in time redistributes spectral
     content, so the spectral taper must see the already-windowed field.
 
-    ``lam_lims``/``tau_lims`` should be the **measurement** windows λm/τm — the
-    ranges over which the trace actually carries signal (available as
-    :attr:`~croak.preprocess.TraceData.lamm_lims` /
-    :attr:`~croak.preprocess.TraceData.tau_lims`). Passing the full retrieval-grid
-    extent instead would taper only the outermost few bins and do essentially
-    nothing.
+    ``lam_lims`` is a wavelength window at the **fundamental** (the retrieved
+    field's own wavelengths, also for SHG), and ``tau_lims`` the measurement delay
+    window τm. Take them from
+    :attr:`~croak.preprocess.TraceData.fundamental_window` and
+    :attr:`~croak.preprocess.TraceData.tau_lims`. For SHG, do not pass the
+    trace's ``lamm_lims``: it lies at the second harmonic, and the window would
+    land above the grid and remove the whole spectrum. Passing the full
+    retrieval-grid extent instead would taper only the outermost few bins and
+    do essentially nothing.
 
     Returns a new :class:`~croak.result.RetrievalResult` with the filtered
     spectrum (the original is unchanged), so the effect can be toggled without

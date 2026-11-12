@@ -1596,8 +1596,9 @@ class StageRetrieve(RunControls, Stage):
         td = self.state.tracedata
         if td is None:
             return
-        # window to the measurement λm/τm ranges (not the full grid/trace extent)
-        lam_lims = td.lamm_lims if self.pf_lam.isChecked() else None
+        # window to the measurement ranges (not the full grid/trace extent); the
+        # spectral one at the fundamental, where the retrieved field lives
+        lam_lims = td.fundamental_window if self.pf_lam.isChecked() else None
         tau_lims = td.tau_lims if self.pf_tau.isChecked() else None
         if lam_lims is None and tau_lims is None:
             result = self._base_result

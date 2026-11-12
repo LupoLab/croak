@@ -1107,10 +1107,13 @@ def apply_post_filter(
     """Window the result to the measurement λ/τ ranges if the toggles are set.
 
     Mirrors the retrieve stage's post-filter pane: a spectral and/or temporal
-    window to the measurement extents (``td.lamm_lims`` / ``td.tau_lims``), not
-    the full grid. Returns the result unchanged when neither toggle is on.
+    window to the measurement extents (``td.fundamental_window`` /
+    ``td.tau_lims``), not the full grid. The spectral window is the one at the
+    fundamental, where the retrieved field lives; see
+    :attr:`~croak.preprocess.TraceData.fundamental_window`. Returns the result
+    unchanged when neither toggle is on (or no window applies).
     """
-    lam_lims = td.lamm_lims if p.post_filter_lam else None
+    lam_lims = td.fundamental_window if p.post_filter_lam else None
     tau_lims = td.tau_lims if p.post_filter_tau else None
     if lam_lims is None and tau_lims is None:
         return result

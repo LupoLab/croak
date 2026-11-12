@@ -537,3 +537,23 @@ def test_spectrogram_of_an_underflowed_gate_stays_zero():
     )
     _, _, S = processing.spectrogram(res, n_t=1, fw=1e-17)
     np.testing.assert_array_equal(S, 0.0)
+
+
+def test_post_filter_keeps_an_shg_result_with_the_fundamental_window():
+    # Regression for issue #22: an SHG result windowed with its trace-domain λm
+    # (near 400 nm) lost its whole spectrum, because post_filter measures the
+    # window from the fundamental carrier. The fundamental window keeps it.
+    g = Grid(128, dt=0.5e-15)
+    omega0 = wlfreq(800e-9)
+    ew = gaussian_pulse(g, 6e-15, phases=[20e-30])
+    delays = np.linspace(-50e-15, 50e-15, 80)
+    trace = maketrace(g.omega, delays, ew, "shg")
+    res = retrieve(
+        trace, g.omega, delays, "shg", algorithm="copra", maxiters=5, guess=ew,
+        omega0=omega0,
+    )
+    out = processing.post_filter(res, lam_lims=(700e-9, 900e-9))
+    kept = np.sum(np.abs(out.spectrum) ** 2) / np.sum(np.abs(res.spectrum) ** 2)
+    # A 6 fs pulse at 800 nm has most of its energy inside 700-900 nm; the taper
+    # removes the wings only, so well over half must survive.
+    assert kept > 0.5
