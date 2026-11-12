@@ -373,3 +373,15 @@ def test_stage_marginal_check_auto_passes_both_trust_regions(stage, monkeypatch)
     stage._auto_exponent()
     assert seen["trace_window"] == pytest.approx((340e-9, 460e-9))
     assert seen["spectrum_window"] == pytest.approx((720e-9, 880e-9))
+
+
+def test_stage_marginal_check_spectrum_trust_outside_the_spectrum_shows_no_prediction(
+    stage,
+):
+    _enter(stage, _data())
+    stage._on_spec_trust(1200.0, 1300.0)  # no spectrum sample in the region
+    legend = _legend(stage.marg_view)
+    assert "spectrum" in legend and "predicted" not in legend
+    assert stage.status_label.text() == (
+        "No independent spectrum: showing the trace marginal only."
+    )

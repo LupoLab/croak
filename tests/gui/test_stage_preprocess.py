@@ -302,3 +302,14 @@ def test_spectrum_window_control_follows_the_spectrum(loaded):
         600.0,
         1000.0,
     )
+
+
+def test_reseeding_keeps_an_unset_spectrum_window_unset(loaded):
+    # An older session: a spectrum is loaded but the window was never set, so it
+    # stays "full extent" rather than being invented from the bounds.
+    _with_spectrum(loaded)
+    p = loaded.state.preproc
+    p.lams_min_nm = p.lams_max_nm = None
+    seed_preproc_defaults(loaded.state, reset_values=False)
+    assert p.lams_bound_min_nm == 600.0
+    assert p.lams_min_nm is None and p.lams_max_nm is None

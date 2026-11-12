@@ -549,7 +549,13 @@ def test_post_filter_keeps_an_shg_result_with_the_fundamental_window():
     delays = np.linspace(-50e-15, 50e-15, 80)
     trace = maketrace(g.omega, delays, ew, "shg")
     res = retrieve(
-        trace, g.omega, delays, "shg", algorithm="copra", maxiters=5, guess=ew,
+        trace,
+        g.omega,
+        delays,
+        "shg",
+        algorithm="copra",
+        maxiters=5,
+        guess=ew,
         omega0=omega0,
     )
     out = processing.post_filter(res, lam_lims=(700e-9, 900e-9))
