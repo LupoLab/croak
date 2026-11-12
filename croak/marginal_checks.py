@@ -417,7 +417,8 @@ def auto_third_order_exponent(
     Ilam_spec: ArrayLike,
     interaction: str,
     *,
-    window: tuple[float, float] = (210e-9, 1000e-9),
+    trace_window: tuple[float, float] = (210e-9, 1000e-9),
+    spectrum_window: tuple[float, float] | None = None,
     bounds: tuple[float, float] = (0.0, 6.0),
     target_centroid: float | None = None,
 ) -> float:
@@ -427,7 +428,8 @@ def auto_third_order_exponent(
     a power law :math:`(\lambda/\mu\mathrm{m})^n`
     (:func:`croak.preprocess.third_order_scale`). This chooses ``n`` so the
     **centroid** of the corrected marginal (computed as an angular-frequency
-    density, within a wavelength ``window``) equals the centroid predicted from
+    density, within the wavelength ``trace_window``) equals the centroid
+    predicted from
     the independent spectrum (:func:`predicted_centroid`: :math:`\bar\omega_S` at
     the fundamental for PG/TG/SD, :math:`2\bar\omega_S` for SHG).
 
@@ -454,14 +456,20 @@ def auto_third_order_exponent(
         Independent fundamental spectrum and its wavelength grid (m).
     interaction : str
         ``"shg"``, ``"sd"``, ``"pg"`` or ``"tg"`` (case-insensitive).
-    window : tuple of float, optional
-        ``(lo, hi)`` trust window in metres (default ``(210e-9, 1000e-9)``); only
+    trace_window : tuple of float, optional
+        ``(lo, hi)`` trust window of the **trace marginal**, in the trace's own
+        wavelengths (m; default ``(210e-9, 1000e-9)``); only marginal
         wavelengths inside it enter the centroid.
+    spectrum_window : tuple of float, optional
+        ``(lo, hi)`` trust window of the independent **fundamental spectrum**
+        (m), applied when the target is formed from it. ``None`` (default) uses
+        the whole spectrum. It is separate from ``trace_window`` because for SHG
+        the spectrum lies an octave below the marginal.
     bounds : tuple of float, optional
         ``(lo, hi)`` clamp on the returned exponent (default ``(0.0, 6.0)``).
     target_centroid : float, optional
         Predicted centroid to match (rad/s). When ``None`` (default) it is
-        computed from ``lam_spec``/``Ilam_spec`` over the window.
+        computed from ``lam_spec``/``Ilam_spec`` over ``spectrum_window``.
 
     Returns
     -------
@@ -471,7 +479,7 @@ def auto_third_order_exponent(
     Raises
     ------
     ValueError
-        If fewer than three wavelengths carry signal in the window, or the
+        If fewer than three wavelengths carry signal in either window, or the
         spectrum centroid cannot be formed.
 
     Notes
@@ -491,7 +499,12 @@ def auto_third_order_exponent(
     if target_centroid is not None:
         target = float(target_centroid)
     else:
-        spec_in = (lam_spec >= window[0]) & (lam_spec <= window[1]) & (Ilam_spec > 0)
+        lo, hi = (
+            (lam_spec.min(), lam_spec.max())
+            if spectrum_window is None
+            else spectrum_window
+        )
+        spec_in = (lam_spec >= lo) & (lam_spec <= hi) & (Ilam_spec > 0)
         if np.count_nonzero(spec_in) < 3:
             raise ValueError("independent spectrum has no signal in the trust window")
         omega_spec = wlfreq(lam_spec[spec_in])
@@ -499,7 +512,7 @@ def auto_third_order_exponent(
         target = predicted_centroid(omega_spec, s_omega, interaction)
 
     # Measured marginal centroid as a function of n, also as an omega-density.
-    in_window = (lam >= window[0]) & (lam <= window[1]) & (marginal > 0)
+    in_window = (lam >= trace_window[0]) & (lam <= trace_window[1]) & (marginal > 0)
     if np.count_nonzero(in_window) < 3:
         raise ValueError("trace marginal has no signal in the trust window")
     lam_w = lam[in_window]

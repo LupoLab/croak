@@ -10,12 +10,16 @@ marginal, marks the predicted vs measured centroid, reports the width
 efficiency correction — with an ``Auto`` that matches the marginal centroid onto
 the prediction.
 
-The trust region (190–1000 nm for a measured trace; the full loaded range for
-the noise-free simulated/synthetic traces) bounds the peak finding, the
+Two trust regions bound what enters the checks, one per instrument. The
+**trace** trust region (190–1000 nm for a measured trace; the full loaded range
+for the noise-free simulated/synthetic traces) bounds the peak finding, the
 centroid/width moments, the marginal normalisation and the trace display
 scaling, so out-of-band detector noise — strongly amplified by the tilt — cannot
 distort either the checks or the colour scaling (the cause of the load preview
-"saturating" as the exponent was raised).
+"saturating" as the exponent was raised). The **spectrum** trust region (the
+spectrum's full range by default) windows the independent spectrum before the
+marginal is predicted from it. They are separate because the two are measured
+by different instruments and, for SHG, lie an octave apart.
 
 The marginals are plotted against frequency by default: a marginal is a
 frequency density and the convolution/centroid/width identities live in
@@ -84,18 +88,27 @@ class StageMarginalCheck(Stage):
     )
     HELP = [
         (
-            "Spectral trust region",
+            "Spectral trust regions",
             [
                 (
-                    "λ range (nm)",
-                    "Lower/upper wavelength bounds (nm) of the trust region. It "
-                    "windows the centroid/width checks and the marginal "
-                    "normalisation, scales the trace display, and Planck-tapers the "
-                    "independent spectrum before the marginal is predicted — so "
-                    "noisy measured wings (amplified by the (λ/µm)^exp tilt) cannot "
-                    "contaminate the prediction. Defaults to 190–1000 nm for a "
-                    "measured trace; the noise-free simulated/synthetic traces "
-                    "default to their full loaded wavelength range.",
+                    "trace λ (nm)",
+                    "Lower/upper wavelength bounds (nm) of the trace's trust "
+                    "region, in the trace's own wavelengths (for SHG, around half "
+                    "the fundamental). It windows the centroid/width checks and the "
+                    "marginal normalisation and scales the trace display, so noisy "
+                    "wings (amplified by the (λ/µm)^exp tilt) cannot distort them. "
+                    "Defaults to 190–1000 nm for a measured trace; the noise-free "
+                    "simulated/synthetic traces default to their full loaded "
+                    "wavelength range.",
+                ),
+                (
+                    "spectrum λ (nm)",
+                    "Lower/upper wavelength bounds (nm) of the independent "
+                    "spectrum's trust region, in fundamental wavelengths. The "
+                    "spectrum is Planck-tapered to it before the marginal is "
+                    "predicted, so its noisy wings cannot contaminate the "
+                    "prediction. Independent of the trace's region; defaults to "
+                    "the spectrum's full range, and is off without a spectrum.",
                 ),
             ],
         ),
@@ -150,12 +163,22 @@ class StageMarginalCheck(Stage):
         # noise-free simulated/synthetic traces, 190–1000 nm for measured).
         self._trust_nm = (190.0, 1000.0)
         self._trust_key: tuple | None = None  # the trace a default was seeded for
+        # The independent spectrum's own region (fundamental λ); re-seeded to the
+        # spectrum's range whenever the spectrum changes.
+        self._spec_trust_nm = (100.0, 3000.0)
+        self._spec_trust_key: tuple | None = None
 
-        # -- trust region --
-        box, form = group("Spectral trust region")
+        # -- trust regions --
+        box, form = group("Spectral trust regions")
         self.trust = RangeControl(100.0, 3000.0, *self._trust_nm, decimals=0, step=10.0)
         self.trust.changed.connect(self._on_trust)
-        add_wide_row(form, "λ range (nm)", self.trust)
+        add_wide_row(form, "trace λ (nm)", self.trust)
+        self.spec_trust = RangeControl(
+            *self._spec_trust_nm, *self._spec_trust_nm, decimals=0, step=10.0
+        )
+        self.spec_trust.changed.connect(self._on_spec_trust)
+        self.spec_trust.setEnabled(False)
+        add_wide_row(form, "spectrum λ (nm)", self.spec_trust)
         self.controls.addWidget(box)
 
         # -- display --
@@ -264,12 +287,35 @@ class StageMarginalCheck(Stage):
         self._trust_key = key
         self.trust.set_values(*trust)  # signal-safe
 
+    def _seed_spec_trust(self, data) -> None:
+        """Default the spectrum's trust region to the spectrum's own range.
+
+        Keyed on the spectrum, so a manual adjustment survives navigation while a
+        different spectrum re-defaults. Disabled without a spectrum.
+        """
+        lam_spec = data.get("lam_spec")
+        has_spectrum = lam_spec is not None and data.get("Ilam_spec") is not None
+        self.spec_trust.setEnabled(has_spectrum)
+        if not has_spectrum:
+            self._spec_trust_key = None
+            return
+        # round off the m→nm conversion error before flooring/ceiling
+        spec_nm = np.round(np.asarray(lam_spec) / 1e-9, 6)
+        extent = (float(np.floor(spec_nm.min())), float(np.ceil(spec_nm.max())))
+        if extent == self._spec_trust_key:
+            return
+        self._spec_trust_nm = extent
+        self._spec_trust_key = extent
+        self.spec_trust.set_bounds(*extent)
+        self.spec_trust.set_values(*extent)  # signal-safe
+
     def on_enter(self) -> None:
         data = self.state.load_data
         if data is None:
             self.set_status("Load a trace first.")
             return
         self._seed_trust(data)
+        self._seed_spec_trust(data)
         params = self._loader_params()
         enabled = params is not None
         self.third_order_check.setEnabled(enabled)
@@ -315,6 +361,10 @@ class StageMarginalCheck(Stage):
         self._trust_nm = (lo, hi)
         self._draw()  # trust only affects display/QC, no re-assembly
 
+    def _on_spec_trust(self, lo: float, hi: float) -> None:
+        self._spec_trust_nm = (lo, hi)
+        self._draw()
+
     def _on_scale(self, _value: str) -> None:
         self._draw()
 
@@ -354,7 +404,11 @@ class StageMarginalCheck(Stage):
         # along delay), so the fit returns the absolute exponent to apply.
         if params.third_order:
             marg = marg / third_order_scale(lam, params.third_order_exp)
-        window = (self._trust_nm[0] * 1e-9, self._trust_nm[1] * 1e-9)
+        trace_window = (self._trust_nm[0] * 1e-9, self._trust_nm[1] * 1e-9)
+        spectrum_window = (
+            self._spec_trust_nm[0] * 1e-9,
+            self._spec_trust_nm[1] * 1e-9,
+        )
         # Match the *displayed* predicted centroid (same spectrum windowing as the
         # overlay) so the two dashed centroid lines coincide after the fit.
         pred = self._predict(data["lam_spec"], data["Ilam_spec"], data["interaction"])
@@ -367,7 +421,8 @@ class StageMarginalCheck(Stage):
                     data["lam_spec"],
                     data["Ilam_spec"],
                     data["interaction"],
-                    window=window,
+                    trace_window=trace_window,
+                    spectrum_window=spectrum_window,
                     target_centroid=target,
                 ),
                 2,
@@ -470,7 +525,9 @@ class StageMarginalCheck(Stage):
         if data.get("Ilam_spec") is not None:
             lam_spec = np.asarray(data["lam_spec"])
             Ilam_spec = np.asarray(data["Ilam_spec"])
-            sl_band = (lam_spec / 1e-9 >= lo) & (lam_spec / 1e-9 <= hi)
+            # the spectrum is normalised within its own trust region
+            s_lo, s_hi = self._spec_trust_nm
+            sl_band = (lam_spec / 1e-9 >= s_lo) & (lam_spec / 1e-9 <= s_hi)
             if freq:
                 x_sp, y_sp = wlfreq(lam_spec) / _TWO_PI_PHZ, Ilam_spec * lam_spec**2
             else:
@@ -534,14 +591,14 @@ class StageMarginalCheck(Stage):
 
     # -- physics plumbing ---------------------------------------------------
     def _trust_window(self, lam: np.ndarray) -> np.ndarray:
-        """Near-hard window over the trust region (1 inside, 0 outside).
+        """Near-hard window over the spectrum's trust region (1 inside, 0 outside).
 
         Zero outside ``[lo, hi]`` with only a few-nm Planck roll-off just inside
         the bounds — enough to stop the sharp cut ringing through the FFTs, but
         narrow enough that it does not reshape the in-band spectrum (a wide taper
         would clip a broadband spectrum's wing and bias the predicted centroid).
         """
-        lo_nm, hi_nm = self._trust_nm
+        lo_nm, hi_nm = self._spec_trust_nm
         lo, hi = lo_nm * 1e-9, hi_nm * 1e-9
         edge = min(0.02 * max(hi - lo, 1e-12), 5e-9)
         return planck_taper(lam, lo, lo + edge, hi - edge, hi)
@@ -549,7 +606,7 @@ class StageMarginalCheck(Stage):
     def _predict(self, lam_spec, Ilam_spec, interaction) -> dict | None:
         """Predicted marginal on the trace's wavelength axis, plus its centroid (nm).
 
-        Planck-tapers the spectrum to the **trust region** first — the noisy
+        Planck-tapers the spectrum to **its own trust region** first — the noisy
         measured wings outside it would otherwise contaminate the transform-limited
         field and the autoconvolution — then resamples onto a uniform
         angular-frequency grid (applying the λ→ω Jacobian), predicts the marginal,
@@ -563,10 +620,9 @@ class StageMarginalCheck(Stage):
         Il = np.clip(Ilam_spec[order], 0.0, None) * self._trust_window(lam_s)
         if not np.any(Il > 0):
             return None
-        # Predict on a grid spanning the trust ∩ spectrum band, so the spectrum
-        # width σ_S is measured over the same window as the trace marginal — the
-        # width bracket and the measured width are then directly comparable.
-        lo_nm, hi_nm = self._trust_nm
+        # Predict on a grid spanning the trusted part of the spectrum, so the
+        # spectrum width σ_S is measured over the band that feeds the prediction.
+        lo_nm, hi_nm = self._spec_trust_nm
         lam_lo = max(lo_nm * 1e-9, float(lam_s[0]))
         lam_hi = min(hi_nm * 1e-9, float(lam_s[-1]))
         if lam_hi <= lam_lo:

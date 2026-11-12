@@ -183,7 +183,7 @@ def test_auto_exponent_no_signal_raises():
     # a trust window with no overlap leaves nothing to fit
     with pytest.raises(ValueError, match="no signal in the trust window"):
         mc.auto_third_order_exponent(
-            lam, marg, lam, spec, "pg", window=(200e-9, 300e-9)
+            lam, marg, lam, spec, "pg", trace_window=(200e-9, 300e-9)
         )
 
 
@@ -225,7 +225,13 @@ def test_auto_exponent_target_override_still_needs_marginal_signal():
     lam, spec, marg = _tilted_marginal()
     with pytest.raises(ValueError, match="trace marginal has no signal"):
         mc.auto_third_order_exponent(
-            lam, marg, lam, spec, "pg", window=(200e-9, 300e-9), target_centroid=1e15
+            lam,
+            marg,
+            lam,
+            spec,
+            "pg",
+            trace_window=(200e-9, 300e-9),
+            target_centroid=1e15,
         )
 
 
@@ -245,3 +251,43 @@ def test_auto_exponent_root_at_a_bound_returns_that_bound():
     # the base marginal is spec / (lam/um)^2: n = 2 restores spec exactly
     n = mc.auto_third_order_exponent(lam, marg, lam, spec, "pg", bounds=(2.0, 5.0))
     assert n == pytest.approx(2.0, abs=1e-9)
+
+
+def test_auto_exponent_spectrum_window_without_signal_raises():
+    lam, spec, marg = _tilted_marginal()
+    with pytest.raises(ValueError, match="independent spectrum has no signal"):
+        mc.auto_third_order_exponent(
+            lam, marg, lam, spec, "pg", spectrum_window=(200e-9, 300e-9)
+        )
+
+
+def test_auto_exponent_windows_the_spectrum_and_the_trace_independently():
+    """SHG: the spectrum (fundamental) and the marginal (second harmonic) sit an
+    octave apart, so one shared window cannot hold both; each gets its own."""
+    lam_spec = np.linspace(1400e-9, 1800e-9, 400)
+    spec = np.exp(-((lam_spec - 1600e-9) ** 2) / (2 * (40e-9) ** 2))
+    omega_spec = wlfreq(lam_spec)
+    target = mc.predicted_centroid(omega_spec, spec * lam_spec**2, "shg")
+    lam = np.linspace(700e-9, 900e-9, 400)
+    marg_true = np.exp(-((lam - wlfreq(target)) ** 2) / (2 * (20e-9) ** 2))
+    base = marg_true / (lam / 1e-6) ** 2.0
+    n_ref = mc.auto_third_order_exponent(
+        lam, base, lam_spec, spec, "shg", target_centroid=target
+    )
+    n = mc.auto_third_order_exponent(
+        lam,
+        base,
+        lam_spec,
+        spec,
+        "shg",
+        trace_window=(700e-9, 900e-9),
+        spectrum_window=(1400e-9, 1800e-9),
+    )
+    # Same target either way: the spectrum window covers the whole spectrum.
+    assert n == pytest.approx(n_ref, abs=1e-9)
+    # A trace-domain window applied to the spectrum (the old shared window)
+    # finds no spectrum at all.
+    with pytest.raises(ValueError, match="independent spectrum has no signal"):
+        mc.auto_third_order_exponent(
+            lam, base, lam_spec, spec, "shg", spectrum_window=(700e-9, 900e-9)
+        )
