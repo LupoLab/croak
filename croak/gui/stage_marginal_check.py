@@ -16,10 +16,11 @@ for the noise-free simulated/synthetic traces) bounds the peak finding, the
 centroid/width moments, the marginal normalisation and the trace display
 scaling, so out-of-band detector noise — strongly amplified by the tilt — cannot
 distort either the checks or the colour scaling (the cause of the load preview
-"saturating" as the exponent was raised). The **spectrum** trust region (the
-spectrum's full range by default) windows the independent spectrum before the
-marginal is predicted from it. They are separate because the two are measured
-by different instruments and, for SHG, lie an octave apart.
+"saturating" as the exponent was raised). The **spectrum** trust region (a
+measured spectrum's range within 190–1000 nm, else its full range) windows the
+independent spectrum before the marginal is predicted from it. They are
+separate because the two are measured by different instruments and, for SHG,
+lie an octave apart.
 
 The marginals are plotted against frequency by default: a marginal is a
 frequency density and the convolution/centroid/width identities live in
@@ -107,8 +108,10 @@ class StageMarginalCheck(Stage):
                     "spectrum's trust region, in fundamental wavelengths. The "
                     "spectrum is Planck-tapered to it before the marginal is "
                     "predicted, so its noisy wings cannot contaminate the "
-                    "prediction. Independent of the trace's region; defaults to "
-                    "the spectrum's full range, and is off without a spectrum.",
+                    "prediction. Independent of the trace's region. A measured "
+                    "spectrum defaults to its range within 190–1000 nm (its full "
+                    "range if it lies outside that band), a simulated or synthetic "
+                    "one to its full range; off without a spectrum.",
                 ),
             ],
         ),
@@ -288,10 +291,16 @@ class StageMarginalCheck(Stage):
         self.trust.set_values(*trust)  # signal-safe
 
     def _seed_spec_trust(self, data) -> None:
-        """Default the spectrum's trust region to the spectrum's own range.
+        """Default the spectrum's trust region for a freshly loaded spectrum.
 
-        Keyed on the spectrum, so a manual adjustment survives navigation while a
-        different spectrum re-defaults. Disabled without a spectrum.
+        A measured spectrum defaults to its range clipped to 190–1000 nm, the
+        UV–NIR band that excludes a spectrometer's noisy out-of-band wings (as the
+        single shared region did before the two were split); where the spectrum
+        lies wholly outside that band (a fundamental beyond 1 µm), to its full
+        range. Simulated and synthetic spectra carry no detector noise and
+        default to their full range. Keyed on the entry and the spectrum, so a
+        manual adjustment survives navigation while a different spectrum
+        re-defaults. Disabled without a spectrum.
         """
         lam_spec = data.get("lam_spec")
         has_spectrum = lam_spec is not None and data.get("Ilam_spec") is not None
@@ -302,12 +311,18 @@ class StageMarginalCheck(Stage):
         # round off the m→nm conversion error before flooring/ceiling
         spec_nm = np.round(np.asarray(lam_spec) / 1e-9, 6)
         extent = (float(np.floor(spec_nm.min())), float(np.ceil(spec_nm.max())))
-        if extent == self._spec_trust_key:
+        key = (self.state.entry, *extent)
+        if key == self._spec_trust_key:
             return
-        self._spec_trust_nm = extent
-        self._spec_trust_key = extent
+        trust = extent
+        if self.state.entry == "experimental":
+            lo, hi = max(extent[0], 190.0), min(extent[1], 1000.0)
+            if lo < hi:
+                trust = (lo, hi)
+        self._spec_trust_nm = trust
+        self._spec_trust_key = key
         self.spec_trust.set_bounds(*extent)
-        self.spec_trust.set_values(*extent)  # signal-safe
+        self.spec_trust.set_values(*trust)  # signal-safe
 
     def on_enter(self) -> None:
         data = self.state.load_data

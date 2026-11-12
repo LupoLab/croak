@@ -151,8 +151,9 @@ clean = croak.processing.post_filter(result,
 
 Pass **measurement** windows: the delay window τm (`td.tau_lims`), and a
 wavelength window **at the fundamental**, where the retrieved field lives
-(`td.fundamental_window`: the spectrum window λs, or for PG/SD without a spectrum
-the trace window λm). For SHG, never pass the trace window `td.lamm_lims`: it lies
+(`td.fundamental_window`: for PG/SD the trace window λm, for SHG the spectrum
+window λs, and `None` for SHG without a spectrum). For SHG, never pass the trace
+window `td.lamm_lims`: it lies
 at the second harmonic, so the taper would land above the grid and remove the
 whole field. (The full retrieval-grid extent, `td.lam_min`/`td.lam_max`, would
 taper only the outermost few bins and do nothing useful.)

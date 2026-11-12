@@ -1523,18 +1523,16 @@ class TraceData:
     def fundamental_window(self) -> tuple[float, float] | None:
         """Wavelength window (m) at the **fundamental**, for windowing the field.
 
-        The spectrum window ``lams_lims`` when there is an independent spectrum.
-        Otherwise the trace window ``lamm_lims``, but only when the trace sits at
-        the fundamental (PG, SD). For SHG without a spectrum it is ``None``: the
-        trace window lies at the second harmonic, and doubling it is not a
-        bound on the fundamental's support (a 650 nm and a 1000 nm component
-        mix to 394 nm, inside a 350-450 nm trace window).
+        For PG and SD, whose trace sits at the fundamental, the trace window
+        ``lamm_lims``: the measured support of the signal. For SHG the trace
+        window lies at the second harmonic, and doubling it is not a bound on the
+        fundamental's support (a 650 nm and a 1000 nm component mix to 394 nm,
+        inside a 350-450 nm trace window), so it is the spectrum window
+        ``lams_lims``, or ``None`` without a spectrum.
         """
-        if self.lams_lims is not None:
-            return self.lams_lims
         if get_interaction(self.interaction).omega0_scale == 1.0:
             return self.lamm_lims
-        return None
+        return self.lams_lims
 
 
 def _check_spectrum_window(

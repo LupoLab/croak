@@ -315,9 +315,9 @@ class StageRetrieve(RunControls, Stage):
                 (
                     "Spectral (λ window)",
                     "Mask the retrieved result outside the spectral window at the "
-                    "fundamental: the spectrum window λs, or for PG/SD without a "
-                    "spectrum the trace window λm. Off for SHG without a spectrum. "
-                    "Applied to the stored result, no re-run.",
+                    "fundamental: the trace window λm for PG/SD, the spectrum "
+                    "window λs for SHG (off for SHG without a spectrum). Applied "
+                    "to the stored result, no re-run.",
                 ),
                 (
                     "Temporal (τ window)",

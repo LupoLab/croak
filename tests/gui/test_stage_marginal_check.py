@@ -385,3 +385,21 @@ def test_stage_marginal_check_spectrum_trust_outside_the_spectrum_shows_no_predi
     assert stage.status_label.text() == (
         "No independent spectrum: showing the trace marginal only."
     )
+
+
+@pytest.mark.parametrize(
+    ("entry", "extent", "expected"),
+    [
+        # measured: clipped to the 190-1000 nm detector band
+        ("experimental", (600e-9, 1200e-9), (600.0, 1000.0)),
+        # measured, wholly beyond 1 um (a 1.6 um fundamental): its full range
+        ("experimental", (1400e-9, 1800e-9), (1400.0, 1800.0)),
+        # noise-free: the full range
+        ("synthetic", (600e-9, 1200e-9), (600.0, 1200.0)),
+    ],
+)
+def test_stage_marginal_check_spectrum_trust_default(stage, entry, extent, expected):
+    data = _data()
+    data["lam_spec"] = np.linspace(*extent, 64)
+    _enter(stage, data, entry=entry)
+    assert stage._spec_trust_nm == expected

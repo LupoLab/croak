@@ -321,8 +321,9 @@ overlays the predicted marginal, marks the predicted vs measured **centroid**,
 reports the **width-bracket** check, and exposes two spectral **trust regions**:
 **trace λ** for the trace marginal (defaults to 190–1000 nm for a measured trace,
 or the full loaded range for the noise-free simulated/synthetic traces) and
-**spectrum λ** for the independent spectrum (defaults to its full range; off
-without a spectrum). There are two because the trace and the spectrum come from
+**spectrum λ** for the independent spectrum (a measured spectrum defaults to its
+range within 190–1000 nm, or its full range if it lies outside that band; a
+simulated or synthetic one to its full range; off without a spectrum). There are two because the trace and the spectrum come from
 different instruments and, for SHG, lie an octave apart. The page also has a
 **log/linear** marginal toggle (default
 linear, peak-normalised)

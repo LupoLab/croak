@@ -218,8 +218,8 @@ How the three PG checks carry over:
   most affected by the TL assumption for PG/SD. Restrict the moments and the
   normalisation to **spectral trust regions**, one for the trace (in the GUI,
   190–1000 nm for a measured trace, or the full loaded range for the noise-free
-  simulated/synthetic traces) and one for the independent spectrum (its full
-  range by default), so out-of-band detector noise cannot dominate. They are
+  simulated/synthetic traces) and one for the independent spectrum (in the GUI,
+  a measured spectrum's range within 190–1000 nm by default), so out-of-band detector noise cannot dominate. They are
   separate because the two come from different instruments and, for SHG, lie an
   octave apart.
 - For the rigorous SHG and PG-centroid checks, report the numeric discrepancy

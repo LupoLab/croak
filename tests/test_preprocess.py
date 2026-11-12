@@ -1318,19 +1318,31 @@ def test_load_and_clean_rejects_a_spectrum_window_without_a_spectrum(experiment)
         )
 
 
-def test_fundamental_window_prefers_the_spectrum_window():
+def test_fundamental_window_of_shg_is_the_spectrum_window():
     td = _shg_clean(lams_lims=(1500e-9, 1700e-9))
     assert td.fundamental_window == (1500e-9, 1700e-9)
 
 
-def test_fundamental_window_falls_back_to_lamm_only_at_the_fundamental(experiment):
-    # PG: the trace is at the fundamental, so its λm is a valid fundamental window.
+def test_fundamental_window_of_pg_is_the_trace_window(experiment):
+    # PG: the trace is at the fundamental, so its λm is the signal's measured
+    # support, and a spectrum window does not replace it.
     exp = experiment
     kw = dict(lam_min=exp.lam_min, lam_max=exp.lam_max, input_unit="delay")
     args = (exp.trace, exp.lam_nm * 1e-9, exp.delay_fs * 1e-15)
     lamm = (exp.lam_min * 1.05, exp.lam_max * 0.95)
     pg = preprocess.load_and_clean(*args, "pg", lamm_lims=lamm, **kw)
     assert pg.fundamental_window == lamm
+    lam = exp.lam_nm * 1e-9
+    with_spectrum = preprocess.load_and_clean(
+        *args,
+        "pg",
+        lamm_lims=lamm,
+        lam_spec=lam,
+        Ilam_spec=np.ones_like(lam),
+        lams_lims=(exp.lam_min, exp.lam_max),
+        **kw,
+    )
+    assert with_spectrum.fundamental_window == lamm
     # SHG without a spectrum: λm is at the second harmonic, so there is no
     # fundamental window to offer (a ×2 map of it is not a support bound).
     shg = preprocess.load_and_clean(
