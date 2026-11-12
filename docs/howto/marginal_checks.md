@@ -74,8 +74,11 @@ Interpreting a mismatch:
 - **SD** — only the width lower bound is rigorous; the centroid holds at TL or for
   a temporally symmetric pulse.
 
-Restrict the moments and the shape comparison to a spectral **trust region** so
-out-of-band detector noise — amplified by any efficiency tilt — cannot dominate.
+Restrict the moments and the shape comparison to spectral **trust regions** so
+out-of-band detector noise — amplified by any efficiency tilt — cannot dominate:
+one for the trace marginal, in the trace's wavelengths, and one for the
+independent spectrum, in fundamental wavelengths. For SHG the two lie an octave
+apart, so a single shared region cannot hold both.
 
 ## Fit the third-order efficiency exponent
 
@@ -87,7 +90,13 @@ because the tilt shifts the centroid monotonically in $n$:
 
 ```python
 n = mc.auto_third_order_exponent(
-    lam, marg, lam_spec, Ilam_spec, "pg", window=(210e-9, 1000e-9)
+    lam,
+    marg,
+    lam_spec,
+    Ilam_spec,
+    "pg",
+    trace_window=(210e-9, 1000e-9),
+    spectrum_window=(700e-9, 900e-9),
 )
 corrected = trace * croak.preprocess.third_order_scale(lam, n)[:, None]
 ```
@@ -101,7 +110,7 @@ All of the above is interactive on the GUI's **Check the marginal** step, the
 second step of the Data stage, which sits between the data loaders and Prepare
 for measured, simulated and synthetic sessions. It overlays the predicted marginal on the measured
 one, marks the predicted vs measured centroid, reports the width-bracket check,
-and exposes the trust region, a log/linear toggle and the `(λ/µm)^exp` correction
+and exposes the two trust regions (trace and spectrum), a log/linear toggle and the `(λ/µm)^exp` correction
 with an `Auto` (centroid-matching) button. The **SHG marginal correction** also
 lives here: it rescales the trace's frequency rows onto the predicted SHG
 autoconvolution ({func}`~croak.marginal_checks.apply_marginal_correction`),

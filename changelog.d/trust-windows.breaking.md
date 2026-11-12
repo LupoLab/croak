@@ -1,0 +1,1 @@
+`auto_third_order_exponent` takes `trace_window` (the trace marginal's wavelengths) and `spectrum_window` (the independent spectrum's; default its full range) in place of the single `window`, and the marginal-check stage has a trust region for each. Replace `window=w` with `trace_window=w`, and pass `spectrum_window=w` as well to reproduce the old behaviour exactly (#23).
