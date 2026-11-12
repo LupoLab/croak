@@ -1465,9 +1465,8 @@ class TraceData:
     lam_min, lam_max : float
         Retrieval wavelength range (m) — the output grid extent.
     lamm_lims : tuple or None
-        Measurement wavelength window λm (m): where the trace carries signal.
-        Use this (not ``lam_min/lam_max``) for any post-retrieval spectral
-        windowing — see :func:`~croak.processing.post_filter`.
+        Measurement wavelength window λm (m) of the **trace**: where the trace
+        carries signal. For SHG it lies near half the fundamental wavelength.
     tau_lims : tuple or None
         Measurement delay window τm (s), or ``None``. The companion to
         ``lamm_lims`` for post-retrieval temporal windowing.
@@ -1477,6 +1476,12 @@ class TraceData:
         Independent spectrum (measured/filtered) or ``None``.
     scalecurve : numpy.ndarray
         Per-wavelength scaling applied during filtering.
+    lams_lims : tuple or None
+        Wavelength window (m) applied to the independent **fundamental
+        spectrum**, independent of ``lamm_lims``; ``None`` when there is no
+        spectrum. Use this for post-retrieval spectral windowing of the
+        retrieved field (see :func:`~croak.processing.post_filter`), which also
+        lives at the fundamental.
     taper_loss : float
         Fraction of the measured trace removed by :func:`regrid`'s edge taper
         (see :data:`TAPER_COLLAR_BINS`). A band chosen with room to spare leaves
@@ -1507,11 +1512,29 @@ class TraceData:
     Ilam_spec_filt: NDArray[np.float64] | None
     scalecurve: NDArray[np.float64]
     taper_loss: float = 0.0
+    lams_lims: tuple[float, float] | None = None
 
     @property
     def omega(self) -> NDArray[np.float64]:
         """Centred angular-frequency axis (rad/s)."""
         return self.grid.omega
+
+    @property
+    def fundamental_window(self) -> tuple[float, float] | None:
+        """Wavelength window (m) at the **fundamental**, for windowing the field.
+
+        The spectrum window ``lams_lims`` when there is an independent spectrum.
+        Otherwise the trace window ``lamm_lims``, but only when the trace sits at
+        the fundamental (PG, SD). For SHG without a spectrum it is ``None``: the
+        trace window lies at the second harmonic, and doubling it is not a
+        bound on the fundamental's support (a 650 nm and a 1000 nm component
+        mix to 394 nm, inside a 350-450 nm trace window).
+        """
+        if self.lams_lims is not None:
+            return self.lams_lims
+        if self.omega0_trace == self.omega0_pulse:
+            return self.lamm_lims
+        return None
 
 
 def load_and_clean(
@@ -1523,6 +1546,7 @@ def load_and_clean(
     lam_min: float,
     lam_max: float,
     lamm_lims: tuple[float, float] | None = None,
+    lams_lims: tuple[float, float] | None = None,
     input_unit: str = "position",
     trange: float | None = None,
     tau_crop: tuple[float, float] | None = None,
@@ -1568,9 +1592,16 @@ def load_and_clean(
     lam_min, lam_max : float
         Fundamental-pulse retrieval wavelength range (m), also for SHG.
     lamm_lims : tuple, optional
-        Useful measurement wavelength window λm (m); defaults to the full
-        extent. Applied as a spectral window before regridding, and stored on the
-        returned :class:`TraceData` for optional post-retrieval windowing.
+        Useful measurement wavelength window λm (m) of the **trace** (for SHG,
+        near half the fundamental wavelength); defaults to the trace's full
+        extent. Applied to the trace before regridding. It does not touch the
+        independent spectrum, which has its own ``lams_lims``.
+    lams_lims : tuple, optional
+        Wavelength window (m) of the independent **fundamental spectrum**,
+        applied to it before regridding and stored on the returned
+        :class:`TraceData` for post-retrieval windowing of the retrieved field.
+        Defaults to the spectrum's full extent. Requires ``lam_spec`` and
+        ``Ilam_spec``.
     input_unit : {"position", "delay"}, optional
         Whether ``scanaxis`` is a stage position (m) or a delay (s). Default
         ``"position"``, converted with ``τ = 2z/c``.
@@ -1703,6 +1734,11 @@ def load_and_clean(
     inter = get_interaction(interaction)
     if lamm_lims is None:
         lamm_lims = (float(lam_frog.min()), float(lam_frog.max()))
+    has_spectrum = lam_spec is not None and Ilam_spec is not None
+    if lams_lims is not None and not has_spectrum:
+        raise ValueError(
+            "lams_lims needs an independent spectrum (lam_spec and Ilam_spec)"
+        )
 
     if input_unit == "position":
         tau_meas = 2.0 * scanaxis / C
@@ -1736,13 +1772,14 @@ def load_and_clean(
     )
 
     if lam_spec is not None and Ilam_spec is not None:
-        # The trace λm window maps to the fundamental-spectrum window by the same
-        # factor as omega0_scale: for SHG λ_fund = 2·λ_trace (scale 2); for
-        # sd/pg the trace is already at the fundamental (scale 1).
-        scale = inter.omega0_scale
-        Ilam_spec_filt = filter_spectrum(
-            lam_spec, Ilam_spec, lamm_lims[0] * scale, lamm_lims[1] * scale
-        )
+        # The spectrum has its own window, deliberately not derived from the
+        # trace's λm: the two are measured by different instruments, with noise
+        # and artefacts at unrelated wavelengths (and for SHG a ×2 map of λm is
+        # not even a support bound of the fundamental). See issue #23.
+        lam_spec = np.asarray(lam_spec, dtype=float)
+        if lams_lims is None:
+            lams_lims = (float(lam_spec.min()), float(lam_spec.max()))
+        Ilam_spec_filt = filter_spectrum(lam_spec, Ilam_spec, *lams_lims)
     else:
         Ilam_spec_filt = None
 
@@ -1799,4 +1836,5 @@ def load_and_clean(
         Ilam_spec_filt=Ilam_spec_filt,
         scalecurve=sc,
         taper_loss=taper_loss,
+        lams_lims=lams_lims,
     )
