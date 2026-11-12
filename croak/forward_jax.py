@@ -45,7 +45,10 @@ import jax.numpy as jnp  # noqa: E402 - must follow the x64 update above
 import numpy as np  # noqa: E402 - must follow the x64 update above
 from numpy.typing import ArrayLike, NDArray  # noqa: E402 - see the x64 note above
 
-from . import materials  # noqa: E402 - binds jax.numpy; see the x64 note above
+from . import (  # noqa: E402 - binds jax.numpy; see the x64 note above
+    crystals,
+    materials,
+)
 from .collection import (  # noqa: E402 - see the x64 note above
     CollectionAperture,
     transform_phases,
@@ -129,6 +132,25 @@ def _smear_scale_pair(smear_scale) -> tuple[jnp.ndarray, jnp.ndarray]:
     return s[0], s[1]
 
 
+def _static_props(material, omega, omega0, thickness, npoints, quadrature):
+    """``(input_prop, signal_prop, weights)`` for a fixed medium, as ForwardModel.
+
+    Propagation phase matrices ``(N, Q)`` in DFT-bin order: the field travels to
+    depth ``z_q``, the signal born there the rest of the path, which in a tilted
+    crystal is longer than the plate (:mod:`croak.crystals`).
+    """
+    prop = crystals.propagation(material, omega, omega0, thickness)
+    nodes, weights = quadrature_nodes_weights(prop.path_length, npoints, quadrature)
+    beta_in = np.fft.ifftshift(prop.beta_in)
+    beta_sig = np.fft.ifftshift(prop.beta_sig)
+    sig_amp = np.fft.ifftshift(prop.sig_amp)
+    input_prop = np.exp(1j * np.outer(beta_in, nodes))
+    signal_prop = sig_amp[:, None] * np.exp(
+        1j * np.outer(beta_sig, prop.path_length - nodes)
+    )
+    return input_prop, signal_prop, weights
+
+
 class _SignalConstants:
     """Static problem geometry shared by the JAX forward signal and its adjoint.
 
@@ -152,22 +174,13 @@ class _SignalConstants:
         self, omega, interaction, *, material, thickness, npoints, omega0, quadrature
     ):
         inter = get_interaction(interaction)
-        # Same physical guard as ForwardModel: a slab built at the fundamental
-        # cannot consistently propagate an SHG signal that lives near 2*omega0.
-        if material is not None and thickness and inter.omega0_scale != 1.0:
-            raise ValueError(
-                f"dispersive propagation is not supported for the "
-                f"{inter.name.upper()} interaction (its signal is not at the "
-                f"fundamental frequency); use a thin medium (material=None)"
-            )
         omega = np.asarray(omega, dtype=float)
+        # Same guard and propagation as ForwardModel (croak.crystals).
+        crystals.check_medium(inter, material, float(thickness), npoints, omega, omega0)
         omega_bin = np.fft.ifftshift(omega)
-        beta = materials.beta(material, omega, omega0)
-        beta_bin = np.fft.ifftshift(beta)
-        nodes, weights = quadrature_nodes_weights(float(thickness), npoints, quadrature)
-        # Propagation phase matrices (N, Q), DFT-bin order — identical to ForwardModel.
-        input_prop = np.exp(1j * np.outer(beta_bin, nodes))
-        signal_prop = np.exp(1j * np.outer(beta_bin, float(thickness) - nodes))
+        input_prop, signal_prop, weights = _static_props(
+            material, omega, omega0, float(thickness), npoints, quadrature
+        )
 
         self.inter = inter
         self.n = int(omega.size)
@@ -236,7 +249,7 @@ def make_signal_fn(
     delays: ArrayLike,
     interaction: str,
     *,
-    material: str | None = None,
+    material: str | crystals.CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 1,
     omega0: float = 0.0,
@@ -289,7 +302,7 @@ def make_forward_adjoint_fns(
     delays: ArrayLike,
     interaction: str,
     *,
-    material: str | None = None,
+    material: str | crystals.CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 1,
     omega0: float = 0.0,
@@ -350,7 +363,7 @@ def make_trace_fn(
     delays: ArrayLike,
     interaction: str,
     *,
-    material: str | None = None,
+    material: str | crystals.CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 1,
     omega0: float = 0.0,
@@ -511,7 +524,7 @@ def make_param_trace_fn(
     *,
     depth_weight: ArrayLike | None = None,
     depth_node_phase: ArrayLike | None = None,
-    material: str | None = None,
+    material: str | crystals.CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 1,
     omega0: float = 0.0,
@@ -647,14 +660,29 @@ def make_param_trace_fn(
             f"geometrical smearing is not supported for the {inter.name.upper()} "
             f"interaction; only PG (TG) and SD have the required three-arm form"
         )
-    # Same physical guard as the forward model: a slab built at the fundamental
-    # cannot consistently propagate a signal that lives away from omega0 (SHG).
-    if material is not None and thickness and inter.omega0_scale != 1.0:
-        raise ValueError(
-            f"dispersive propagation is not supported for the "
-            f"{inter.name.upper()} interaction (its signal is not at the "
-            f"fundamental frequency); use a thin medium (material=None)"
-        )
+    # Same guard as the forward model: SHG needs a crystal (croak.crystals).
+    crystals.check_medium(
+        inter, material, float(thickness), npoints, np.asarray(omega, float), omega0
+    )
+    # The paths below that build on a single propagation constant (thickness
+    # fitting, the focal mixture, depth_transverse) take the isotropic slab only.
+    slab = None if isinstance(material, crystals.CrystalSetup) else material
+    if isinstance(material, crystals.CrystalSetup):
+        refused = [
+            name
+            for name, on in (
+                ("fit_thickness", fit_thickness),
+                ("focal", focal is not None),
+                ("depth_transverse", depth_transverse),
+            )
+            if on
+        ]
+        if refused:
+            raise ValueError(
+                f"the SHG crystal model does not support {', '.join(refused)}: "
+                f"these are built for an isotropic slab's single propagation "
+                f"constant (PG/SD)"
+            )
     if fit_thickness and (material is None or thickness <= 0.0):
         raise ValueError(
             "fitting thickness requires a dispersive slab "
@@ -718,7 +746,7 @@ def make_param_trace_fn(
                 "footprint (a large chromatic hole, or a wide chromatic=False "
                 "k window) instead of collection=None"
             )
-        if material is None or thickness <= 0.0:
+        if slab is None or thickness <= 0.0:
             raise ValueError(
                 "depth_transverse requires a dispersive slab (material set and "
                 "thickness > 0): the phase accumulates over the remaining "
@@ -726,7 +754,7 @@ def make_param_trace_fn(
             )
         g_dt = _depth_phase_rate(
             focal.collection,
-            material,
+            slab,
             np.asarray(omega, dtype=float) + float(omega0),
         )
     # Depth-resolved mixture (fc-z): the mixture's EvolveSpec must agree with
@@ -760,15 +788,15 @@ def make_param_trace_fn(
                 f"must sit on the same depth nodes as the propagation phases"
             )
     omega = np.asarray(omega, dtype=float)
-    beta_bin_np = np.fft.ifftshift(materials.beta(material, omega, omega0))
     omega_bin = jnp.asarray(np.fft.ifftshift(omega))
-    beta_bin = jnp.asarray(beta_bin_np)
     signal_map = _JAX_INTERACTIONS[inter.name]
     delays_j = jnp.asarray(np.asarray(delays, dtype=float))
 
     if fit_thickness:
         # Normalised quadrature on [0, 1]; thickness scales the nodes/weights at
-        # call time, keeping the depth integral differentiable in L.
+        # call time, keeping the depth integral differentiable in L. An isotropic
+        # slab only (a crystal is refused above), so one beta serves both fields.
+        beta_bin = jnp.asarray(np.fft.ifftshift(materials.beta(slab, omega, omega0)))
         nodes0, weights0 = quadrature_nodes_weights(1.0, npoints, quadrature)
         xi = jnp.asarray(nodes0)
         w_hat = jnp.asarray(weights0)
@@ -786,14 +814,14 @@ def make_param_trace_fn(
     else:
         # Thickness held fixed: bake the propagation matrices once, exactly as the
         # standard forward model (handles the thin single-node case).
-        nodes0, weights0 = quadrature_nodes_weights(
-            float(thickness), npoints, quadrature
+        input_np, signal_np, weights0 = _static_props(
+            material, omega, omega0, float(thickness), npoints, quadrature
         )
-        input_prop_c = jnp.asarray(np.exp(1j * np.outer(beta_bin_np, nodes0)))
-        signal_prop_c = jnp.asarray(
-            np.exp(1j * np.outer(beta_bin_np, float(thickness) - nodes0))
-        )
+        input_prop_c = jnp.asarray(input_np)
+        signal_prop_c = jnp.asarray(signal_np)
         weights_c = jnp.asarray(weights0) if dw is None else jnp.asarray(weights0) * dw
+        # depth_transverse only (refused for a crystal), so the path is the plate
+        nodes0, _ = quadrature_nodes_weights(float(thickness), npoints, quadrature)
         remaining_c = jnp.asarray(float(thickness) - np.asarray(nodes0))
 
         def props(thk: jnp.ndarray | float):
@@ -1142,7 +1170,7 @@ def maketrace_jax(
     ew: Complex,
     interaction: str,
     *,
-    material: str | None = None,
+    material: str | crystals.CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 1,
     omega0: float = 0.0,

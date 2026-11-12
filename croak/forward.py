@@ -34,7 +34,8 @@ import scipy.fft
 from numpy.polynomial.legendre import leggauss
 from numpy.typing import ArrayLike, NDArray
 
-from . import materials
+from . import crystals
+from .crystals import CrystalSetup
 from .interactions import Interaction, get_interaction
 from .smearing import SmearingKernel, delay_frequency_grid
 
@@ -88,7 +89,7 @@ def quadrature_nodes_weights(
 
 
 class ForwardModel:
-    """Nonlinear-process forward map and adjoint for fixed grid/delays/interaction.
+    r"""Nonlinear-process forward map and adjoint for fixed grid/delays/interaction.
 
     Parameters
     ----------
@@ -98,13 +99,19 @@ class ForwardModel:
         Delay axis (s).
     interaction : str or Interaction
         Nonlinear interaction (``"shg"``, ``"sd"``, ``"pg"``).
-    material : str or None, optional
-        Dispersive material for the slab (e.g. ``"SiO2"``); ``None`` (default)
-        is a thin, dispersionless medium.
+    material : str, CrystalSetup or None, optional
+        The medium: a material name for a PG/SD slab (e.g. ``"SiO2"``), whose
+        fundamental and signal share one propagation constant; a
+        :class:`~croak.crystals.CrystalSetup` for SHG in a Type I crystal, whose
+        signal propagates as the extraordinary wave near :math:`2\omega_0`
+        (see :mod:`croak.crystals`); or ``None`` (default), a thin,
+        dispersionless medium.
     thickness : float, optional
-        Slab thickness (m). Default ``0``.
+        Slab thickness (m), along the face normal for a tilted crystal. Default
+        ``0``.
     npoints : int, optional
-        Number of depth quadrature points (default ``1``).
+        Number of depth quadrature points (default ``1``). A crystal needs at
+        least :func:`croak.crystals.depth_points`.
     omega0 : float, optional
         Carrier angular frequency (rad/s), used to build ``beta``.
     quadrature : str, optional
@@ -130,7 +137,7 @@ class ForwardModel:
         delays: ArrayLike,
         interaction: str | Interaction,
         *,
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 1,
         omega0: float = 0.0,
@@ -147,30 +154,32 @@ class ForwardModel:
         self.thickness = float(thickness)
         self.omega0 = float(omega0)
 
-        # The slab propagation phase β(ω) is built at the *fundamental* carrier,
-        # but the SHG signal lives near 2ω0 — propagating it with β(ω) is
-        # physically inconsistent. Dispersive propagation is only meaningful for
-        # interactions whose signal stays at the fundamental (PG, SD).
-        if material is not None and thickness and self.interaction.omega0_scale != 1.0:
-            raise ValueError(
-                f"dispersive propagation is not supported for the "
-                f"{self.interaction.name.upper()} interaction (its signal is not at "
-                f"the fundamental frequency); use a thin medium (material=None)"
-            )
+        # An SHG signal lives near 2ω0, so it needs its own propagation constant:
+        # only a crystal supplies one (croak.crystals). PG/SD share the material's.
+        crystals.check_medium(
+            self.interaction, material, self.thickness, npoints, self.omega, omega0
+        )
+        prop = crystals.propagation(material, self.omega, omega0, self.thickness)
+        self.path_length = prop.path_length
 
         # Work internally in DFT-bin order.
         self.omega_bin = scipy.fft.ifftshift(self.omega)
-        beta = materials.beta(material, self.omega, omega0)
-        beta_bin = scipy.fft.ifftshift(beta)
+        beta_in_bin = scipy.fft.ifftshift(prop.beta_in)
+        beta_sig_bin = scipy.fft.ifftshift(prop.beta_sig)
+        sig_amp_bin = scipy.fft.ifftshift(prop.sig_amp)
 
-        nodes, weights = quadrature_nodes_weights(self.thickness, npoints, quadrature)
+        # Depth runs along the beams' path, longer than the plate in a tilted crystal.
+        nodes, weights = quadrature_nodes_weights(self.path_length, npoints, quadrature)
         self.nodes = nodes
         self.weights = weights
         self.q = nodes.size
 
-        # Propagation phase matrices, shape (N, Q), in DFT-bin order.
-        self.input_prop = np.exp(1j * np.outer(beta_bin, nodes))
-        self.signal_prop = np.exp(1j * np.outer(beta_bin, self.thickness - nodes))
+        # Propagation phase matrices, shape (N, Q), in DFT-bin order: the field
+        # travels to depth z_q, the signal born there travels the rest of the path.
+        self.input_prop = np.exp(1j * np.outer(beta_in_bin, nodes))
+        self.signal_prop = sig_amp_bin[:, None] * np.exp(
+            1j * np.outer(beta_sig_bin, self.path_length - nodes)
+        )
 
         # Geometric smearing. The (p, delta) statistics are independent of depth — the
         # pulse-front tilts are set before the medium and the longitudinal walk-off
@@ -362,7 +371,7 @@ def maketrace(
     ew: Complex,
     interaction: str | Interaction,
     *,
-    material: str | None = None,
+    material: str | CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 1,
     omega0: float = 0.0,
