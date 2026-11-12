@@ -692,6 +692,15 @@ def build_tracedata(
     """
     ds = _FAST_BASELINE_DOWNSAMPLE if fast_baseline else 1
     skip = _FAST_BASELINE_SKIP_BELOW if fast_baseline else 0.0
+    # The spectrum window only means something with a spectrum; a window left
+    # over from one that has since been removed is dropped, not an error.
+    lams_lims = None
+    if (
+        data["lam_spec"] is not None
+        and p.lams_min_nm is not None
+        and p.lams_max_nm is not None
+    ):
+        lams_lims = (p.lams_min_nm * 1e-9, p.lams_max_nm * 1e-9)
     return preprocess.load_and_clean(
         data["trace"],
         data["lam"],
@@ -700,6 +709,7 @@ def build_tracedata(
         lam_min=p.lam_min_nm * 1e-9,
         lam_max=p.lam_max_nm * 1e-9,
         lamm_lims=(p.lamm_min_nm * 1e-9, p.lamm_max_nm * 1e-9),
+        lams_lims=lams_lims,
         input_unit=data["input_unit"],
         trange=p.trange_fs * 1e-15,
         tau_crop=(p.tau_min_fs * 1e-15, p.tau_max_fs * 1e-15),

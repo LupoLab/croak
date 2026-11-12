@@ -669,3 +669,61 @@ def test_fit_thickness_requires_dispersive_in_kwargs():
 
     p = RetrieveParams(fit_thickness=True, dispersive=False)
     assert covariance_kwargs(p)["fit_thickness"] is False
+
+
+def _captured_load_and_clean(monkeypatch) -> dict:
+    """Patch ``load_and_clean`` to record its keyword arguments."""
+    seen: dict = {}
+    monkeypatch.setattr(
+        croak.preprocess, "load_and_clean", lambda *a, **kw: seen.update(kw)
+    )
+    return seen
+
+
+def _data_with_spectrum(experiment) -> dict:
+    lam = experiment.lam_nm * 1e-9
+    return dict(
+        trace=experiment.trace,
+        lam=lam,
+        scanaxis=experiment.delay_fs * 1e-15,
+        interaction=experiment.interaction,
+        input_unit="delay",
+        lam_spec=lam,
+        Ilam_spec=np.ones_like(lam),
+    )
+
+
+def test_build_tracedata_passes_the_spectrum_window(monkeypatch, experiment):
+    seen = _captured_load_and_clean(monkeypatch)
+    p = PreprocParams(lams_min_nm=700.0, lams_max_nm=900.0)
+    build_tracedata(p, _data_with_spectrum(experiment))
+    assert seen["lams_lims"] == pytest.approx((700e-9, 900e-9))
+
+
+def test_build_tracedata_unset_spectrum_window_means_full_extent(
+    monkeypatch, experiment
+):
+    seen = _captured_load_and_clean(monkeypatch)
+    build_tracedata(PreprocParams(), _data_with_spectrum(experiment))
+    assert seen["lams_lims"] is None
+
+
+def test_build_tracedata_ignores_the_spectrum_window_without_a_spectrum(
+    monkeypatch, experiment
+):
+    # A window left over from an earlier spectrum must not make load_and_clean
+    # raise once the spectrum is gone.
+    seen = _captured_load_and_clean(monkeypatch)
+    data = _data_with_spectrum(experiment) | dict(lam_spec=None, Ilam_spec=None)
+    build_tracedata(PreprocParams(lams_min_nm=700.0, lams_max_nm=900.0), data)
+    assert seen["lams_lims"] is None
+
+
+def test_an_options_file_without_the_spectrum_window_loads_it_unset(tmp_path):
+    # options.toml files written before the spectrum window existed lack its
+    # keys; they must read back as "full extent", and None must round-trip.
+    SessionOptions().to_toml(str(tmp_path / "options.toml"))
+    back = SessionOptions.from_toml(str(tmp_path / "options.toml"))
+    assert back.preproc.lams_min_nm is None and back.preproc.lams_max_nm is None
+    old = SessionOptions.from_dict({"preproc": {"lamm_min_nm": 400.0}})
+    assert old.preproc.lams_min_nm is None and old.preproc.lams_max_nm is None

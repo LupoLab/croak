@@ -127,8 +127,18 @@ class StagePreprocess(Stage):
             [
                 (
                     "λm (nm)",
-                    "Measurement spectral window: wavelengths outside this range "
-                    "are tapered out of the trace. Defaults to the full extent.",
+                    "Trace spectral window, in the trace's own wavelengths (for "
+                    "SHG, around half the fundamental): wavelengths outside this "
+                    "range are tapered out of the trace. It does not touch the "
+                    "independent spectrum. Defaults to the full extent.",
+                ),
+                (
+                    "λs (nm)",
+                    "Independent-spectrum window, in fundamental wavelengths: the "
+                    "spectrum is tapered to zero outside it. It also sets the "
+                    "post-filter's spectral window. Independent of λm; defaults "
+                    "to the spectrum's full extent, and is off without a "
+                    "spectrum.",
                 ),
                 (
                     "τm (fs)",
@@ -280,6 +290,18 @@ class StagePreprocess(Stage):
         )
         self.lamm_range.changed.connect(self._on_lamm_range)
         add_wide_row(form, "λm (nm)", self.lamm_range)
+        # Placeholder bounds until a spectrum is loaded; _seed_ranges sets the
+        # real ones and enables the control.
+        self.lams_range = RangeControl(
+            p.lamm_bound_min_nm,
+            p.lamm_bound_max_nm,
+            p.lamm_bound_min_nm,
+            p.lamm_bound_max_nm,
+            **_RANGE_KW,
+        )
+        self.lams_range.changed.connect(self._on_lams_range)
+        self.lams_range.setEnabled(False)
+        add_wide_row(form, "λs (nm)", self.lams_range)
         self.taum_range = RangeControl(
             p.tau_bound_min_fs,
             p.tau_bound_max_fs,
@@ -542,6 +564,10 @@ class StagePreprocess(Stage):
         self.state.preproc.lamm_min_nm, self.state.preproc.lamm_max_nm = lo, hi
         self._schedule()
 
+    def _on_lams_range(self, lo, hi):
+        self.state.preproc.lams_min_nm, self.state.preproc.lams_max_nm = lo, hi
+        self._schedule()
+
     def _on_taum_range(self, lo, hi):
         self.state.preproc.taum_min_fs, self.state.preproc.taum_max_fs = lo, hi
         self._schedule()
@@ -556,12 +582,27 @@ class StagePreprocess(Stage):
         self.tau_range.set_values(p.tau_min_fs, p.tau_max_fs)
         self.lamm_range.set_bounds(p.lamm_bound_min_nm, p.lamm_bound_max_nm)
         self.lamm_range.set_values(p.lamm_min_nm, p.lamm_max_nm)
+        self._seed_lams_range()
         self.taum_range.set_bounds(p.tau_bound_min_fs, p.tau_bound_max_fs)
         self.taum_range.set_values(p.taum_min_fs, p.taum_max_fs)
         self.trange_spin.blockSignals(True)
         self.trange_spin.setValue(p.trange_fs)
         self.trange_spin.blockSignals(False)
         self._seeding = False
+
+    def _seed_lams_range(self):
+        """Seed the spectrum window, enabled only when there is a spectrum."""
+        p = self.state.preproc
+        lo, hi = p.lams_bound_min_nm, p.lams_bound_max_nm
+        has_spectrum = lo is not None and hi is not None
+        self.lams_range.setEnabled(has_spectrum)
+        if lo is None or hi is None:
+            return
+        self.lams_range.set_bounds(lo, hi)
+        # unset values mean the full extent
+        low = lo if p.lams_min_nm is None else p.lams_min_nm
+        high = hi if p.lams_max_nm is None else p.lams_max_nm
+        self.lams_range.set_values(low, high)
 
     def _seed_all(self):
         """Push *every* preprocess parameter into its widget (signal-safe).
