@@ -26,7 +26,9 @@ from croak.maths import wlfreq
 def _sellmeier(b, c):
     def n(lam):
         l2 = (np.asarray(lam, dtype=float) * 1e6) ** 2
-        return np.sqrt(1.0 + sum(bi * l2 / (l2 - ci) for bi, ci in zip(b, c)))
+        return np.sqrt(
+            1.0 + sum(bi * l2 / (l2 - ci) for bi, ci in zip(b, c, strict=True))
+        )
 
     return n
 
@@ -157,9 +159,7 @@ def test_no_material_is_dispersionless():
 def test_crystal_propagation_carries_the_exact_mismatch():
     # beta_sig(O1+O2) - beta_in(O1) - beta_in(O2) must equal the physical mismatch
     # k_s(w1+w2) - k_z(w1) - k_z(w2): the frame terms cancel exactly.
-    setup = _tuned(
-        geometry=TwoBeamGeometry(5e-3, 0.1), polarization="parallel"
-    )
+    setup = _tuned(geometry=TwoBeamGeometry(5e-3, 0.1), polarization="parallel")
     prop = crystals.propagation(setup, GRID.omega, W0, 10e-6)
     i1, i2 = 128 + 10, 128 - 25  # centred indices of two grid frequencies
     i_s = i1 + i2 - 128  # their sum on the centred grid

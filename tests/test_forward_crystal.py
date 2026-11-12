@@ -184,24 +184,49 @@ def _tilted_signal(setup, thickness):
     return beta_sig_pair
 
 
-def test_the_tilt_estimate_bounds_the_neglected_term():
+def _band(ew):
+    """The pulse's band (absolute rad/s), where its spectrum exceeds 1e-3 of peak."""
+    return crystals.spectral_band(GRID.omega + W0, np.abs(ew) ** 2)
+
+
+def test_the_tilt_estimate_over_the_band_bounds_the_neglected_term():
     thickness = 100e-6
     setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
     ew = _pulse(GRID)
-    estimate = crystals.tilt_phase_error(setup, GRID.omega, W0, thickness)
+    band = _band(ew)
+    estimate = crystals.tilt_phase_error(setup, GRID.omega, W0, thickness, band)
+    whole_grid = crystals.tilt_phase_error(setup, GRID.omega, W0, thickness)
     cheap = _pair_sum(setup, thickness, ew, 0.0)
     exact = _pair_sum(setup, thickness, ew, 0.0, _tilted_signal(setup, thickness))
     error = np.max(np.abs(cheap - exact)) / np.max(np.abs(exact))
-    # A phase error phi changes a pair's term by at most |exp(i phi) - 1| ~ phi;
-    # the estimate is the grid's worst pair, so it bounds the field's error.
-    assert 0.0 < error < estimate
+    # A phase error phi changes a pair's term by at most |exp(i phi) - 1| ~ phi, so
+    # the band's worst pair bounds the field's error; the whole grid's worst pair,
+    # at edges without light, overstates it far more.
+    assert 0.0 < error < estimate < whole_grid
 
 
-def test_the_warning_fires_above_the_threshold():
+def test_check_tilt_warns_above_the_threshold():
     setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
-    assert crystals.tilt_phase_error(setup, GRID.omega, W0, 200e-6) > 0.1
+    band = _band(_pulse(GRID, fwhm=5e-15))  # a broad pulse
     with pytest.warns(CrystalApproximationWarning, match="neglects the signal's tilt"):
-        _model(setup, 200e-6, np.array([0.0]))
+        error = crystals.check_tilt(setup, GRID.omega, W0, 300e-6, band)
+    assert error > crystals.TILT_PHASE_WARN
+
+
+def test_check_tilt_is_silent_below_the_threshold():
+    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
+    band = _band(_pulse(GRID))
+    assert crystals.check_tilt(setup, GRID.omega, W0, 10e-6, band) < 0.1
+
+
+def test_a_band_without_pairs_has_no_tilt_error():
+    setup = _setup(geometry=GEOMETRY, polarization="perpendicular")
+    assert crystals.tilt_phase_error(setup, GRID.omega, W0, 100e-6, (1.0, 2.0)) == 0.0
+
+
+def test_spectral_band_needs_light():
+    with pytest.raises(ValueError, match="no positive intensity"):
+        crystals.spectral_band([1.0, 2.0], [0.0, 0.0])
 
 
 # -- guards ------------------------------------------------------------------------

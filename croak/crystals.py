@@ -71,9 +71,10 @@ Validity
   bisector, which the model neglects. When the beams cross in the crystal's
   principal plane (fundamental polarisation perpendicular to the crossing plane),
   that tilt changes :math:`n_e(\theta)` to first order;
-  :func:`tilt_phase_error` estimates the phase it adds and the forward models warn
-  above :data:`TILT_PHASE_WARN`. When the polarisation lies in the crossing plane,
-  the principal plane is perpendicular to it and the first-order term vanishes.
+  :func:`tilt_phase_error` estimates the phase it adds over the pulse's band, and
+  :func:`check_tilt` warns above :data:`TILT_PHASE_WARN`. When the polarisation
+  lies in the crossing plane, the principal plane is perpendicular to it and the
+  first-order term vanishes.
 
 See :doc:`/explanation/forward_model` for the full model.
 """
@@ -103,10 +104,12 @@ __all__ = [
     "Propagation",
     "UniaxialCrystal",
     "check_medium",
+    "check_tilt",
     "depth_points",
     "extraordinary_index",
     "phase_matching_angle",
     "propagation",
+    "spectral_band",
     "tilt_phase_error",
 ]
 
@@ -529,7 +532,11 @@ def depth_points(
 
 
 def tilt_phase_error(
-    setup: CrystalSetup, omega: ArrayLike, omega0: float, thickness: float
+    setup: CrystalSetup,
+    omega: ArrayLike,
+    omega0: float,
+    thickness: float,
+    band: tuple[float, float] | None = None,
 ) -> float:
     r"""Largest phase of the neglected signal tilt over the grid (rad).
 
@@ -552,16 +559,27 @@ def tilt_phase_error(
         Pulse carrier (rad/s).
     thickness : float
         Plate thickness (m).
+    band : tuple of float or None, optional
+        Absolute angular frequencies ``(lo, hi)`` (rad/s) of the fundamental's
+        band (see :func:`spectral_band`); only pairs of components inside it
+        count. ``None`` (default) takes the whole grid, which overstates the error
+        badly when the pulse fills only part of it: the worst pair then sits at
+        the grid's edges, where there is no light.
 
     Returns
     -------
     float
-        The estimate, maximised over the grid's component pairs (an upper bound on
-        what a field confined to part of the grid sees).
+        The estimate, maximised over the component pairs in the band.
     """
     if setup.geometry is None or setup.polarization != "perpendicular" or not thickness:
         return 0.0
     _, w1, w2, theta = _pair_mismatch(setup, np.asarray(omega, dtype=float), omega0)
+    if band is not None:
+        lo, hi = band
+        inside = (w1 >= lo) & (w1 <= hi) & (w2 >= lo) & (w2 <= hi)
+        w1, w2 = w1[inside], w2[inside]
+        if w1.size == 0:
+            return 0.0
     ws = w1 + w2
     lam = wlfreq(ws)
     n_o, n_e = setup.crystal.n_o(lam), setup.crystal.n_e(lam)
@@ -604,11 +622,11 @@ def check_medium(
         crystal for an interaction other than SHG, or too few depth nodes for the
         crystal's phase mismatch (see :func:`depth_points`).
 
-    Warns
+    Notes
     -----
-    CrystalApproximationWarning
-        If the neglected signal-tilt phase (:func:`tilt_phase_error`) exceeds
-        :data:`TILT_PHASE_WARN`.
+    The neglected signal tilt depends on where the pulse has light, which the
+    forward model does not know; :func:`check_tilt` tests it once the band is
+    known.
     """
     is_crystal = isinstance(material, CrystalSetup)
     if interaction.omega0_scale != 1.0 and material is not None and thickness:
@@ -633,7 +651,80 @@ def check_medium(
             f"{npoints} depth nodes under-resolve the crystal's phase mismatch over "
             f"this grid: use npoints >= {needed} (croak.crystals.depth_points)"
         )
-    error = tilt_phase_error(material, omega, omega0, thickness)
+
+
+def spectral_band(
+    omega: ArrayLike, intensity: ArrayLike, level: float = 1e-3
+) -> tuple[float, float]:
+    """Frequency band where a spectrum exceeds ``level`` of its peak.
+
+    Parameters
+    ----------
+    omega : array_like
+        Angular frequencies (rad/s) of the samples.
+    intensity : array_like
+        Spectral intensity at those frequencies.
+    level : float, optional
+        Threshold relative to the peak (default ``1e-3``), in ``(0, 1)``.
+
+    Returns
+    -------
+    tuple of float
+        ``(lo, hi)``, the lowest and highest frequency above the threshold.
+
+    Raises
+    ------
+    ValueError
+        If the spectrum has no positive intensity.
+
+    Examples
+    --------
+    >>> spectral_band([1.0, 2.0, 3.0, 4.0], [0.0, 1.0, 0.5, 0.0])
+    (2.0, 3.0)
+    """
+    omega = np.asarray(omega, dtype=float)
+    intensity = np.asarray(intensity, dtype=float)
+    peak = float(np.max(intensity))
+    if not peak > 0.0:
+        raise ValueError("the spectrum has no positive intensity")
+    above = omega[intensity > level * peak]
+    return float(above.min()), float(above.max())
+
+
+def check_tilt(
+    setup: CrystalSetup,
+    omega: ArrayLike,
+    omega0: float,
+    thickness: float,
+    band: tuple[float, float],
+) -> float:
+    """Warn if the neglected signal tilt matters for light in ``band``.
+
+    Parameters
+    ----------
+    setup : CrystalSetup
+        The crystal.
+    omega : array_like
+        Centred angular-frequency grid (rad/s).
+    omega0 : float
+        Pulse carrier (rad/s).
+    thickness : float
+        Plate thickness (m).
+    band : tuple of float
+        Absolute angular frequencies ``(lo, hi)`` of the fundamental's light, e.g.
+        from :func:`spectral_band` of the independent spectrum.
+
+    Returns
+    -------
+    float
+        The estimate of :func:`tilt_phase_error` over the band (rad).
+
+    Warns
+    -----
+    CrystalApproximationWarning
+        If it exceeds :data:`TILT_PHASE_WARN`.
+    """
+    error = tilt_phase_error(setup, omega, omega0, thickness, band)
     if error > TILT_PHASE_WARN:
         warnings.warn(
             f"the crystal model neglects the signal's tilt in the principal plane, "
@@ -643,5 +734,6 @@ def check_medium(
             f"crossing angle, or the fundamental polarised in the crossing plane "
             f"avoids it",
             CrystalApproximationWarning,
-            stacklevel=3,
+            stacklevel=2,
         )
+    return error
