@@ -108,9 +108,199 @@ trace = croak.maketrace(g.omega, delays, ew, "pg",
                        material="SiO2", thickness=10e-6, npoints=20, omega0=omega0)
 ```
 
-Remember that dispersive propagation is supported for **PG** and **SD** only
-(their signal stays at the fundamental); SHG raises a `ValueError`. See
-[Interactions](interactions.md).
+A material slab like this serves **PG** and **SD**, whose signal stays at the
+fundamental. SHG needs a crystal, described next; an isotropic slab with SHG
+raises a `ValueError`. See [Interactions](interactions.md).
+
+## SHG in a Type I crystal
+
+The SHG signal is generated near $2\omega_0$, and in a Type I (oo→e) crystal it is
+the extraordinary wave while the two fundamentals are ordinary. It therefore needs
+its own propagation constant. {mod}`croak.crystals` supplies two, written on the
+model's centred grid and in **one** frame moving with the fundamental's group
+velocity $\beta_1$:
+
+```{math}
+\beta_\mathrm{in}(\Omega)  = k_z(\omega_0+\Omega) - \beta_1\Omega, \qquad
+\beta_\mathrm{sig}(\Omega) = k_s(2\omega_0+\Omega) - \beta_1\Omega,
+```
+
+with $k_z(\omega) = \sqrt{k_o(\omega)^2 - (\omega\sin\alpha/c)^2}$, the ordinary
+wavevector along the bisector of two beams crossing at the external half-angle
+$\alpha$, and $k_s(\omega) = \omega\, n_e(\theta,\omega)/c$, the extraordinary
+wavevector at the internal angle $\theta$ to the optic axis. In
+{eq}`dispersive`, $e^{i\beta z_q}$ becomes $e^{i\beta_\mathrm{in} z_q}$ and
+$e^{i\beta(L-z_q)}$ becomes $a(\Omega)\,e^{i\beta_\mathrm{sig}(L-z_q)}$.
+
+**Why this gives the phase matching.** Both constants keep their carrier
+wavevectors. A component pair $(\omega_1,\omega_2)$ generated at depth $z$ then
+carries $e^{-i\Delta k\,z}$ with the exact mismatch
+$\Delta k = k_s(\omega_1+\omega_2) - k_z(\omega_1) - k_z(\omega_2)$: the frame terms
+add up to $-\beta_1\Omega_s L$, independent of $z$, a linear spectral phase the
+trace cannot see. The depth sum turns this into the pair's phase-matching
+response, $P\,\mathrm{sinc}(\Delta k P/2)$ in amplitude over the path $P$ (the
+plate thickness $L$ without a tilt; see below). Over a full period of delays the
+frequency marginal is therefore the sum over pairs of
+$a^2\lvert E(\omega_1)E(\omega_2)\rvert^2 P^2\mathrm{sinc}^2(\Delta k P/2)$, with
+$a$ the generation prefactor below, which
+`tests/test_forward_crystal.py` checks to the quadrature's accuracy.
+
+**Generation prefactor.** The generated second-harmonic field grows as
+$\omega_s/n_s$, so the model multiplies the signal by
+$a(\Omega) = (\omega_s/n_s)/(2\omega_0/n_s(2\omega_0))$. Other spectral factors (the
+beams' mode overlap, the dispersion of $\chi^{(2)}$, the detector's response) are
+not modelled; the solvers' per-frequency response `R_omega` absorbs any that
+matter.
+
+**The crystal's angle.** A {class}`~croak.crystals.CrystalSetup` takes the
+manufacturer's cut angle $\theta_c$ and either the external tilt $\gamma$ or the
+wavelength the crystal was tuned to phase-match, the usual case when it was rotated
+for the strongest signal. The beams refract to $\gamma_\mathrm{int} =
+\arcsin(\sin\gamma/n_o)$, so $\theta = \theta_c + \gamma_\mathrm{int}$. In the tilted
+plate the mismatch builds up along the face normal. The fundamentals' normal
+wavevectors are $k\cos\gamma_\mathrm{int}$; the signal keeps their transverse
+wavevector, so its direction $\psi$ solves $K(\psi)\sin\psi = k_t$ with
+$K = k_s(\theta_c+\psi)$. Expanding about $\psi = \gamma_\mathrm{int}$ to first
+order in the mismatch $\Delta k$ gives a normal mismatch
+$\Delta k/(\cos\gamma_\mathrm{int} + (n_e'/n_s)\sin\gamma_\mathrm{int})$, so the model
+integrates over the effective path
+$P = L/(\cos\gamma_\mathrm{int} + (n_e'/n_s)\sin\gamma_\mathrm{int})$, with $n_s = n_e(\theta)$ and
+$n_e' = \mathrm dn_e/\mathrm d\theta$ at the signal carrier. A test checks it against
+the exact solve (agreement within 0.3 % of $\Delta k L$ at a 10° tilt, where
+$L/\cos\gamma_\mathrm{int}$ is about 1 % off). Nothing is derived from the
+retrieval grid. The
+crossing angle comes from a {class}`~croak.geometry.TwoBeamGeometry` (beam
+separation and focal length), the one place it is set.
+
+**Depth resolution.** Each pair's depth integrand oscillates through
+$\Delta k L$ rad. Gauss–Legendre integrates it to $10^{-6}$ of $L$ with
+$\lceil\lvert\Delta k\rvert L/2\rceil + 3$ nodes; {func}`croak.crystals.depth_points`
+takes the maximum over every pair of grid frequencies within the crystal's
+transparency range, and the models refuse fewer nodes. It grows with the grid's
+width: for 100 µm of BBO tuned to 800 nm, about 18 nodes on a 560–1440 nm grid and
+about 46 on a grid twice as wide.
+
+**The signal's tilt, and asymmetric SHG traces.** The signal of a pair
+$(\omega_1,\omega_2)$ (test, gate) inherits the transverse wavevector
+$k_x = (\omega_1-\omega_2)\sin\alpha/c$, so it leaves at an angle $\psi$ to the
+bisector. As an extraordinary wave its index depends on that direction, and $\psi$
+solves $(\omega_s/c)\, n_e(\theta+\psi)\sin\psi = k_x$; to first order
+$\psi = c k_x/(\omega_s n_s)$, the self-consistency entering only at second order.
+When the beams cross in the crystal's principal plane (the fundamental polarised
+perpendicular to the crossing plane), the tilt changes the signal's angle to the
+optic axis, so its index changes to first order, by $n_e'\psi$. The extra mismatch
+is $\kappa(\omega_1-\omega_2)$ with $\kappa = (n_e'/n_s)\sin\alpha/c$, and it
+factorises into opposite delays of the two arms that drift apart with depth. In
+croak's convention (a factor $e^{i\Omega\tau}$ delays a field by $\tau$), with the
+drift referenced to mid-depth (below), the test arm is delayed by
+$+\kappa(P/2-z)$ and the gate by $-\kappa(P/2-z)$, so the gate-minus-test delay
+at depth $z$ is $\tau - 2\kappa(P/2-z)$. The model includes this
+({meth}`~croak.crystals.CrystalSetup.arm_shift`): $\kappa$ is about 0.57 fs per
+100 µm for BBO at 800 nm crossing at 1.4°.
+
+The same term has a picture in space. The crossing beams' wavefronts make the
+delay between the arms vary across the focal spot, $\tau + 2x\sin\alpha/c$ (the
+gradient behind the geometric delay smearing). The SH, an extraordinary wave,
+carries its energy at the walk-off angle $\rho = -n_e'/n_s$ (68 mrad for BBO), so
+SH made at depth $z$ leaves the crystal displaced sideways by $\rho(P-z)$, at a
+point where the local delay differs by $2\rho\sin\alpha\,(P-z)/c = 2\lvert\kappa\rvert
+(P-z)$. Light from every depth adds coherently at each exit point, each with its own
+effective delay. The spectrometer sees it, though it records only the SH spectrum,
+because the phase depends on $\omega_1-\omega_2$ rather than on $\omega_s$: it
+changes how the pairs that make one signal frequency interfere. Crossing out of the
+principal plane, the SH walks off along the direction in which the delay does not
+vary, and the term vanishes.
+
+**Where the drift is referenced.** The model treats each pair as plane waves, so a
+pair's signal has the transverse wavevector $k_x = (\omega_1-\omega_2)\sin\alpha/c$,
+and its first-order phase is the walk-off acting on that $k_x$. In real beams the
+signal's transverse wavevector is $k_x + q$, where $q$, of order the inverse spot
+size, comes from the beams' own angular spread, and the walk-off acts on $q$ too:
+it contributes $e^{-iq\rho(P-z)} = e^{-iq\rho(z_\mathrm{ref}-z)}\,e^{-iq\rho(P-z_\mathrm{ref})}$
+for any reference depth $z_\mathrm{ref}$. The second factor is the same at every
+depth: it moves the whole SH beam sideways, which a detector that collects the
+whole beam cannot see (by Parseval's theorem, a phase that depends only on the
+signal's transverse wavevector leaves the beam-integrated signal unchanged). The
+first, the walk-off between depths, is what the plane-wave model leaves out with
+$q$; averaged over the depth it is smallest when $z_\mathrm{ref}$ is the mean
+generation depth, which for a uniform slab is mid-depth. croak therefore writes the
+drift as $\kappa\Omega(P/2-z)$. The choice matters for the delay origin only: the
+exit-face reference differs from it exactly by the delay shift
+$\tau \to \tau - \kappa P$ and a linear spectral phase on the signal, so its trace
+sits $\kappa P$ off-centre (−0.57 fs for 100 µm at 1.4° with the delayed beam toward
+the optic axis, +0.57 fs away from it).
+
+A full-field simulation supports this choice (issue #28): two Gaussian beams of
+20 µm waist crossing in BBO, simulated in two dimensions
+(x and t) with Luna.jl, with the signal collected over the whole beam. For a 10 fs
+pulse with 30 fs² of GDD in 100 µm at 1.43°, and a 6 fs pulse with 20 fs³ of TOD
+in 30 µm at 2.86°, the full-field traces are centred to 0.02 fs, and they match the
+mid-depth-referenced model to 1.2 % and 0.2 % of the peak, whether the beams
+cross at the crystal's entrance face, its mid-plane or its exit face. (Over these
+crystals the beams separate by little against their size, so this tells the
+references apart rather than testing beams that separate in the crystal.) The
+argument assumes
+that the whole beam is collected, that generation is spread evenly over the depth,
+and that the walk-off over the crystal, $\rho P$, is small against the spot size. A
+spectrometer slit or an iris that passes only part of the beam can bring part of the
+offset back, and strong phase mismatch weights the depths unevenly and moves the
+mean generation depth; neither is modelled. A remaining offset is indistinguishable
+from a mis-set delay origin, which `fit_tau0` absorbs.
+
+Two consequences follow:
+
+- **The trace is not symmetric in delay.** The drift distinguishes the two arms, so
+  $I(\omega,\tau) \ne I(\omega,-\tau)$, unlike the ideal SHG FROG trace. For BBO
+  at 800 nm crossing at 1.4° the term changes the signal field by about 0.03 %
+  for a 12 fs pulse in 10 µm, 1.7 % in 100 µm, and 0.2 % for a 5 fs pulse in
+  10 µm (4.6 % in 100 µm), relative to its peak, on delays 1 fs apart. At zero
+  delay its first-order effect cancels between the pairs $(\omega_1,\omega_2)$ and
+  $(\omega_2,\omega_1)$, so it shows away from zero delay.
+- **Its sign depends on which beam is nearer the optic axis**
+  (`delayed_beam="toward_axis"` or `"away_from_axis"`), which a real crystal's
+  markings do not reveal: they give the plane of the optic axis and the cut angle,
+  not which way it leans. Flipping the sign gives exactly the trace mirrored in
+  delay, so the data decide it: retrieve with both and keep the better fit. A
+  doubtful delay-axis convention is the same mirror.
+
+What remains is second order in the tilt. {func}`croak.crystals.tilt_field_error`
+computes it for a given spectrum and set of delays, against an exact pair sum with
+each pair's signal in its own self-consistent direction, and
+{func}`croak.crystals.check_tilt` warns above 1 %. It is under 0.3 % for pulses of
+5-12 fs in up to 100 µm at 1.4°. In both sums the first-order drift is referenced
+to mid-depth and the rest of each pair's mismatch to the exit face, so the
+estimate is not made smaller by the choice of reference. Polarised in the crossing plane, the principal
+plane is perpendicular to the crossing plane and the first-order term vanishes.
+
+**What is neglected.** The SH's walk-off is kept only through its effect on the
+delay (above); its other consequence, the SH beam moving sideways out of the
+fundamentals' overlap, is neglected (the crystal is much thinner than the focal
+spot over the walk-off angle: 6.8 µm of walk-off in 100 µm against a spot of tens
+of µm). The fundamentals are ordinary waves and do not walk off. Also neglected:
+Type II, the remainder of the signal tilt above, and the dispersion of the
+refraction at the entrance face.
+
+```python
+import numpy as np
+import croak
+from croak.crystals import CrystalSetup, UniaxialCrystal
+from croak.geometry import TwoBeamGeometry
+
+crystal = UniaxialCrystal("BBO", n_o, n_e)       # n(λ in m) callables
+setup = CrystalSetup(
+    crystal,
+    cut_angle=np.radians(29.2),
+    phase_match_wavelength=800e-9,               # tuned for the strongest signal
+    geometry=TwoBeamGeometry(beam_separation=5e-3, focal_length=0.1),
+    polarization="parallel",                     # to the crossing plane
+)
+omega0 = croak.maths.wlfreq(800e-9)
+npoints = croak.crystals.depth_points(setup, g.omega, omega0, 50e-6)
+trace = croak.maketrace(g.omega, delays, ew, "shg", material=setup,
+                        thickness=50e-6, npoints=npoints, omega0=omega0)
+```
+
+The retrieved field is the field at the crystal's entrance face.
 
 ## Quadrature convergence
 

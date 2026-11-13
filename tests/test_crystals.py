@@ -1,0 +1,423 @@
+"""Type I SHG crystal: indices, angles, propagation constants, depth resolution.
+
+The crystal used throughout is a three-term Sellmeier pair with BBO-like
+coefficients (Tamošauskas et al., Optical Materials Express 8, 1410 (2018), Eq. (1)),
+written out here so the tests do not depend on a material registry. They are a
+realistic negative uniaxial crystal; the physics tested does not depend on their
+exact values.
+"""
+
+from __future__ import annotations
+
+import math
+
+import numpy as np
+import pytest
+import scipy.optimize
+from numpy.polynomial.legendre import leggauss
+
+from croak import crystals
+from croak.constants import C
+from croak.crystals import CrystalSetup, UniaxialCrystal
+from croak.geometry import TwoBeamGeometry
+from croak.grid import Grid
+from croak.maths import wlfreq
+
+
+def _sellmeier(b, c):
+    def n(lam):
+        l2 = (np.asarray(lam, dtype=float) * 1e6) ** 2
+        return np.sqrt(
+            1.0 + sum(bi * l2 / (l2 - ci) for bi, ci in zip(b, c, strict=True))
+        )
+
+    return n
+
+
+BBO = UniaxialCrystal(
+    "BBO-like",
+    _sellmeier((0.90291, 0.83155, 0.76536), (0.003926, 0.018786, 60.01)),
+    _sellmeier((1.151075, 0.21803, 0.656), (0.007142, 0.02259, 263.0)),
+)
+W0 = float(wlfreq(800e-9))
+GRID = Grid(256, dt=3.0e-15)  # spans roughly 560-1400 nm around 800 nm
+
+
+def _tuned(**kw) -> CrystalSetup:
+    return CrystalSetup(BBO, math.radians(29.2), phase_match_wavelength=800e-9, **kw)
+
+
+def _sinc_integral(phi):
+    """(1/L) * integral_0^L exp(2 i phi z / L) dz, exactly."""
+    return np.where(phi == 0, 1.0, (np.exp(2j * phi) - 1.0) / (2j * phi))
+
+
+# -- indices and angles ---------------------------------------------------------
+def test_extraordinary_index_limits():
+    assert crystals.extraordinary_index(1.6, 1.5, 0.0) == pytest.approx(1.6)
+    assert crystals.extraordinary_index(1.6, 1.5, np.pi / 2) == pytest.approx(1.5)
+    # 1/n^2 is linear in sin^2(theta): halfway at 45 degrees
+    n45 = crystals.extraordinary_index(1.6, 1.5, np.pi / 4)
+    assert 1 / n45**2 == pytest.approx(0.5 / 1.6**2 + 0.5 / 1.5**2)
+
+
+def test_dn_dtheta_matches_a_finite_difference():
+    theta, h = 0.5, 1e-6
+    fd = (
+        crystals.extraordinary_index(1.66, 1.55, theta + h)
+        - crystals.extraordinary_index(1.66, 1.55, theta - h)
+    ) / (2 * h)
+    # central difference error ~h^2 * n''' ~ 1e-12; float rounding ~1e-10
+    assert crystals._dn_dtheta(1.66, 1.55, theta) == pytest.approx(fd, rel=1e-8)
+
+
+def test_phase_matching_angle_of_800_nm():
+    # Tamosauskas et al. cut their type I crystal at 29.2 degrees for SHG of 800 nm
+    # and state their angles within 0.2 degrees of the measured ones (pp. 1413, 1416).
+    theta = crystals.phase_matching_angle(BBO, 800e-9)
+    assert math.degrees(theta) == pytest.approx(29.2, abs=0.2)
+    omega = np.array([W0])
+    dk = crystals._k_signal(BBO, 2 * omega, theta) - 2 * crystals._k_fundamental(
+        BBO, omega, 0.0
+    )
+    assert abs(dk[0]) < 1e-6  # rad/m, against k ~ 2.6e7: brentq's xtol
+
+
+def test_crossing_raises_the_phase_matching_angle():
+    # k_z = k_o cos(alpha_int) < k_o, so the signal needs a smaller index: theta grows.
+    collinear = crystals.phase_matching_angle(BBO, 800e-9)
+    crossed = crystals.phase_matching_angle(BBO, 800e-9, math.radians(2.0))
+    assert crossed > collinear
+
+
+def test_phase_matching_angle_raises_without_a_solution():
+    # Below ~410 nm BBO's birefringence cannot cancel its dispersion: no type I SHG.
+    with pytest.raises(ValueError, match="cannot phase-match"):
+        crystals.phase_matching_angle(BBO, 380e-9)
+
+
+# -- the setup ------------------------------------------------------------------
+def test_setup_needs_exactly_one_angle_specification():
+    with pytest.raises(ValueError, match="exactly one of tilt"):
+        CrystalSetup(BBO, 0.5)
+    with pytest.raises(ValueError, match="exactly one of tilt"):
+        CrystalSetup(BBO, 0.5, tilt=0.0, phase_match_wavelength=800e-9)
+
+
+def test_setup_rejects_a_cut_angle_out_of_range():
+    with pytest.raises(ValueError, match="cut_angle"):
+        CrystalSetup(BBO, -0.1, tilt=0.0)
+
+
+@pytest.mark.parametrize("polarization", [None, "vertical"])
+def test_setup_with_a_geometry_needs_a_polarization(polarization):
+    geometry = TwoBeamGeometry(5e-3, 0.1)
+    with pytest.raises(ValueError, match="polarization"):
+        CrystalSetup(BBO, 0.5, tilt=0.0, geometry=geometry, polarization=polarization)
+
+
+def test_explicit_tilt_refracts_with_snell():
+    setup = CrystalSetup(BBO, math.radians(29.0), tilt=math.radians(10.0))
+    n = float(BBO.n_o(np.array([800e-9]))[0])
+    gamma_int = math.asin(math.sin(math.radians(10.0)) / n)
+    assert setup.internal_angle(W0) == pytest.approx(math.radians(29.0) + gamma_int)
+    assert setup.external_tilt(W0) == math.radians(10.0)
+
+
+@pytest.mark.parametrize(
+    ("cut_deg", "tilt_deg", "wavelength"),
+    [(23.2, 10.0, 650e-9), (23.2, 10.0, 600e-9), (29.2, -10.0, 650e-9)],
+)
+def test_effective_path_matches_the_exact_normal_mismatch(
+    cut_deg, tilt_deg, wavelength
+):
+    # Independent reference: a degenerate collinear pair in a plate tilted by
+    # gamma_int. The fundamentals' normal wavevector is 2 k_o cos(gamma_int); the
+    # signal keeps their transverse wavevector k_t = 2 k_o sin(gamma_int) and its
+    # direction psi to the normal solves K(psi) sin(psi) = k_t, with K the
+    # extraordinary wavevector at theta_c + psi; its normal component is
+    # K cos(psi). The phase over the plate is (normal mismatch) * L.
+    setup = CrystalSetup(BBO, math.radians(cut_deg), tilt=math.radians(tilt_deg))
+    gamma_int = setup.internal_tilt(W0)
+    omega = float(wlfreq(wavelength))
+    lam_s = np.array([wavelength / 2])
+    n_o_s, n_e_s = BBO.n_o(lam_s), BBO.n_e(lam_s)
+    k_o = omega / C * float(BBO.n_o(np.array([wavelength]))[0])
+
+    def big_k(psi):
+        n = crystals.extraordinary_index(n_o_s, n_e_s, setup.cut_angle + psi)[0]
+        return 2 * omega / C * n
+
+    k_t = 2 * k_o * math.sin(gamma_int)
+    psi = scipy.optimize.brentq(
+        lambda p: big_k(p) * math.sin(p) - k_t, gamma_int - 0.1, gamma_int + 0.1
+    )
+    exact = (big_k(psi) * math.cos(psi) - 2 * k_o * math.cos(gamma_int)) * 100e-6
+    # the model: the mismatch along the beams over the effective path
+    theta = setup.internal_angle(W0)
+    dk = 2 * omega / C * crystals.extraordinary_index(n_o_s, n_e_s, theta)[0] - 2 * k_o
+    model = dk * setup.path_length(100e-6, W0)
+    # First order in the mismatch (|dk L| ~ 30-55 rad here): the residual is second
+    # order, under 0.3 % (the old L / cos(gamma_int) path was off by about 1 %).
+    assert model == pytest.approx(exact, rel=3e-3)
+    assert dk * 100e-6 / math.cos(gamma_int) != pytest.approx(exact, rel=3e-3)
+
+
+def test_tuned_setup_solves_the_tilt_consistently():
+    setup = _tuned()
+    theta = setup.internal_angle(W0)
+    gamma = setup.external_tilt(W0)
+    # re-tilting by the solved external angle lands on the same internal angle
+    again = CrystalSetup(BBO, math.radians(29.2), tilt=gamma)
+    n_pm = float(BBO.n_o(np.array([800e-9]))[0])
+    assert again.cut_angle + math.asin(math.sin(gamma) / n_pm) == pytest.approx(theta)
+    assert setup.internal_tilt(W0) == pytest.approx(theta - math.radians(29.2))
+
+
+def test_tuning_beyond_total_internal_reflection_raises():
+    # An 80-degree cut tuned to 800 nm needs about -51 degrees inside, which no
+    # external angle gives (n_o sin(51 degrees) > 1).
+    setup = CrystalSetup(BBO, math.radians(80.0), phase_match_wavelength=800e-9)
+    with pytest.raises(ValueError, match="total internal reflection"):
+        setup.external_tilt(W0)
+
+
+# -- propagation constants -------------------------------------------------------
+def test_isotropic_material_shares_one_beta():
+    prop = crystals.propagation("SiO2", GRID.omega, W0, 10e-6)
+    np.testing.assert_array_equal(prop.beta_in, prop.beta_sig)
+    np.testing.assert_array_equal(prop.sig_amp, 1.0)
+    assert prop.path_length == 10e-6
+
+
+def test_no_material_is_dispersionless():
+    prop = crystals.propagation(None, GRID.omega, W0, 0.0)
+    np.testing.assert_array_equal(prop.beta_in, 0.0)
+
+
+def test_crystal_propagation_carries_the_exact_mismatch():
+    # beta_sig(O1+O2) - beta_in(O1) - beta_in(O2) must equal the physical mismatch
+    # k_s(w1+w2) - k_z(w1) - k_z(w2): the frame terms cancel exactly.
+    setup = _tuned(geometry=TwoBeamGeometry(5e-3, 0.1), polarization="parallel")
+    prop = crystals.propagation(setup, GRID.omega, W0, 10e-6)
+    i1, i2 = 128 + 10, 128 - 25  # centred indices of two grid frequencies
+    i_s = i1 + i2 - 128  # their sum on the centred grid
+    model = prop.beta_sig[i_s] - prop.beta_in[i1] - prop.beta_in[i2]
+    w1, w2 = GRID.omega[i1] + W0, GRID.omega[i2] + W0
+    theta = setup.internal_angle(W0)
+    sin_a = math.sin(setup.crossing_half_angle)
+    physical = (
+        crystals._k_signal(BBO, np.array([w1 + w2]), theta)
+        - crystals._k_fundamental(BBO, np.array([w1]), sin_a)
+        - crystals._k_fundamental(BBO, np.array([w2]), sin_a)
+    )[0]
+    # absolute rounding: three wavevectors ~2.6e7 rad/m at 1e-16 relative
+    assert model == pytest.approx(physical, abs=1e-6 * 2.6e7 * 1e-6)
+    # and at the carrier pair the tuned crystal is phase-matched
+    assert prop.beta_sig[128] - 2 * prop.beta_in[128] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_crystal_prefactor_is_omega_over_n_normalised_at_the_carrier():
+    setup = _tuned()
+    prop = crystals.propagation(setup, GRID.omega, W0, 10e-6)
+    assert prop.sig_amp[128] == pytest.approx(1.0)
+    theta = setup.internal_angle(W0)
+    ws = GRID.omega[140] + 2 * W0
+    lam = wlfreq(ws)
+    n_s = crystals.extraordinary_index(BBO.n_o(lam), BBO.n_e(lam), theta)
+    lam0 = wlfreq(2 * W0)
+    n_0 = crystals.extraordinary_index(BBO.n_o(lam0), BBO.n_e(lam0), theta)
+    assert prop.sig_amp[140] == pytest.approx((ws / n_s) / (2 * W0 / n_0), rel=1e-12)
+
+
+def test_crystal_propagation_zeroes_frequencies_without_light():
+    # a grid wide enough to reach negative absolute frequency at its low edge
+    grid = Grid(64, dt=0.05e-15)
+    prop = crystals.propagation(_tuned(), grid.omega, W0, 10e-6)
+    dark = grid.omega + W0 <= 0
+    assert dark.any()
+    assert np.all(prop.beta_in[dark] == 0.0)
+    assert np.all(np.isfinite(prop.beta_in) & np.isfinite(prop.beta_sig))
+
+
+# -- depth resolution ------------------------------------------------------------
+@pytest.mark.parametrize("phi", [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0, 60.0])
+def test_depth_rule_resolves_the_oscillation(phi):
+    # The rule depth_points uses, n = ceil(phi) + 3, integrates exp(2 i phi x) over
+    # [0, 1] to below 1e-6 (the accuracy the docstring promises).
+    n = math.ceil(phi) + 3
+    x, w = leggauss(n)
+    x, w = 0.5 * (x + 1.0), 0.5 * w
+    numeric = np.sum(w * np.exp(2j * phi * x))
+    assert abs(numeric - _sinc_integral(np.array(phi))) < 1e-6
+
+
+def test_depth_points_grow_with_thickness():
+    setup = _tuned()
+    assert crystals.depth_points(setup, GRID.omega, W0, 0.0) == 1
+    thin = crystals.depth_points(setup, GRID.omega, W0, 10e-6)
+    thick = crystals.depth_points(setup, GRID.omega, W0, 100e-6)
+    assert 3 < thin < thick
+    # the mismatch scales with L, so phi does too (up to the +3 and the ceiling)
+    assert thick - 3 == pytest.approx(10 * (thin - 3), abs=10)
+
+
+def test_depth_points_subsample_a_fine_grid():
+    setup = _tuned()
+    fine = Grid(1024, dt=3.0e-15)  # the same band as GRID, four times the points
+    assert crystals.depth_points(setup, fine.omega, W0, 50e-6) == pytest.approx(
+        crystals.depth_points(setup, GRID.omega, W0, 50e-6), abs=1
+    )
+
+
+def test_signal_pairs_ignore_the_last_bit_of_the_spacing():
+    # Regression: the solver rebuilds the grid from the trace's frequency axis, whose
+    # spacing can differ from the session's grid in its last bit. The pairs at the
+    # edge of the signal grid then fell either side of a strict comparison, and with
+    # the largest mismatch at that edge the solver asked for more depth nodes than
+    # the session had counted. Both copies must keep the same pairs.
+    setup = _tuned()
+    nudged = Grid(GRID.n, domega=float(np.nextafter(GRID.domega, np.inf)))
+    dk, *_ = crystals._pair_mismatch(setup, GRID.omega, W0)
+    dk_nudged, *_ = crystals._pair_mismatch(setup, nudged.omega, W0)
+    assert dk_nudged.size == dk.size
+    # the spacing differs by one ulp, so the mismatches agree to rounding
+    np.testing.assert_allclose(dk_nudged, dk, rtol=1e-9, atol=0)
+
+
+# -- the arms' delay drift --------------------------------------------------------
+def test_arm_shift_is_the_first_order_tilt_rate():
+    # kappa = (n_e'/n_s) sin(alpha) / c at the signal carrier, signed by the side of
+    # the delayed beam; independent of omega_s (it cancels).
+    geometry = TwoBeamGeometry(5e-3, 0.1)
+    toward = _tuned(
+        geometry=geometry, polarization="perpendicular", delayed_beam="toward_axis"
+    )
+    away = _tuned(
+        geometry=geometry, polarization="perpendicular", delayed_beam="away_from_axis"
+    )
+    theta = toward.internal_angle(W0)
+    lam = np.array([400e-9])
+    n_o, n_e = BBO.n_o(lam), BBO.n_e(lam)
+    n_s = crystals.extraordinary_index(n_o, n_e, theta)[0]
+    expected = (
+        crystals._dn_dtheta(n_o, n_e, theta)[0]
+        / n_s
+        * math.sin(geometry.crossing_half_angle)
+        / C
+    )
+    # abs=0: kappa is ~6e-12 s/m, below pytest.approx's default absolute tolerance
+    assert toward.arm_shift(W0) == pytest.approx(expected, rel=1e-12, abs=0)
+    assert away.arm_shift(W0) == -toward.arm_shift(W0)
+    # BBO at 800 nm, 1.43 degrees: -0.567 fs per 100 um (the explainer's number)
+    assert toward.arm_shift(W0) * 100e-6 == pytest.approx(-0.567e-15, abs=0.001e-15)
+
+
+def test_arm_shift_vanishes_out_of_the_principal_plane():
+    geometry = TwoBeamGeometry(5e-3, 0.1)
+    assert _tuned(geometry=geometry, polarization="parallel").arm_shift(W0) == 0.0
+    assert _tuned().arm_shift(W0) == 0.0
+
+
+@pytest.mark.parametrize("delayed_beam", [None, "upstream"])
+def test_principal_plane_needs_the_delayed_beam_side(delayed_beam):
+    with pytest.raises(ValueError, match="delayed_beam"):
+        _tuned(
+            geometry=TwoBeamGeometry(5e-3, 0.1),
+            polarization="perpendicular",
+            delayed_beam=delayed_beam,
+        )
+
+
+def test_signal_direction_solves_the_self_consistent_equation():
+    # k0 n_e(theta + psi) sin(psi) = k_x, to rounding, for a spread of k_x.
+    theta = 0.51
+    lam = np.array([400e-9])
+    n_o, n_e = BBO.n_o(lam), BBO.n_e(lam)
+    n_s = float(crystals.extraordinary_index(n_o, n_e, theta)[0])
+    k0 = 2 * W0 / C
+    k_x = np.linspace(-0.01, 0.01, 11) * k0 * n_s
+    psi = crystals._signal_direction(n_o, n_e, theta, k0, k_x, n_s)
+    residual = k0 * crystals.extraordinary_index(n_o, n_e, theta + psi) * np.sin(psi)
+    np.testing.assert_allclose(residual, k_x, rtol=0, atol=1e-9 * k0)
+
+
+def test_crossing_wavevector_matches_internal_refraction():
+    # Independent form: an ordinary beam entering at external angle alpha refracts to
+    # asin(sin(alpha)/n_o) and its component along the bisector is k_o cos of that.
+    alpha = math.radians(2.0)
+    omega = np.array([W0])
+    n_o = float(BBO.n_o(np.array([800e-9]))[0])
+    k_o = W0 / C * n_o
+    expected = k_o * math.cos(math.asin(math.sin(alpha) / n_o))
+    got = crystals._k_fundamental(BBO, omega, math.sin(alpha))[0]
+    assert got == pytest.approx(expected, rel=1e-14)
+
+
+def test_transparency_limits_the_signal_and_the_depth_count():
+    narrow = UniaxialCrystal("BBO-like", BBO.n_o, BBO.n_e, (380e-9, 1500e-9))
+    setup = CrystalSetup(narrow, math.radians(29.2), phase_match_wavelength=800e-9)
+    prop = crystals.propagation(setup, GRID.omega, W0, 50e-6)
+    outside = ~narrow.transparent(GRID.omega + 2 * W0)
+    assert outside.any()
+    assert np.all(prop.sig_amp[outside] == 0.0)
+    assert np.all(prop.beta_sig[outside] == 0.0)
+    # pairs whose signal is absorbed no longer drive the node count
+    wide = crystals.depth_points(_tuned(), GRID.omega, W0, 100e-6)
+    assert crystals.depth_points(setup, GRID.omega, W0, 100e-6) < wide
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "omega0", "match"),
+    [
+        (dict(tilt=0.0), 0.0, "omega0 > 0"),
+        (dict(tilt=math.radians(60.0)), W0, "outside 0-90 degrees"),
+    ],
+)
+def test_setup_rejects_an_invalid_angle_or_carrier(kwargs, omega0, match):
+    setup = CrystalSetup(BBO, math.radians(85.0), **kwargs)
+    with pytest.raises(ValueError, match=match):
+        setup.internal_angle(omega0)
+
+
+@pytest.mark.parametrize(
+    ("thickness", "quadrature", "match"),
+    [
+        (-1e-6, "gausslegendre", "finite and >= 0"),
+        (math.nan, "gausslegendre", "finite and >= 0"),
+        (50e-6, "uniform", "Gauss"),
+    ],
+)
+def test_check_medium_rejects_bad_crystal_inputs(thickness, quadrature, match):
+    from croak.interactions import get_interaction
+
+    with pytest.raises(ValueError, match=match):
+        crystals.check_medium(
+            get_interaction("shg"), _tuned(), thickness, 99, GRID.omega, W0, quadrature
+        )
+
+
+@pytest.mark.parametrize("tilt_deg", [90.0, -100.0])
+def test_setup_rejects_a_tilt_beyond_grazing(tilt_deg):
+    with pytest.raises(ValueError, match="external tilt"):
+        CrystalSetup(BBO, math.radians(29.2), tilt=math.radians(tilt_deg))
+
+
+def test_tilt_field_error_needs_light():
+    setup = _tuned(
+        geometry=TwoBeamGeometry(5e-3, 0.1),
+        polarization="perpendicular",
+        delayed_beam="toward_axis",
+    )
+    with pytest.raises(ValueError, match="no positive value"):
+        crystals.tilt_field_error(setup, GRID.omega, W0, 50e-6, np.zeros(GRID.n), [0.0])
+
+
+def test_tilt_field_error_needs_a_delay():
+    setup = _tuned(
+        geometry=TwoBeamGeometry(5e-3, 0.1),
+        polarization="perpendicular",
+        delayed_beam="toward_axis",
+    )
+    with pytest.raises(ValueError, match="at least one delay"):
+        crystals.tilt_field_error(setup, GRID.omega, W0, 50e-6, np.ones(GRID.n), [])

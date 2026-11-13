@@ -35,6 +35,26 @@ shows how the grid, pulse and trace functions fit together.
    :members:
 ```
 
+## Nonlinear crystals
+
+Type I SHG in a uniaxial crystal: the propagation constants of the ordinary
+fundamentals and the extraordinary signal, the crystal's angle, and the depth
+resolution its phase mismatch needs.
+
+```{eval-rst}
+.. automodule:: croak.crystals
+   :members:
+```
+
+## Two-beam geometry
+
+The crossing beams of a non-collinear SHG FROG, the one source of their angle.
+
+```{eval-rst}
+.. automodule:: croak.geometry
+   :members:
+```
+
 ## Geometric smearing
 
 Mask geometry to smearing-kernel statistics for a non-collinear BOXCARS setup;
