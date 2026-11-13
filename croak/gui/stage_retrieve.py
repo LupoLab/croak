@@ -1787,6 +1787,7 @@ class StageRetrieve(RunControls, Stage):
         self._worker.finished_ok.connect(self._on_finished)
         self._worker.stopped.connect(self._on_stopped)
         self._worker.failed.connect(self._on_failed)
+        self._worker.notice.connect(lambda text: self.set_status(text, "warn"))
         self._errors: list[float] = []
         # Blank the read-out rather than leaving the previous run's numbers on
         # screen; the extras block shows what this run starts from.

@@ -67,8 +67,11 @@ def test_preprocess_worker_reports_failure_with_request_id(monkeypatch):
 # -- RetrievalWorker ---------------------------------------------------------
 
 
-def _stub_retrieval(monkeypatch, body):
-    """Replace run_retrieval by ``body(callback)`` and return the kwargs it saw."""
+def _stub_retrieval(monkeypatch, body, tilt_error=None):
+    """Replace run_retrieval by ``body(callback)`` and return the kwargs it saw.
+
+    The crystal tilt estimate the worker asks for afterwards is ``tilt_error``.
+    """
     seen = {}
 
     def run_retrieval(p, td, **kwargs):
@@ -76,6 +79,9 @@ def _stub_retrieval(monkeypatch, body):
         return body(kwargs["callback"])
 
     monkeypatch.setattr(worker_mod.pipeline, "run_retrieval", run_retrieval)
+    monkeypatch.setattr(
+        worker_mod.pipeline, "crystal_tilt_error", lambda p, td, result: tilt_error
+    )
     return seen
 
 
@@ -98,7 +104,26 @@ def test_retrieval_worker_success_forwards_arguments(monkeypatch):
     assert seen["guess_override"] == "g" and seen["extras_seed"] == "x"
     assert seen["truth"] == "t"
     assert seen["scan_path"] == "scan.h5" and seen["scan_window"] == 2
+    # the tilt estimate is reported by the worker, not warned in the thread
+    assert seen["check_tilt"] is False
     assert rec.named("failed") == rec.named("stopped") == []
+
+
+@pytest.mark.parametrize(
+    ("error", "noticed"), [(None, False), (0.005, False), (0.02, True)]
+)
+def test_retrieval_worker_reports_a_large_crystal_tilt_error(
+    monkeypatch, error, noticed
+):
+    _stub_retrieval(monkeypatch, lambda cb: "result", tilt_error=error)
+    w = RetrievalWorker("td", "params")
+    rec = _Recorder(w, "finished_ok", "notice")
+    w.run()
+    assert len(rec.named("finished_ok")) == 1
+    notices = rec.named("notice")
+    assert len(notices) == int(noticed)
+    if noticed:
+        assert "2.0%" in notices[0][0]
 
 
 def test_retrieval_worker_failure_emits_message(monkeypatch):

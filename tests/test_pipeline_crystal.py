@@ -109,7 +109,22 @@ def test_every_solver_retrieves_with_a_crystal(
     assert received["material"] is CRYSTAL
     assert received["thickness"] == THICKNESS
     assert np.all(np.isfinite(res.spectrum))
-    assert np.isfinite(res.error)
+
+    # The solver's own model trace of its result is the crystal model's, not ideal
+    # SHG's: a solver that accepted the crystal and then ignored it fails here.
+    def model_trace(**kw):
+        t = ForwardModel(
+            td.grid.omega, td.delays, "shg", omega0=td.omega0_pulse, **kw
+        ).trace(res.spectrum)
+        return t / t.max()
+
+    own = res.trace / res.trace.max()
+    crystal = model_trace(
+        material=CRYSTAL, thickness=THICKNESS, npoints=_depth_points(td)
+    )
+    ideal = model_trace()
+    assert np.abs(own - crystal).max() < 1e-6
+    assert np.abs(own - ideal).max() > 1e-3
 
 
 def test_parameter_covariance_runs_through_the_crystal(crystal_tracedata):

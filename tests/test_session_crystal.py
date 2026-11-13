@@ -219,3 +219,63 @@ def test_crystal_settings_round_trip_through_options_toml(tmp_path):
     path = str(tmp_path / "options.toml")
     options.to_toml(path)
     assert SessionOptions.from_toml(path).retrieve == retrieve
+
+
+def _tilt_case(n=256, dt=1.5e-15):
+    """A 6 fs pulse on a wide grid, crossing at 2.86 degrees in the principal plane."""
+    from croak.pulses import gaussian_pulse
+
+    grid = Grid(n, dt=dt)
+    td = SimpleNamespace(
+        interaction="shg",
+        grid=grid,
+        omega0_pulse=W0,
+        delays=np.linspace(-30e-15, 30e-15, 21),
+        trace=np.ones((n, 21)),
+        Iomega=None,
+    )
+    p = RetrieveParams(
+        dispersive=True,
+        thickness_um=300.0,
+        polarization="perpendicular",
+        beam_separation_mm=10.0,
+    )
+    return p, td, SimpleNamespace(spectrum=gaussian_pulse(grid, 6e-15))
+
+
+def test_crystal_tilt_error_on_the_cropped_band_matches_the_full_grid():
+    # the crop keeps every pair whose amplitude exceeds 1e-3 of the peak and all
+    # their sum frequencies, so it changes the estimate only at that level
+    p, td, result = _tilt_case()
+    setup = crystal_setup(p)
+    delays = np.linspace(td.delays.min(), td.delays.max(), 9)
+    full = crystals.tilt_field_error(
+        setup, td.grid.omega, W0, 300e-6, np.abs(result.spectrum), delays
+    )
+    cropped = session_pipeline.crystal_tilt_error(p, td, result)
+    assert full > 0.01
+    assert cropped == pytest.approx(full, rel=1e-3)
+
+
+@pytest.mark.parametrize("broken", ["parallel", "zero trace", "nan spectrum"])
+def test_crystal_tilt_error_is_none_when_there_is_nothing_to_check(broken):
+    p, td, result = _tilt_case(n=64, dt=3e-15)
+    if broken == "parallel":
+        p = RetrieveParams(dispersive=True, polarization="parallel")
+    elif broken == "zero trace":
+        td.trace = np.zeros_like(td.trace)
+    else:
+        result = SimpleNamespace(spectrum=np.full(td.grid.n, np.nan))
+    assert session_pipeline.crystal_tilt_error(p, td, result) is None
+
+
+def test_run_retrieval_can_leave_the_tilt_check_to_the_caller(monkeypatch):
+    import warnings
+
+    p, td, result = _tilt_case(n=64, dt=3e-15)
+    monkeypatch.setattr(
+        session_pipeline, "retrieve_from_tracedata", lambda td, **kw: result
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        session_pipeline.run_retrieval(p, td, check_tilt=False)

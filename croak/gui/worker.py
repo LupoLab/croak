@@ -12,6 +12,7 @@ import time
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
+from ..crystals import TILT_ERROR_WARN
 from ..session import pipeline
 
 __all__ = [
@@ -96,6 +97,10 @@ class RetrievalWorker(QThread):
         when the user pressed Stop and a snapshot was available.
     failed : str
         An error message on failure (or a bare Stop with no snapshot available).
+    notice : str
+        A caution about a finished result, after ``finished_ok``: what an SHG
+        crystal's first-order tilt model leaves out, when it is more than
+        :data:`croak.crystals.TILT_ERROR_WARN`.
     """
 
     #: Shortest wall-clock interval (s) between live previews. Presenting one costs
@@ -115,6 +120,7 @@ class RetrievalWorker(QThread):
     finished_ok = Signal(object, float)
     stopped = Signal(object, float)
     failed = Signal(str)
+    notice = Signal(str)
 
     def __init__(
         self,
@@ -211,8 +217,18 @@ class RetrievalWorker(QThread):
                 callback=self._callback,
                 scan_path=self._scan_path,
                 scan_window=self._scan_window,
+                # warnings are process-wide state, not safe to capture in a
+                # thread: the tilt estimate is reported as a notice instead
+                check_tilt=False,
             )
             self.finished_ok.emit(result, time.perf_counter() - self._t0)
+            error = pipeline.crystal_tilt_error(self._p, self._td, result)
+            if error is not None and error > TILT_ERROR_WARN:
+                self.notice.emit(
+                    f"The crystal model keeps the signal's tilt to first order "
+                    f"only; what it leaves out changes the signal by {error:.1%} "
+                    f"for this pulse."
+                )
         except StopRetrieval:
             elapsed = time.perf_counter() - self._t0
             if self._stop_result is not None:

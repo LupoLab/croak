@@ -13,6 +13,7 @@ a saved session into a retrieval.
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from typing import cast
@@ -24,12 +25,14 @@ from ..collection import aperture_from_scan, mask_hole_aperture
 from ..constants import C
 from ..covariance import covariance_uncertainty
 from ..crystals import (
+    TILT_ERROR_WARN,
+    CrystalApproximationWarning,
     CrystalSetup,
     DelayedBeam,
     Polarization,
     builtin_crystal,
-    check_tilt,
     depth_points,
+    tilt_field_error,
 )
 from ..focal import FocalMixture, focal_mixture
 from ..forward import quadrature_nodes_weights
@@ -924,31 +927,58 @@ def fits_thickness(p: RetrieveParams, medium: str | CrystalSetup | None) -> bool
     return p.fit_thickness and isinstance(medium, str)
 
 
-def check_crystal_tilt(
-    medium: str | CrystalSetup | None,
-    td: TraceData,
-    thickness: float,
-    result: RetrievalResult,
-) -> None:
-    """Warn if the crystal's first-order tilt model is not enough for this pulse.
+def crystal_tilt_error(
+    p: RetrieveParams, td: TraceData, result: RetrievalResult
+) -> float | None:
+    """Return what the crystal's first-order tilt model leaves out, or ``None``.
 
-    Only for beams crossing in the principal plane
-    (:func:`~croak.crystals.check_tilt`), with the retrieved spectrum and nine
-    delays across the trace's live delay range.
+    The relative field error of :func:`~croak.crystals.tilt_field_error` for the
+    retrieved spectrum, at nine delays across the trace's live delay range. Only
+    for an SHG crystal with the beams crossing in its principal plane; ``None``
+    otherwise, and when the trace or the retrieved spectrum has nothing to check
+    (no live delays, or no finite, positive spectrum).
+
+    The pair sum costs :math:`N^2` per delay, so it runs on the part of the grid
+    the pulse occupies: the spectrum's live band, doubled (every pair's sum
+    frequency then lies on the cropped grid without wrapping round), with margin.
     """
+    medium = retrieval_medium(p, td)
     if not (isinstance(medium, CrystalSetup) and medium.in_principal_plane):
-        return
-    marginal = np.asarray(td.trace).sum(axis=0)
+        return None
+    amplitude = np.abs(np.asarray(result.spectrum))
+    marginal = np.asarray(td.trace, dtype=float).sum(axis=0)
+    if not (np.all(np.isfinite(amplitude)) and amplitude.max() > 0):
+        return None
+    if not (np.all(np.isfinite(marginal)) and marginal.max() > 0):
+        return None
     live = np.asarray(td.delays)[marginal > 1e-2 * marginal.max()]
-    delays = np.linspace(live.min(), live.max(), 9)
-    check_tilt(
+    omega = td.grid.omega
+    band = np.abs(omega[amplitude > 1e-3 * amplitude.max()]).max()
+    keep = np.abs(omega) <= 2.2 * band
+    # a centred grid stays centred when cropped symmetrically about its zero bin
+    centre = int(np.argmin(np.abs(omega)))
+    half = int(keep.sum() // 2) + 1
+    window = slice(max(centre - half, 0), min(centre + half, omega.size))
+    return tilt_field_error(
         medium,
-        td.grid.omega,
+        omega[window],
         td.omega0_pulse,
-        thickness,
-        np.abs(result.spectrum),
-        delays,
+        p.thickness_um * 1e-6,
+        amplitude[window],
+        np.linspace(live.min(), live.max(), 9),
     )
+
+
+def warn_crystal_tilt(error: float | None) -> None:
+    """Warn when :func:`crystal_tilt_error` exceeds the crystals module's threshold."""
+    if error is not None and error > TILT_ERROR_WARN:
+        warnings.warn(
+            f"the crystal model keeps the signal's tilt to first order only; what "
+            f"it leaves out changes the signal field by {error:.1%} for this pulse "
+            f"(croak.crystals.check_tilt)",
+            CrystalApproximationWarning,
+            stacklevel=3,
+        )
 
 
 def extra_param_centres(
@@ -1126,6 +1156,7 @@ def run_retrieval(
     focal=None,
     scan_path: str | None = None,
     scan_window: str | int | None = None,
+    check_tilt: bool = True,
 ) -> RetrievalResult:
     """Run :func:`~croak.pipeline.retrieve_from_tracedata` from a ``RetrieveParams``.
 
@@ -1166,6 +1197,11 @@ def run_retrieval(
         Which collection hole of a multi-aperture scan the trace came from (the
         loader's ``window_key``); with ``p.collection == "file"`` the aperture
         is rebuilt from that hole's record. ``None`` = the first window.
+    check_tilt : bool, optional
+        Warn (:class:`~croak.crystals.CrystalApproximationWarning`) when an SHG
+        crystal crossed in its principal plane needs more than the first-order
+        tilt model for the retrieved pulse (:func:`crystal_tilt_error`). The GUI
+        turns it off and reports the estimate itself.
     """
     rng = np.random.default_rng() if rng is None else rng
     if focal is None:
@@ -1222,7 +1258,8 @@ def run_retrieval(
         rng=rng,
         callback=callback,
     )
-    check_crystal_tilt(medium, td, thickness, result)
+    if check_tilt:
+        warn_crystal_tilt(crystal_tilt_error(p, td, result))
     return result
 
 
