@@ -51,7 +51,12 @@ from ..processing import (
     shiftnorm,
 )
 from ..result import RetrievalResult
-from ..smearing import SmearingKernel, collinear_sd_kernel, square_boxcars_kernel
+from ..smearing import (
+    SmearingKernel,
+    collinear_sd_kernel,
+    shg_two_beam_kernel,
+    square_boxcars_kernel,
+)
 from ..uncertainty import (
     NoiseModel,
     UncertaintyResult,
@@ -780,10 +785,19 @@ def smearing_kernel(p: RetrieveParams, td: TraceData) -> SmearingKernel | None:
     The mask geometry is the stored truth (the displayed delay width is a derived
     GUI convenience), and the carrier comes from the measurement itself, so the
     kernel is always evaluated at the wavelength the trace was actually taken at.
+    For SHG the kernel is the two beams' delay blur
+    (:func:`~croak.smearing.shg_two_beam_kernel`) from :func:`beam_geometry`, the
+    same beams the crystal uses, at :func:`pulse_wavelength`; collinear beams give
+    ``None``.
     """
     if not p.smearing:
         return None
-    if p.smear_layout == "sd2":
+    if td.interaction == "shg":
+        geometry = beam_geometry(p)
+        if geometry is None:
+            return None  # collinear beams: no crossing, nothing to smear
+        kernel = shg_two_beam_kernel(geometry, pulse_wavelength(td))
+    elif p.smear_layout == "sd2":
         # Two-beam self-diffraction: sigma_p is identically zero, so this is
         # NOT the "sd" branch of the boxcars closed form (which assumes two
         # separate unconjugated holes and would add a ~0.4 fs p channel).
@@ -804,6 +818,22 @@ def smearing_kernel(p: RetrieveParams, td: TraceData) -> SmearingKernel | None:
     # A fixed width multiplier, distinct from fit_smearing: the gap can only
     # reach d/D >= 0.5, so narrower kernels are otherwise unreachable.
     return kernel if p.smear_scale == 1.0 else kernel.scaled(p.smear_scale)
+
+
+def pulse_wavelength(td: TraceData) -> float:
+    """Return the pulse's wavelength (m): the spectrum's centroid, else the carrier.
+
+    The SHG smearing width scales with the wavelength (the focal spot does), and
+    the centroid of the independent spectrum is where the pulse's energy is,
+    which the grid's centre need not be.
+    """
+    omega = td.omega0_pulse
+    if td.Iomega is not None and np.sum(td.Iomega) > 0:
+        weights = np.asarray(td.Iomega, dtype=float)
+        omega = float(
+            np.sum((td.grid.omega + td.omega0_pulse) * weights) / weights.sum()
+        )
+    return 2.0 * np.pi * C / omega
 
 
 def generation_envelope(p: RetrieveParams):
@@ -839,6 +869,19 @@ def generation_envelope(p: RetrieveParams):
     return amp * np.exp(1j * p.envelope_gouy * np.arctan(u))
 
 
+def beam_geometry(p: RetrieveParams) -> TwoBeamGeometry | None:
+    """Return the two beams the settings describe, or ``None`` for collinear beams.
+
+    The one source of the crossing angle for both the crystal's phase matching
+    and the SHG delay smearing.
+    """
+    if p.beam_separation_mm <= 0:
+        return None
+    return TwoBeamGeometry(
+        p.beam_separation_mm * 1e-3, p.focal_f_mm * 1e-3, p.beam_diameter_mm * 1e-3
+    )
+
+
 def crystal_setup(p: RetrieveParams) -> CrystalSetup:
     """Build the SHG crystal the retrieval settings describe.
 
@@ -868,11 +911,7 @@ def crystal_setup(p: RetrieveParams) -> CrystalSetup:
         raise ValueError(
             f"angle_mode must be 'tilt' or 'phase-match', got {p.angle_mode!r}"
         )
-    geometry = (
-        TwoBeamGeometry(p.beam_separation_mm * 1e-3, p.focal_f_mm * 1e-3)
-        if p.beam_separation_mm > 0
-        else None
-    )
+    geometry = beam_geometry(p)
     in_plane = p.polarization == "perpendicular"
     return CrystalSetup(
         builtin_crystal(p.crystal),

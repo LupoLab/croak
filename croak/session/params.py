@@ -360,6 +360,10 @@ class RetrieveParams:
     #: Beam separation (mm) at the focusing optic of focal length ``focal_f_mm``:
     #: the crossing half-angle is atan(d / 2f). ``0`` models collinear beams.
     beam_separation_mm: float = 5.0
+    #: 1/e² diameter (mm) of each beam at the focusing optic. With ``smearing`` it
+    #: sets the focal spot and so the SHG delay smearing
+    #: (croak.smearing.shg_two_beam_kernel).
+    beam_diameter_mm: float = 3.0
     # Default node count kept consistent with the tied defaults below:
     # thickness_um / delta_z_um = 10 µm / 1 µm = 10.
     npoints: int = 10

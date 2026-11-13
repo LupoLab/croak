@@ -279,3 +279,50 @@ def test_run_retrieval_can_leave_the_tilt_check_to_the_caller(monkeypatch):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         session_pipeline.run_retrieval(p, td, check_tilt=False)
+
+
+# -- the two beams' delay smearing (croak.smearing.shg_two_beam_kernel) ---------
+def test_beam_geometry_is_one_source_for_the_crystal_and_the_smearing():
+    from croak.session.pipeline import beam_geometry
+
+    p = RetrieveParams(beam_separation_mm=8.0, focal_f_mm=150.0, beam_diameter_mm=2.5)
+    geometry = beam_geometry(p)
+    assert geometry.beam_separation == pytest.approx(8e-3)
+    assert geometry.focal_length == pytest.approx(0.15)
+    assert geometry.beam_diameter == pytest.approx(2.5e-3)
+    assert crystal_setup(p).geometry == geometry
+    assert beam_geometry(RetrieveParams(beam_separation_mm=0.0)) is None
+
+
+def test_shg_smearing_kernel_is_the_two_beam_blur_at_the_pulse_wavelength():
+    from croak.session.pipeline import beam_geometry, pulse_wavelength, smearing_kernel
+    from croak.smearing import shg_two_beam_kernel
+
+    td = _td()
+    p = RetrieveParams(smearing=True, beam_separation_mm=10.0, beam_diameter_mm=2.0)
+    kernel = smearing_kernel(p, td)
+    assert kernel == shg_two_beam_kernel(beam_geometry(p), pulse_wavelength(td))
+    # the fixed width multiplier applies as for PG/SD
+    scaled = smearing_kernel(RetrieveParams(**{**p.__dict__, "smear_scale": 0.5}), td)
+    assert scaled.sigma_delta == pytest.approx(0.5 * kernel.sigma_delta)
+    # collinear beams have nothing to smear, and smearing off is off
+    assert (
+        smearing_kernel(RetrieveParams(smearing=True, beam_separation_mm=0.0), td)
+        is None
+    )
+    assert smearing_kernel(RetrieveParams(smearing=False), td) is None
+
+
+def test_pulse_wavelength_is_the_spectrum_centroid_else_the_carrier():
+    from croak.session.pipeline import pulse_wavelength
+
+    td = _td()
+    assert pulse_wavelength(td) == pytest.approx(800e-9)
+    # a spectrum weighted to the blue moves the wavelength the kernel is taken at
+    omega_abs = td.grid.omega + W0
+    td.Iomega = np.exp(-(((omega_abs - 1.05 * W0) / (0.05 * W0)) ** 2))
+    centroid = np.sum(omega_abs * td.Iomega) / np.sum(td.Iomega)
+    assert pulse_wavelength(td) == pytest.approx(2 * np.pi * 299792458.0 / centroid)
+    assert pulse_wavelength(td) < 780e-9
+    td.Iomega = np.zeros_like(td.Iomega)  # an empty spectrum: the carrier
+    assert pulse_wavelength(td) == pytest.approx(800e-9)
