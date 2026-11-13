@@ -270,6 +270,21 @@ def test_depth_points_subsample_a_fine_grid():
     )
 
 
+def test_signal_pairs_ignore_the_last_bit_of_the_spacing():
+    # Regression: the solver rebuilds the grid from the trace's frequency axis, whose
+    # spacing can differ from the session's grid in its last bit. The pairs at the
+    # edge of the signal grid then fell either side of a strict comparison, and with
+    # the largest mismatch at that edge the solver asked for more depth nodes than
+    # the session had counted. Both copies must keep the same pairs.
+    setup = _tuned()
+    nudged = Grid(GRID.n, domega=float(np.nextafter(GRID.domega, np.inf)))
+    dk, *_ = crystals._pair_mismatch(setup, GRID.omega, W0)
+    dk_nudged, *_ = crystals._pair_mismatch(setup, nudged.omega, W0)
+    assert dk_nudged.size == dk.size
+    # the spacing differs by one ulp, so the mismatches agree to rounding
+    np.testing.assert_allclose(dk_nudged, dk, rtol=1e-9, atol=0)
+
+
 # -- the arms' delay drift --------------------------------------------------------
 def test_arm_shift_is_the_first_order_tilt_rate():
     # kappa = (n_e'/n_s) sin(alpha) / c at the signal carrier, signed by the side of
