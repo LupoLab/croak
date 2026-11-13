@@ -8,6 +8,7 @@ models unchanged.
 
 from __future__ import annotations
 
+import functools
 import math
 from dataclasses import replace
 
@@ -21,6 +22,7 @@ from croak.forward import ForwardModel
 from croak.geometry import TwoBeamGeometry
 from croak.grid import Grid
 from croak.maths import wlfreq
+from croak.covariance import parameter_covariance
 from croak.pipeline import retrieve_from_tracedata
 from croak.pulses import gaussian_pulse
 from croak.retrieve import ALGORITHMS
@@ -79,7 +81,19 @@ def _depth_points(td, thickness=THICKNESS):
 
 
 @pytest.mark.parametrize("algorithm", sorted(ALGORITHMS))
-def test_every_solver_retrieves_with_a_crystal(crystal_tracedata, algorithm):
+def test_every_solver_retrieves_with_a_crystal(crystal_tracedata, algorithm, monkeypatch):
+    # Spy on the solver's constructor: the crystal must reach it unchanged (a
+    # solver that dropped `material` would otherwise still return finite numbers).
+    original = ALGORITHMS[algorithm]
+    received: dict = {}
+
+    class Spy(original):  # type: ignore[valid-type, misc]
+        @functools.wraps(original.__init__)
+        def __init__(self, **kwargs):
+            received.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setitem(ALGORITHMS, algorithm, Spy)
     td = crystal_tracedata
     res = retrieve_from_tracedata(
         td,
@@ -90,9 +104,20 @@ def test_every_solver_retrieves_with_a_crystal(crystal_tracedata, algorithm):
         npoints=_depth_points(td),
         rng=np.random.default_rng(0),
     )
-    assert res.algorithm == algorithm
+    assert received["material"] is CRYSTAL
+    assert received["thickness"] == THICKNESS
     assert np.all(np.isfinite(res.spectrum))
     assert np.isfinite(res.error)
+
+
+def test_parameter_covariance_runs_through_the_crystal(crystal_tracedata):
+    td = crystal_tracedata
+    kw = dict(material=CRYSTAL, thickness=THICKNESS, npoints=_depth_points(td))
+    res = retrieve_from_tracedata(
+        td, algorithm="lbfgs-ad", maxiters=200, rng=np.random.default_rng(0), **kw
+    )
+    cov = parameter_covariance(res, td.trace, noise=1e-3, omega0=td.omega0_pulse, **kw)
+    assert np.all(np.isfinite(cov.cov)) and cov.rank > 0
 
 
 def test_the_crystal_model_fits_its_own_trace_better_than_ideal_shg():

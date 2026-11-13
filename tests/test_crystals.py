@@ -428,3 +428,16 @@ def test_builtin_crystal_names_are_case_insensitive_and_cached():
 def test_unknown_builtin_crystal_raises():
     with pytest.raises(ValueError, match="unknown crystal 'KDP'.*BBO"):
         crystals.builtin_crystal("KDP")
+
+
+def test_a_builtin_crystal_missing_from_optmat_is_a_value_error(monkeypatch):
+    # An optmat without the crystal's models raises its own error; croak reports
+    # it as a ValueError naming what is missing, which the GUI read-out catches.
+    from optmat.exceptions import DataError
+
+    def missing(name, axis):
+        raise DataError(f"no dispersion model is recommended for {name} yet")
+
+    monkeypatch.setattr(crystals, "default_model", missing)
+    with pytest.raises(ValueError, match="the installed optmat has no indices for BBO"):
+        crystals._load_crystal.__wrapped__("BBO")

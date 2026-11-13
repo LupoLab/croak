@@ -75,7 +75,9 @@ crystal's principal plane. So the polarisation decides how the beams cross:
   with both and keep the better fit.
 
 {func}`~croak.crystals.check_tilt` estimates what the first-order treatment of
-the tilt leaves out for your spectrum, and warns above 1 %.
+the tilt leaves out for your spectrum, and warns above 1 %. A session or GUI
+retrieval with the beams in the principal plane runs it on the retrieved
+spectrum; with the API, call it yourself.
 
 ## In a session and in the GUI
 
@@ -84,20 +86,25 @@ crystal by `crystal`, `cut_angle_deg`, `angle_mode` (`"phase-match"` with
 `phase_match_nm`, or `"tilt"` with `tilt_deg`), `polarization`, `delayed_beam`,
 `beam_separation_mm` and `focal_f_mm`; `dispersive` switches it on and
 `thickness_um` is its thickness. For an SHG trace the session builds the crystal
-from them ({func}`~croak.session.pipeline.crystal_setup`) and raises the depth
-nodes to what it needs. In the GUI the Retrieve stage shows these as the
+from them ({func}`~croak.session.pipeline.crystal_setup`) and uses the depth
+nodes it needs. `phase_match_nm` defaults to 800 nm: set it to the wavelength the
+crystal was tuned for. In the GUI the Retrieve stage shows these as the
 *Nonlinear crystal* and *Beam geometry* groups for SHG data, with a read-out of
 the internal angle, the tilt, the path and the depth nodes. The Synthetic stage
-can generate an SHG trace through the same crystal.
+can generate an SHG trace through the same crystal, at a thickness set there;
+switching the crystal on for the retrieval, at that thickness, is a separate
+step in the Retrieve stage.
 
 ## What is not modelled yet
 
 - **Delay smearing.** The two crossing beams' local delay varies across the
   focus, which blurs the trace along delay. croak's smearing kernels do not yet
-  cover SHG, and for few-cycle pulses this matters: a 6 fs pulse crossing at
-  2.9° with a 20 µm waist is blurred by 2.4 fs.
+  cover SHG, and for few-cycle pulses this matters: beams of 20 µm waist
+  crossing at a half-angle of 2.9° blur the delay by 2.4 fs rms (5.5 fs FWHM),
+  against a 6 fs pulse.
 - **Fitting the crystal.** Its thickness and angle are inputs, not fitted
-  parameters ([issue #26](https://github.com/LupoLab/croak/issues/26)).
+  parameters ([issue #26](https://github.com/LupoLab/croak/issues/26)); a
+  session's `fit_thickness` is not applied to a crystal.
 - **The marginal correction.** A trace loaded with `marginal_correct=True` has
   already had an estimate of the phase-matching response divided out, so a
   crystal model refuses it.
@@ -106,7 +113,9 @@ can generate an SHG trace through the same crystal.
 
 On full-field simulations of SHG FROG in BBO (Luna.jl, two Gaussian beams
 crossing in two dimensions, the signal collected over the whole beam), the
-crystal model reproduces the simulated traces to about 1 % of their peak. A
+crystal model reproduces the simulated traces to about 1 % of their peak
+([issue #27](https://github.com/LupoLab/croak/issues/27),
+[#28](https://github.com/LupoLab/croak/issues/28)). A
 10 fs pulse with 30 fs² of GDD in 100 µm, crossing at 1.4°, was retrieved with a
 duration of 13.80 fs against 13.81 fs and a complex-field error of 0.10, against
 0.52 with the ideal model, which narrows the spectrum to mimic the phase-matching

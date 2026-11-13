@@ -101,6 +101,7 @@ from typing import Literal, cast
 import numpy as np
 import scipy.optimize
 from numpy.typing import ArrayLike, NDArray
+from optmat.exceptions import OptmatError
 from optmat.solid.models.registry import default_model
 
 from . import materials
@@ -217,8 +218,14 @@ def builtin_crystal(name: str) -> UniaxialCrystal:
 @functools.cache
 def _load_crystal(name: str) -> UniaxialCrystal:
     """Build a built-in crystal from optmat's models, once per canonical name."""
-    ordinary = default_model(name, axis="o")
-    extraordinary = default_model(name, axis="e")
+    try:
+        ordinary = default_model(name, axis="o")
+        extraordinary = default_model(name, axis="e")
+    except OptmatError as err:
+        raise ValueError(
+            f"the installed optmat has no indices for {name}: {err} (croak needs an "
+            f"optmat with {name}'s models)"
+        ) from err
     lo = max(ordinary.wavelength_range[0], extraordinary.wavelength_range[0])
     hi = min(ordinary.wavelength_range[1], extraordinary.wavelength_range[1])
     return UniaxialCrystal(

@@ -39,7 +39,8 @@ instead models the measurement physics directly:
 
 - **dispersive propagation** of the input fields and the generated signal
   through the nonlinear medium, with refractive indices of glasses, crystals and
-  gases from [optmat](https://optmat.readthedocs.io);
+  gases from [optmat](https://optmat.readthedocs.io); for SHG, phase matching and
+  group-velocity mismatch in a Type I crystal such as BBO;
 - **geometric delay smearing** of the crossed-beam (BOXCARS) geometry, with a
   closed-form kernel set by the mask geometry, or fitted from the data;
 - **chromatic focusing and the collection aperture**, as a coherent chromatic

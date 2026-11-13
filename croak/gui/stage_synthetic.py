@@ -173,12 +173,12 @@ class StageSynthetic(Stage):
         )
         self.crystal_thickness.changed.connect(self._changed)
         add_wide_row(form, "thickness (µm)", self.crystal_thickness)
-        form.addRow(
-            QLabel(
-                "Crystal, angle, polarisation and beam geometry as set in the "
-                "Retrieve stage."
-            )
+        note = QLabel(
+            "Crystal, angle, polarisation and beam geometry as set in the "
+            "Retrieve stage."
         )
+        note.setWordWrap(True)
+        form.addRow(note)
         self.controls.addWidget(self.crystal_box)
         self.crystal_box.setEnabled(self.interaction.currentText() == "shg")
 

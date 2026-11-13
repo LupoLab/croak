@@ -72,8 +72,12 @@ _DELAYED_BEAMS = {
 
 
 def _label(labels: dict[str, str], value: str) -> str:
-    """Return the GUI label of a stored setting ``value``."""
-    return next((k for k, v in labels.items() if v == value), next(iter(labels)))
+    """Return the GUI label of a stored setting ``value``, or ``value`` if unknown.
+
+    An unknown value (from an edited session file) is then shown as it is, and the
+    crystal read-out reports why the settings give no crystal.
+    """
+    return next((k for k, v in labels.items() if v == value), value)
 
 
 _INITIAL_GUESSES = {
@@ -214,8 +218,8 @@ class StageRetrieve(RunControls, Stage):
                 (
                     "Thickness (µm)",
                     "Crystal thickness along its face normal. The depth nodes are "
-                    "chosen from the phase mismatch they must resolve (read-out "
-                    "below).",
+                    "the number the phase mismatch needs (croak.crystals."
+                    "depth_points; read-out below).",
                 ),
                 (
                     "Cut angle θc (°)",
@@ -576,6 +580,7 @@ class StageRetrieve(RunControls, Stage):
         form.addRow("Npoints", self.npoints_spin)
         self.controls.addWidget(box)
         self._build_crystal_groups()
+        self._update_medium_groups()
 
         self.smear_box, form = group("Geometrical smearing")
         box = self.smear_box
@@ -703,7 +708,7 @@ class StageRetrieve(RunControls, Stage):
             1.0,
             10000,
             p.focal_f_mm,
-            lambda v: setattr(p, "focal_f_mm", float(v)),
+            self._on_focal_f_changed,
             decimals=1,
             step=10.0,
         )
@@ -1051,8 +1056,10 @@ class StageRetrieve(RunControls, Stage):
             list(crystals.CRYSTALS), p.crystal, self._crystal_setter("crystal", str)
         )
         form.addRow("Crystal", self.crystal_combo)
+        # the same ranges as the slab's thickness and the focal mixture's focal
+        # length, which drive the same settings
         self.crystal_thickness_spin = dspin(
-            0, 10000, p.thickness_um, self._on_crystal_thickness_changed, decimals=1
+            0, 1000, p.thickness_um, self._on_crystal_thickness_changed, decimals=1
         )
         form.addRow("Thickness (µm)", self.crystal_thickness_spin)
         self.cut_angle_spin = dspin(
@@ -1114,7 +1121,7 @@ class StageRetrieve(RunControls, Stage):
         )
         form.addRow("Beam separation (mm)", self.separation_spin)
         self.geometry_f_spin = dspin(
-            1, 100000, p.focal_f_mm, self._on_geometry_f_changed, decimals=1
+            1, 10000, p.focal_f_mm, self._on_geometry_f_changed, decimals=1
         )
         form.addRow("Focal length (mm)", self.geometry_f_spin)
         self.geometry_readout = QLabel()
@@ -1157,6 +1164,13 @@ class StageRetrieve(RunControls, Stage):
         self.focal_f_spin.blockSignals(False)
         self._refresh_crystal()
 
+    def _on_focal_f_changed(self, value: float) -> None:
+        self.state.retrieve.focal_f_mm = float(value)
+        self.geometry_f_spin.blockSignals(True)
+        self.geometry_f_spin.setValue(value)
+        self.geometry_f_spin.blockSignals(False)
+        self._refresh_crystal()
+
     def _is_shg(self) -> bool:
         td = self.state.tracedata
         return td is not None and getattr(td, "interaction", "") == "shg"
@@ -1168,10 +1182,29 @@ class StageRetrieve(RunControls, Stage):
         self.crystal_box.setVisible(shg)
         self.geometry_box.setVisible(shg)
         if shg:
+            # thickness, focal length and the switch are shared with the slab and
+            # the focal mixture, which may have changed them
+            p = self.state.retrieve
+            for spinbox, value in (
+                (self.crystal_thickness_spin, p.thickness_um),
+                (self.geometry_f_spin, p.focal_f_mm),
+            ):
+                spinbox.blockSignals(True)
+                spinbox.setValue(value)
+                spinbox.blockSignals(False)
+            self.crystal_check.blockSignals(True)
+            self.crystal_check.setChecked(p.dispersive)
+            self.crystal_check.blockSignals(False)
             self._refresh_crystal()
 
     def _refresh_crystal(self) -> None:
-        """Enable the controls the settings use and describe the crystal they give."""
+        """Enable the controls the settings use and describe the crystal they give.
+
+        Only while the crystal groups are shown (SHG data); showing them refreshes
+        them.
+        """
+        if not self._is_shg():
+            return
         p = self.state.retrieve
         tilt_mode = p.angle_mode == "tilt"
         self.tilt_spin.setEnabled(tilt_mode)

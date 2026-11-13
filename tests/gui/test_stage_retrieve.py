@@ -577,3 +577,39 @@ def test_stage_retrieve_seeds_the_crystal_widgets_from_the_settings(stage):
     )
     assert stage.delayed_beam_combo.currentText() == "Away from the optic axis"
     assert stage.separation_spin.value() == 6.0
+
+
+def test_stage_retrieve_without_a_trace_shows_the_slab_only(qtbot):
+    fresh = StageRetrieve(WizardState())
+    qtbot.addWidget(fresh)
+    assert not fresh.disp_box.isHidden()
+    assert fresh.crystal_box.isHidden() and fresh.geometry_box.isHidden()
+
+
+def test_stage_retrieve_crystal_shows_settings_changed_through_the_slab(stage):
+    # thickness, focal length and the switch are shared; changing them on a PG
+    # trace must show when SHG data arrives
+    stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
+    stage.on_enter()
+    stage.thickness_spin.setValue(77.0)
+    stage.focal_f_spin.setValue(333.0)
+    stage.dispersive_check.setChecked(True)
+    _shg_trace(stage)
+    assert stage.crystal_thickness_spin.value() == 77.0
+    assert stage.geometry_f_spin.value() == 333.0
+    assert stage.crystal_check.isChecked()
+
+
+def test_stage_retrieve_focal_length_is_one_setting_for_both_groups(stage):
+    _shg_trace(stage)
+    stage.separation_spin.setValue(5.0)
+    stage.focal_f_spin.setValue(200.0)
+    assert stage.geometry_f_spin.value() == 200.0
+    assert stage.geometry_readout.text() == "Crossing half-angle α = 0.716°"
+
+
+def test_stage_retrieve_unknown_stored_crystal_setting_is_explained(stage):
+    stage.state.retrieve = RetrieveParams(dispersive=True, angle_mode="bogus")
+    stage._seed_widgets()
+    _shg_trace(stage)
+    assert stage.crystal_readout.text().startswith("No valid crystal: angle_mode")

@@ -19,6 +19,7 @@ from croak.session.pipeline import (
     bootstrap_solver_kwargs,
     covariance_kwargs,
     crystal_setup,
+    fits_thickness,
     retrieval_medium,
     retrieval_npoints,
 )
@@ -85,17 +86,76 @@ def test_retrieval_medium_is_a_slab_or_a_crystal(dispersive, interaction, expect
         assert medium == "BK7"
 
 
-def test_retrieval_npoints_raises_a_crystals_nodes_to_what_it_needs():
+def test_retrieval_npoints_gives_a_crystal_the_nodes_it_needs():
     td = _td()
     p = RetrieveParams(dispersive=True, thickness_um=100.0, npoints=2)
     medium = retrieval_medium(p, td)
     needed = crystals.depth_points(medium, td.grid.omega, W0, 100e-6)
     assert needed > 2
+    # the crystal's own count, whatever the slab's (GUI-tied) npoints says
     assert retrieval_npoints(p, td, medium, 100e-6) == needed
-    # never lowered, and a slab keeps the settings' count
-    many = RetrieveParams(dispersive=True, thickness_um=100.0, npoints=needed + 5)
-    assert retrieval_npoints(many, td, medium, 100e-6) == needed + 5
+    many = RetrieveParams(dispersive=True, thickness_um=100.0, npoints=needed + 50)
+    assert retrieval_npoints(many, td, medium, 100e-6) == needed
+    # a slab keeps the settings' count
     assert retrieval_npoints(p, _td("pg"), "BK7", 100e-6) == 2
+
+
+def test_a_crystals_thickness_is_not_fitted_yet():
+    p = RetrieveParams(solver="lbfgs-ad", dispersive=True, fit_thickness=True)
+    assert fits_thickness(p, "BK7") is True
+    assert fits_thickness(p, crystal_setup(p)) is False
+    assert fits_thickness(p, None) is False
+    td = _td()
+    assert bootstrap_solver_kwargs(p, td)["fit_thickness"] is False
+    assert covariance_kwargs(p, td)["fit_thickness"] is False
+
+
+def test_run_retrieval_does_not_fit_a_crystals_thickness(monkeypatch):
+    captured: dict = {}
+
+    def _fake(td, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(spectrum=np.ones(64))
+
+    monkeypatch.setattr(session_pipeline, "retrieve_from_tracedata", _fake)
+    p = RetrieveParams(solver="lbfgs-ad", dispersive=True, fit_thickness=True)
+    session_pipeline.run_retrieval(p, _td())
+    assert captured["fit_thickness"] is False
+
+
+def test_a_retrieval_crossing_in_the_principal_plane_checks_the_tilt(monkeypatch):
+    # A 5 fs-wide spectrum in 300 um crossing at 2.86 degrees: the first-order
+    # tilt model leaves about 2 % (tests/test_forward_crystal.py), so it warns.
+    from croak.crystals import CrystalApproximationWarning
+    from croak.pulses import gaussian_pulse
+
+    td = _td()
+    td.delays = np.linspace(-30e-15, 30e-15, 21)
+    td.trace = np.ones((td.grid.n, td.delays.size))
+    spectrum = gaussian_pulse(td.grid, 5e-15)
+    monkeypatch.setattr(
+        session_pipeline,
+        "retrieve_from_tracedata",
+        lambda td, **kw: SimpleNamespace(spectrum=spectrum),
+    )
+    p = RetrieveParams(
+        solver="lbfgs-ad",
+        dispersive=True,
+        thickness_um=300.0,
+        polarization="perpendicular",
+        beam_separation_mm=10.0,
+    )
+    with pytest.warns(CrystalApproximationWarning, match="first order only"):
+        session_pipeline.run_retrieval(p, td)
+
+
+def test_the_thickness_uncertainty_needs_dispersive_propagation():
+    rp = RetrieveParams(solver="lbfgs-ad", dispersive=False)
+    up = session_pipeline.UncertaintyParams(method="thickness")
+    td = _td()
+    td.trace = np.ones((4, 3))
+    with pytest.raises(ValueError, match="needs dispersive propagation"):
+        session_pipeline.run_uncertainty(up, rp, SimpleNamespace(omega0=W0), td)
 
 
 def test_run_retrieval_passes_the_crystal_and_its_nodes(monkeypatch):
@@ -103,7 +163,7 @@ def test_run_retrieval_passes_the_crystal_and_its_nodes(monkeypatch):
 
     def _fake(td, **kwargs):
         captured.update(kwargs)
-        return "result"
+        return SimpleNamespace(spectrum=np.ones(64))
 
     monkeypatch.setattr(session_pipeline, "retrieve_from_tracedata", _fake)
     p = RetrieveParams(solver="lbfgs-ad", dispersive=True, thickness_um=50.0)
