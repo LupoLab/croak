@@ -456,3 +456,121 @@ def test_retrieve_form_finds_a_setting_by_name_or_help(qtbot):
     assert not regularisation.body.isHidden()  # unfolded to show the matches
     stage.form.find.setText("")
     assert regularisation.folded and regularisation.body.isHidden()
+
+
+# -- the SHG crystal and the beam geometry ----------------------------------------
+def _shg_trace(stage):
+    """A stand-in SHG trace: what the crystal controls read from the data."""
+    from croak.grid import Grid
+
+    stage.state.tracedata = SimpleNamespace(
+        interaction="shg", grid=Grid(64, dt=3e-15), omega0_pulse=2.3546e15
+    )
+    stage.on_enter()
+    return stage
+
+
+def test_stage_retrieve_shows_the_crystal_for_shg_and_the_slab_otherwise(stage):
+    stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
+    stage.on_enter()
+    assert not stage.disp_box.isHidden()
+    assert stage.crystal_box.isHidden() and stage.geometry_box.isHidden()
+    _shg_trace(stage)
+    assert stage.disp_box.isHidden()
+    assert not stage.crystal_box.isHidden() and not stage.geometry_box.isHidden()
+
+
+def test_stage_retrieve_crystal_switch_and_thickness_drive_the_slab_settings(stage):
+    _shg_trace(stage)
+    stage.crystal_check.setChecked(True)
+    assert stage.state.retrieve.dispersive is True
+    assert stage.dispersive_check.isChecked()
+    stage.crystal_thickness_spin.setValue(55.0)
+    assert stage.state.retrieve.thickness_um == 55.0
+    assert stage.thickness_spin.value() == 55.0
+    stage.dispersive_check.setChecked(False)
+    assert not stage.crystal_check.isChecked()
+
+
+def test_stage_retrieve_crystal_controls_store_their_settings(qtbot, stage):
+    _shg_trace(stage)
+    p = stage.state.retrieve
+    stage.crystal_combo.setCurrentText("BBO")
+    stage.cut_angle_spin.setValue(33.4)
+    stage.angle_mode_combo.setCurrentText("External tilt")
+    stage.tilt_spin.setValue(-1.5)
+    stage.polarization_combo.setCurrentText("Perpendicular to the crossing plane")
+    stage.delayed_beam_combo.setCurrentText("Away from the optic axis")
+    stage.separation_spin.setValue(8.0)
+    stage.geometry_f_spin.setValue(250.0)
+    assert (p.crystal, p.cut_angle_deg, p.angle_mode, p.tilt_deg) == (
+        "BBO", 33.4, "tilt", -1.5,
+    )
+    assert (p.polarization, p.delayed_beam) == ("perpendicular", "away_from_axis")
+    assert (p.beam_separation_mm, p.focal_f_mm) == (8.0, 250.0)
+    assert stage.focal_f_spin.value() == 250.0  # one focal length for both groups
+    assert stage.tilt_spin.isEnabled() and not stage.phase_match_spin.isEnabled()
+    stage.angle_mode_combo.setCurrentText("Phase-matched wavelength")
+    stage.phase_match_spin.setValue(780.0)
+    assert (p.angle_mode, p.phase_match_nm) == ("phase-match", 780.0)
+    assert not stage.tilt_spin.isEnabled()
+
+
+def test_stage_retrieve_delayed_beam_matters_only_in_the_principal_plane(stage):
+    _shg_trace(stage)
+    stage.polarization_combo.setCurrentText("In the crossing plane")
+    assert not stage.delayed_beam_combo.isEnabled()
+    stage.polarization_combo.setCurrentText("Perpendicular to the crossing plane")
+    assert stage.delayed_beam_combo.isEnabled()
+    stage.separation_spin.setValue(0.0)  # collinear: no crossing plane at all
+    assert not stage.polarization_combo.isEnabled()
+    assert not stage.delayed_beam_combo.isEnabled()
+    assert stage.geometry_readout.text() == "Collinear beams"
+
+
+def test_stage_retrieve_crystal_readout_describes_the_crystal(stage):
+    _shg_trace(stage)
+    stage.separation_spin.setValue(5.0)
+    stage.geometry_f_spin.setValue(100.0)
+    assert stage.geometry_readout.text() == "Crossing half-angle α = 1.432°"
+    stage.crystal_thickness_spin.setValue(100.0)
+    text = stage.crystal_readout.text()
+    assert "θ inside" in text and "path =" in text and "depth nodes =" in text
+    # a cut the wavelength cannot phase-match at any tilt is explained, not raised
+    stage.cut_angle_spin.setValue(80.0)
+    assert stage.crystal_readout.text().startswith("No valid crystal:")
+
+
+def test_stage_retrieve_crystal_readout_without_a_trace(stage):
+    stage.state.tracedata = None
+    assert "depth nodes" not in stage._crystal_summary()
+    assert "θ inside" in stage._crystal_summary()
+
+
+def test_stage_retrieve_thickness_fit_is_off_for_a_crystal(stage):
+    _shg_trace(stage)
+    stage.solver_combo.setCurrentText("lbfgs-ad")
+    stage._on_dispersive_changed(True)
+    assert not stage.fit_thickness_check.isEnabled()
+
+
+def test_stage_retrieve_seeds_the_crystal_widgets_from_the_settings(stage):
+    stage.state.retrieve = RetrieveParams(
+        dispersive=True,
+        cut_angle_deg=31.0,
+        angle_mode="tilt",
+        tilt_deg=2.0,
+        polarization="perpendicular",
+        delayed_beam="away_from_axis",
+        beam_separation_mm=6.0,
+    )
+    stage._seed_widgets()
+    assert stage.crystal_check.isChecked()
+    assert stage.cut_angle_spin.value() == 31.0
+    assert stage.angle_mode_combo.currentText() == "External tilt"
+    assert stage.tilt_spin.value() == 2.0
+    assert stage.polarization_combo.currentText() == (
+        "Perpendicular to the crossing plane"
+    )
+    assert stage.delayed_beam_combo.currentText() == "Away from the optic axis"
+    assert stage.separation_spin.value() == 6.0

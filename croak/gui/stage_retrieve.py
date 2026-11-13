@@ -14,11 +14,12 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QWidget,
 )
 
-from .. import materials, plotting, smearing
+from .. import crystals, materials, plotting, smearing
 from ..constants import C
 from ..plotting.screen import convergence_view
 from ..processing import (
@@ -30,7 +31,12 @@ from ..processing import (
 )
 from ..retrieve import ALGORITHMS, algorithm_params
 from ..session.params import reg_defaults, reg_family
-from ..session.pipeline import extra_param_centres, smearing_kernel
+from ..session.pipeline import (
+    crystal_setup,
+    extra_param_centres,
+    retrieval_npoints,
+    smearing_kernel,
+)
 from ..truth_metrics import truth_errors
 from .base import RunControls, Stage
 from .controls import check, combo, dspin, group, spin
@@ -49,6 +55,26 @@ _ELAPSED_TICK_MS = 500
 #: fast solver can report thousands of iterations a second, and ten frames a
 #: second is all the eye needs.
 _CONVERGENCE_REDRAW_MS = 100
+
+#: The crystal settings' labels in the GUI and their values in RetrieveParams.
+_ANGLE_MODES = {
+    "Phase-matched wavelength": "phase-match",
+    "External tilt": "tilt",
+}
+_POLARIZATIONS = {
+    "In the crossing plane": "parallel",
+    "Perpendicular to the crossing plane": "perpendicular",
+}
+_DELAYED_BEAMS = {
+    "Toward the optic axis": "toward_axis",
+    "Away from the optic axis": "away_from_axis",
+}
+
+
+def _label(labels: dict[str, str], value: str) -> str:
+    """Return the GUI label of a stored setting ``value``."""
+    return next((k for k, v in labels.items() if v == value), next(iter(labels)))
+
 
 _INITIAL_GUESSES = {
     "Automatic (centroid phase)": None,
@@ -175,6 +201,74 @@ class StageRetrieve(RunControls, Stage):
             ],
         ),
         (
+            "Nonlinear crystal",
+            [
+                (
+                    "Model the crystal",
+                    "Model the SHG crystal in the forward map: phase matching, "
+                    "group-velocity mismatch and the generation prefactor, for "
+                    "crystals thick enough that the ideal-SHG model fails. The "
+                    "retrieved field is the field at the crystal's entrance face.",
+                ),
+                ("Crystal", "Uniaxial crystal (Type I, oo→e)."),
+                (
+                    "Thickness (µm)",
+                    "Crystal thickness along its face normal. The depth nodes are "
+                    "chosen from the phase mismatch they must resolve (read-out "
+                    "below).",
+                ),
+                (
+                    "Cut angle θc (°)",
+                    "The manufacturer's cut: the angle between the optic axis and "
+                    "the face normal.",
+                ),
+                (
+                    "Angle set by",
+                    "Phase-matched wavelength: the crystal is tilted to phase-match "
+                    "the wavelength below (the tilt is solved and shown). External "
+                    "tilt: the tilt you set, measured outside the crystal.",
+                ),
+                (
+                    "Phase-matched λ (nm)",
+                    "Fundamental wavelength the crystal is tuned to phase-match.",
+                ),
+                ("External tilt γ (°)", "Tilt of the crystal from normal incidence."),
+                (
+                    "Polarisation",
+                    "The fundamental's polarisation relative to the plane in which "
+                    "the beams cross. In the crossing plane, the beams cross "
+                    "perpendicular to the crystal's principal plane and the trace "
+                    "stays symmetric in delay. Perpendicular to it, they cross in "
+                    "the principal plane: the signal's tilt then makes the trace "
+                    "asymmetric, and the delayed beam's side matters.",
+                ),
+                (
+                    "Delayed beam",
+                    "With the beams crossing in the principal plane: whether the "
+                    "delayed beam is on the optic axis's side of the bisector. A "
+                    "crystal's markings do not show it; the two choices mirror the "
+                    "model trace in delay, so retrieve with both and keep the "
+                    "better fit.",
+                ),
+            ],
+        ),
+        (
+            "Beam geometry",
+            [
+                (
+                    "Beam separation (mm)",
+                    "Distance between the two beams at the focusing optic. With the "
+                    "focal length it sets the crossing half-angle atan(d / 2f), "
+                    "which enters the phase matching. 0 models collinear beams.",
+                ),
+                (
+                    "Focal length (mm)",
+                    "Focal length of the optic that crosses the beams (the same "
+                    "value as the focal mixture's).",
+                ),
+            ],
+        ),
+        (
             "Geometrical smearing",
             [
                 (
@@ -230,9 +324,9 @@ class StageRetrieve(RunControls, Stage):
                     "Fit medium thickness",
                     "Also fit the dispersive-slab thickness as a retrieval "
                     "parameter (lbfgs-ad / lm / lm-optx / cma-es). Needs "
-                    "dispersive propagation enabled, and is only identifiable for "
-                    "PG/SD (for SHG a slab is a pure spectral phase the retrieved "
-                    "phase absorbs). Starts from the Thickness value above.",
+                    "dispersive propagation enabled, and is PG/SD only: an SHG "
+                    "crystal's thickness is not fitted yet. Starts from the "
+                    "Thickness value above.",
                 ),
                 (
                     "Fit τ₀ delay offset",
@@ -481,6 +575,7 @@ class StageRetrieve(RunControls, Stage):
         self.npoints_spin = spin(1, 10000, p.npoints, self._on_npoints_changed)
         form.addRow("Npoints", self.npoints_spin)
         self.controls.addWidget(box)
+        self._build_crystal_groups()
 
         self.smear_box, form = group("Geometrical smearing")
         box = self.smear_box
@@ -941,10 +1036,189 @@ class StageRetrieve(RunControls, Stage):
             setattr(p, attr, attr == selected)
         self.perfect_fwhm_spin.setEnabled(selected == "perfect_init")
 
+    # -- the SHG crystal and the beam geometry --------------------------------
+    # For an SHG trace these two groups replace "Dispersive propagation": the
+    # crystal shares its on/off switch and thickness with the slab of PG/SD, and
+    # "Beam geometry" is the one place the crossing angle is set.
+    def _build_crystal_groups(self) -> None:
+        p = self.state.retrieve
+        self.crystal_box, form = group("Nonlinear crystal")
+        self.crystal_check = check(
+            "Model the crystal", p.dispersive, self._on_crystal_enabled
+        )
+        form.addRow(self.crystal_check)
+        self.crystal_combo = combo(
+            list(crystals.CRYSTALS), p.crystal, self._crystal_setter("crystal", str)
+        )
+        form.addRow("Crystal", self.crystal_combo)
+        self.crystal_thickness_spin = dspin(
+            0, 10000, p.thickness_um, self._on_crystal_thickness_changed, decimals=1
+        )
+        form.addRow("Thickness (µm)", self.crystal_thickness_spin)
+        self.cut_angle_spin = dspin(
+            0,
+            90,
+            p.cut_angle_deg,
+            self._crystal_setter("cut_angle_deg", float),
+            decimals=2,
+        )
+        form.addRow("Cut angle θc (°)", self.cut_angle_spin)
+        self.angle_mode_combo = combo(
+            list(_ANGLE_MODES),
+            _label(_ANGLE_MODES, p.angle_mode),
+            self._on_angle_mode_changed,
+        )
+        form.addRow("Angle set by", self.angle_mode_combo)
+        self.phase_match_spin = dspin(
+            200,
+            5000,
+            p.phase_match_nm,
+            self._crystal_setter("phase_match_nm", float),
+            decimals=1,
+        )
+        form.addRow("Phase-matched λ (nm)", self.phase_match_spin)
+        self.tilt_spin = dspin(
+            -60,
+            60,
+            p.tilt_deg,
+            self._crystal_setter("tilt_deg", float),
+            decimals=2,
+            step=0.1,
+        )
+        form.addRow("External tilt γ (°)", self.tilt_spin)
+        self.polarization_combo = combo(
+            list(_POLARIZATIONS),
+            _label(_POLARIZATIONS, p.polarization),
+            self._on_polarization_changed,
+        )
+        form.addRow("Polarisation", self.polarization_combo)
+        self.delayed_beam_combo = combo(
+            list(_DELAYED_BEAMS),
+            _label(_DELAYED_BEAMS, p.delayed_beam),
+            lambda v: self._set_crystal("delayed_beam", _DELAYED_BEAMS[v]),
+        )
+        form.addRow("Delayed beam", self.delayed_beam_combo)
+        self.crystal_readout = QLabel()
+        self.crystal_readout.setWordWrap(True)
+        form.addRow(self.crystal_readout)
+        self.controls.addWidget(self.crystal_box)
+
+        self.geometry_box, form = group("Beam geometry")
+        self.separation_spin = dspin(
+            0,
+            1000,
+            p.beam_separation_mm,
+            self._crystal_setter("beam_separation_mm", float),
+            decimals=2,
+            step=0.5,
+        )
+        form.addRow("Beam separation (mm)", self.separation_spin)
+        self.geometry_f_spin = dspin(
+            1, 100000, p.focal_f_mm, self._on_geometry_f_changed, decimals=1
+        )
+        form.addRow("Focal length (mm)", self.geometry_f_spin)
+        self.geometry_readout = QLabel()
+        form.addRow(self.geometry_readout)
+        self.controls.addWidget(self.geometry_box)
+
+    def _crystal_setter(self, name: str, kind):
+        """Return a handler that stores ``kind(value)`` as ``name`` and refreshes."""
+        return lambda v: self._set_crystal(name, kind(v))
+
+    def _set_crystal(self, name: str, value) -> None:
+        setattr(self.state.retrieve, name, value)
+        self._refresh_crystal()
+
+    def _on_crystal_enabled(self, value) -> None:
+        self.dispersive_check.blockSignals(True)
+        self.dispersive_check.setChecked(bool(value))
+        self.dispersive_check.blockSignals(False)
+        self._on_dispersive_changed(value)
+        self._refresh_crystal()
+
+    def _on_crystal_thickness_changed(self, value: float) -> None:
+        # the slab's thickness control drives the same parameter; keep it in step
+        self.thickness_spin.blockSignals(True)
+        self.thickness_spin.setValue(value)
+        self.thickness_spin.blockSignals(False)
+        self._on_thickness_changed(value)
+        self._refresh_crystal()
+
+    def _on_angle_mode_changed(self, label: str) -> None:
+        self._set_crystal("angle_mode", _ANGLE_MODES[label])
+
+    def _on_polarization_changed(self, label: str) -> None:
+        self._set_crystal("polarization", _POLARIZATIONS[label])
+
+    def _on_geometry_f_changed(self, value: float) -> None:
+        self.state.retrieve.focal_f_mm = float(value)
+        self.focal_f_spin.blockSignals(True)
+        self.focal_f_spin.setValue(value)
+        self.focal_f_spin.blockSignals(False)
+        self._refresh_crystal()
+
+    def _is_shg(self) -> bool:
+        td = self.state.tracedata
+        return td is not None and getattr(td, "interaction", "") == "shg"
+
+    def _update_medium_groups(self) -> None:
+        """Show the crystal and beam geometry for SHG, the material slab otherwise."""
+        shg = self._is_shg()
+        self.disp_box.setVisible(not shg)
+        self.crystal_box.setVisible(shg)
+        self.geometry_box.setVisible(shg)
+        if shg:
+            self._refresh_crystal()
+
+    def _refresh_crystal(self) -> None:
+        """Enable the controls the settings use and describe the crystal they give."""
+        p = self.state.retrieve
+        tilt_mode = p.angle_mode == "tilt"
+        self.tilt_spin.setEnabled(tilt_mode)
+        self.phase_match_spin.setEnabled(not tilt_mode)
+        crossing = p.beam_separation_mm > 0
+        self.polarization_combo.setEnabled(crossing)
+        self.delayed_beam_combo.setEnabled(
+            crossing and p.polarization == "perpendicular"
+        )
+        if crossing:
+            alpha = math.degrees(math.atan(p.beam_separation_mm / (2 * p.focal_f_mm)))
+            self.geometry_readout.setText(f"Crossing half-angle α = {alpha:.3f}°")
+        else:
+            self.geometry_readout.setText("Collinear beams")
+        self.crystal_readout.setText(self._crystal_summary())
+
+    def _crystal_summary(self) -> str:
+        """Describe the crystal the settings give, or why they give none."""
+        p = self.state.retrieve
+        td = self.state.tracedata
+        try:
+            setup = crystal_setup(p)
+            omega0 = (
+                td.omega0_pulse
+                if td is not None
+                else 2.0 * math.pi * C / (p.phase_match_nm * 1e-9)
+            )
+            thickness = p.thickness_um * 1e-6
+            lines = [
+                f"θ inside = {math.degrees(setup.internal_angle(omega0)):.3f}°, "
+                f"external tilt γ = {math.degrees(setup.external_tilt(omega0)):.3f}°",
+                f"path = {setup.path_length(thickness, omega0) * 1e6:.2f} µm",
+            ]
+            if td is not None and thickness > 0:
+                nodes = retrieval_npoints(p, td, setup, thickness)
+                lines.append(f"depth nodes = {nodes}")
+        except ValueError as err:
+            return f"No valid crystal: {err}"
+        return "\n".join(lines)
+
     def _on_dispersive_changed(self, value):
         # Thickness fitting is only available with dispersive propagation, so
         # refresh the capability gating when this toggles.
         self.state.retrieve.dispersive = bool(value)
+        self.crystal_check.blockSignals(True)
+        self.crystal_check.setChecked(bool(value))
+        self.crystal_check.blockSignals(False)
         self._update_solver_caps()
 
     # -- coupled thickness / Δz / Npoints -----------------------------------
@@ -1211,6 +1485,7 @@ class StageRetrieve(RunControls, Stage):
         self.reg_time_lo_spin.setEnabled(has_time)
         self.reg_time_hi_spin.setEnabled(has_time)
         self.disp_box.setEnabled("material" in params)
+        self.crystal_box.setEnabled("material" in params)
         # Geometrical smearing needs the incoherent quadrature sum. COPRA's LOCAL
         # projection cannot represent it — there is no single signal whose
         # modulus the measurement constrains — but its GLOBAL stage is a descent
@@ -1226,15 +1501,15 @@ class StageRetrieve(RunControls, Stage):
         self.copra_local_check.setEnabled("stall_patience" in params)
         # Extra fitted parameters: the AD/LM solvers (lbfgs-ad, lm, lm-optx) and
         # the global cma-es accept them. Thickness
-        # fitting additionally needs dispersive propagation enabled (and is PG/SD
-        # only — the solver guards SHG at run time). The smearing width likewise
-        # needs a kernel to scale.
+        # fitting additionally needs dispersive propagation enabled, through a
+        # PG/SD slab. The smearing width likewise needs a kernel to scale.
         has_fit_thickness = "fit_thickness" in params
         has_fit_tau0 = "fit_tau0" in params
         has_fit_smearing = "fit_smearing" in params
         self.extra_box.setEnabled(has_fit_thickness or has_fit_tau0 or has_fit_smearing)
+        # A crystal's thickness is not fitted yet (issue #26).
         self.fit_thickness_check.setEnabled(
-            has_fit_thickness and self.state.retrieve.dispersive
+            has_fit_thickness and self.state.retrieve.dispersive and not self._is_shg()
         )
         self.fit_tau0_check.setEnabled(has_fit_tau0)
         self.fit_smearing_check.setEnabled(
@@ -1349,7 +1624,35 @@ class StageRetrieve(RunControls, Stage):
             w.blockSignals(True)
             w.setValue(val)
             w.blockSignals(False)
+        self._seed_crystal_widgets()
         self._update_solver_caps()
+
+    def _seed_crystal_widgets(self) -> None:
+        """Push the crystal and beam-geometry settings into their widgets."""
+        p = self.state.retrieve
+        values = {
+            self.crystal_check: p.dispersive,
+            self.crystal_combo: p.crystal,
+            self.crystal_thickness_spin: p.thickness_um,
+            self.cut_angle_spin: p.cut_angle_deg,
+            self.angle_mode_combo: _label(_ANGLE_MODES, p.angle_mode),
+            self.phase_match_spin: p.phase_match_nm,
+            self.tilt_spin: p.tilt_deg,
+            self.polarization_combo: _label(_POLARIZATIONS, p.polarization),
+            self.delayed_beam_combo: _label(_DELAYED_BEAMS, p.delayed_beam),
+            self.separation_spin: p.beam_separation_mm,
+            self.geometry_f_spin: p.focal_f_mm,
+        }
+        for w, val in values.items():
+            w.blockSignals(True)
+            if isinstance(val, bool):
+                w.setChecked(val)
+            elif isinstance(val, str):
+                w.setCurrentText(val)
+            else:
+                w.setValue(val)
+            w.blockSignals(False)
+        self._update_medium_groups()
 
     def _reset_defaults(self):
         """Restore the default retrieval settings (as if re-initialised)."""
@@ -1369,6 +1672,8 @@ class StageRetrieve(RunControls, Stage):
         # known once a trace is loaded — refresh the readout so it always shows the
         # width the forward model will actually use.
         self._refresh_smear_sigma()
+        self._update_medium_groups()
+        self._update_solver_caps()
         # If a result already exists (navigated back/forward, or a restored
         # session) but this stage hasn't drawn it, restore the view so it is
         # clear the retrieval is still valid — no re-run needed to proceed.
