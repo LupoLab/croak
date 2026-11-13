@@ -249,12 +249,50 @@ incoherent average over the kernel breaks COPRA's magnitude-replacement projecti
 and the hand-derived adjoint is not extended to it. Asking for smearing with them
 raises rather than silently dropping the kernel.
 
-SHG raises too: geometric smearing here is defined for the three-arm PG/SD forms.
+## Two-beam SHG
+
+An SHG FROG has two beams, not three, so the arrival times leave only the
+relative delay $\delta$ and no shape parameter $p$: the measured trace is the
+unsmeared one convolved along delay. For Gaussian beams of 1/e² diameter $D$ at a
+focusing optic of focal length $f$, separated by $d$, each focuses to the waist
+$w_0 = 2\lambda f/(\pi D)$; the signal from position $x$ is weighted by the
+product of the two intensities, $e^{-4x^2/w_0^2}$, and sees the relative delay
+$2x\sin\alpha/c$ with $\tan\alpha = d/(2f)$. So
+
+$$\sigma_\delta = \frac{w_0\sin\alpha}{\sqrt2\,c} \approx \frac{\lambda d}{\sqrt2\,\pi D c},$$
+
+0.60 fs rms for beams separated by their diameter at 800 nm, whatever the focal
+length. {func}`~croak.smearing.shg_two_beam_kernel` builds this kernel from the same
+{class}`~croak.geometry.TwoBeamGeometry` that gives a crystal its crossing angle:
+
+```python
+from croak.geometry import TwoBeamGeometry
+from croak.smearing import shg_two_beam_kernel
+
+beams = TwoBeamGeometry(beam_separation=5e-3, focal_length=0.1, beam_diameter=3e-3)
+kernel = shg_two_beam_kernel(beams, wavelength=800e-9)   # sigma_delta = 1.00 fs
+
+res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="lbfgs-ad",
+                     smearing=kernel)
+```
+
+It works with or without a crystal ([SHG with a thick crystal](shg_crystal.md));
+`smear_scale`, `fit_smearing` and the solver support are as above. A kernel with a
+shape parameter is refused for SHG ({func}`~croak.smearing.check_kernel`). The width
+scales with the wavelength, so take it at the pulse's centroid; a session does
+({func}`~croak.session.pipeline.pulse_wavelength`). It assumes Gaussian beams
+collimated at the optic, a crystal thin against the Rayleigh range and full
+collection of the signal beam. Baltuška et al. (IEEE J. Quantum Electron. 35,
+459 (1999), Eq. 29) quote 0.4 fs for the same layout, but as the term that adds in
+quadrature to a measured duration, with a different focal-diameter convention; the
+two numbers are not directly comparable.
 
 ## In the GUI
 
-The Retrieve stage has a **Geometrical smearing** group, greyed out unless the
-chosen solver supports it:
+For SHG data the smearing is in the Retrieve stage's **Beam geometry** group: the
+beams' separation, focal length and diameter, *Model the delay smearing*, and a
+read-out of the width in rms and FWHM. For PG and SD, the Retrieve stage has a
+**Geometrical smearing** group, greyed out unless the chosen solver supports it:
 
 - *Enable geometrical smearing*
 - *Hole diameter (mm)* and *Hole spacing (mm)* (edge to edge) — the physical inputs
