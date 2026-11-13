@@ -177,11 +177,11 @@ def test_stage_marginal_check_predict_returns_none_without_usable_spectrum(
     stage, monkeypatch
 ):
     spec = np.exp(-(((LAM - 800e-9) / 30e-9) ** 2))
-    # all of the spectrum outside the trust region
-    stage._trust_nm = (1200.0, 1300.0)
+    # all of the spectrum outside its trust region
+    stage._spec_trust_nm = (1200.0, 1300.0)
     assert stage._predict(LAM, spec, "pg") is None
     # a single in-band sample spans no band to predict on
-    stage._trust_nm = (700.0, 900.0)
+    stage._spec_trust_nm = (700.0, 900.0)
     assert stage._predict(np.array([800e-9]), np.array([1.0]), "pg") is None
 
     def refuse(*args, **kwargs):
@@ -320,3 +320,87 @@ def test_peak_norm_falls_back_outside_the_mask():
     # all-zero data is returned unchanged
     np.testing.assert_allclose(_peak_norm(np.zeros(3), np.ones(3, bool)), 0.0)
     assert _peak_norm(np.zeros(0), np.zeros(0, bool)).size == 0
+
+
+# -- separate trust regions for the trace and the spectrum ---------------------
+def _shg_data_an_octave_apart():
+    """An SHG trace near 400 nm with its fundamental spectrum near 800 nm."""
+    data = _data("shg")
+    data["lam"] = LAM / 2.0
+    return data
+
+
+def test_stage_marginal_check_spectrum_trust_defaults_to_the_spectrum(stage):
+    _enter(stage, _shg_data_an_octave_apart())
+    assert stage._trust_nm == (190.0, 1000.0)
+    assert stage._spec_trust_nm == (700.0, 900.0)
+    assert stage.spec_trust.isEnabled()
+    # with the trust regions an octave apart the prediction still forms (one
+    # shared region cannot hold a 400 nm trace and an 800 nm spectrum)
+    stage._on_trust(340.0, 460.0)
+    spec = np.exp(-(((LAM - 800e-9) / 30e-9) ** 2))
+    assert stage._predict(LAM, spec, "shg") is not None
+
+
+def test_stage_marginal_check_spectrum_trust_is_kept_for_the_same_spectrum(stage):
+    _enter(stage, _data())
+    stage._on_spec_trust(720.0, 880.0)
+    assert stage._spec_trust_nm == (720.0, 880.0)
+    stage.on_enter()  # same spectrum: the manual region is kept
+    assert stage._spec_trust_nm == (720.0, 880.0)
+    data = _data()
+    data["lam_spec"] = np.linspace(600e-9, 1000e-9, 64)
+    _enter(stage, data)  # a different spectrum re-defaults
+    assert stage._spec_trust_nm == (600.0, 1000.0)
+
+
+def test_stage_marginal_check_spectrum_trust_is_off_without_a_spectrum(stage):
+    _enter(stage, _data(spectrum=False))
+    assert not stage.spec_trust.isEnabled()
+
+
+def test_stage_marginal_check_auto_passes_both_trust_regions(stage, monkeypatch):
+    seen = {}
+
+    def fit(*args, **kwargs):
+        seen.update(kwargs)
+        return 1.0
+
+    monkeypatch.setattr(stage_marginal_check, "auto_third_order_exponent", fit)
+    _enter(stage, _shg_data_an_octave_apart())
+    stage._on_trust(340.0, 460.0)
+    stage._on_spec_trust(720.0, 880.0)
+    stage._auto_exponent()
+    assert seen["trace_window"] == pytest.approx((340e-9, 460e-9))
+    assert seen["spectrum_window"] == pytest.approx((720e-9, 880e-9))
+
+
+def test_stage_marginal_check_spectrum_trust_outside_the_spectrum_shows_no_prediction(
+    stage,
+):
+    _enter(stage, _data())
+    stage._on_spec_trust(1200.0, 1300.0)  # no spectrum sample in the region
+    legend = _legend(stage.marg_view)
+    assert "spectrum" in legend and "predicted" not in legend
+    assert stage.status_label.text() == (
+        "No independent spectrum: showing the trace marginal only."
+    )
+
+
+@pytest.mark.parametrize(
+    ("entry", "extent", "expected"),
+    [
+        # measured: clipped to the 190-1000 nm detector band
+        ("experimental", (600e-9, 1200e-9), (600.0, 1000.0)),
+        # measured, wholly beyond 1 um (a 1.6 um fundamental): its full range
+        ("experimental", (1400e-9, 1800e-9), (1400.0, 1800.0)),
+        # noise-free: the full range
+        ("synthetic", (600e-9, 1200e-9), (600.0, 1200.0)),
+        ("simulated", (600e-9, 1200e-9), (600.0, 1200.0)),
+    ],
+)
+def test_stage_marginal_check_spectrum_trust_default(stage, entry, extent, expected):
+    data = _data()
+    data["lam_spec"] = np.linspace(*extent, 64)
+    _enter(stage, data, entry=entry)
+    assert stage._spec_trust_nm == expected

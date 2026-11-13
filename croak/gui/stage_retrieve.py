@@ -314,8 +314,10 @@ class StageRetrieve(RunControls, Stage):
             [
                 (
                     "Spectral (λ window)",
-                    "Mask the retrieved result outside the measurement λ window — "
-                    "applied to the stored result, no re-run.",
+                    "Mask the retrieved result outside the spectral window at the "
+                    "fundamental: the trace window λm for PG/SD, the spectrum "
+                    "window λs for SHG (off for SHG without a spectrum). Applied "
+                    "to the stored result, no re-run.",
                 ),
                 (
                     "Temporal (τ window)",
@@ -1375,9 +1377,12 @@ class StageRetrieve(RunControls, Stage):
         if self.state.result is not None and self._base_result is None:
             self._base_result = self.state.result
             self.retarget_btn.setEnabled(True)
-            self.pf_lam.setEnabled(True)
-            self.pf_tau.setEnabled(True)
+            self._enable_post_filters()
             self._update_view()
+        elif self._base_result is not None:
+            # The trace may have been re-prepared (a spectrum added or removed)
+            # since the result was drawn; the spectral window may have changed.
+            self._enable_post_filters()
 
     # -- retrieval ----------------------------------------------------------
     def _seeded_extras(self, seed) -> str:
@@ -1542,9 +1547,26 @@ class StageRetrieve(RunControls, Stage):
         self._elapsed_timer.stop()
         self.set_running(False)
         self.retarget_btn.setEnabled(True)
-        self.pf_lam.setEnabled(True)
-        self.pf_tau.setEnabled(True)
+        self._enable_post_filters()
         self._update_view()
+
+    def _enable_post_filters(self) -> None:
+        """Enable the post-filters a result can use.
+
+        The spectral one needs a window at the fundamental
+        (:attr:`~croak.preprocess.TraceData.fundamental_window`); an SHG trace
+        without an independent spectrum has none, so it stays off and says why.
+        """
+        self.pf_tau.setEnabled(True)
+        td = self.state.tracedata
+        has_window = td is not None and td.fundamental_window is not None
+        self.pf_lam.setEnabled(has_window)
+        self.pf_lam.setToolTip(
+            ""
+            if has_window
+            else "SHG without an independent spectrum has no spectral window at "
+            "the fundamental: the trace window lies at the second harmonic."
+        )
 
     def _on_post_filter(self, _=None):
         self.state.retrieve.post_filter_lam = self.pf_lam.isChecked()
@@ -1596,8 +1618,9 @@ class StageRetrieve(RunControls, Stage):
         td = self.state.tracedata
         if td is None:
             return
-        # window to the measurement λm/τm ranges (not the full grid/trace extent)
-        lam_lims = td.lamm_lims if self.pf_lam.isChecked() else None
+        # window to the measurement ranges (not the full grid/trace extent); the
+        # spectral one at the fundamental, where the retrieved field lives
+        lam_lims = td.fundamental_window if self.pf_lam.isChecked() else None
         tau_lims = td.tau_lims if self.pf_tau.isChecked() else None
         if lam_lims is None and tau_lims is None:
             result = self._base_result

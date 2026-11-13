@@ -145,14 +145,18 @@ the effect is reversible):
 
 ```python
 clean = croak.processing.post_filter(result,
-                                    tau_lims=td.tau_lims,    # measurement τm
-                                    lam_lims=td.lamm_lims)   # measurement λm
+                                    tau_lims=td.tau_lims,              # τm
+                                    lam_lims=td.fundamental_window)    # at the fundamental
 ```
 
-Pass the **measurement** windows λm/τm — the ranges where the trace actually
-carries signal, stored on the `TraceData` as `td.lamm_lims` / `td.tau_lims`. (The
-full retrieval-grid extent, `td.lam_min`/`td.lam_max`, would taper only the
-outermost few bins and do nothing useful.)
+Pass **measurement** windows: the delay window τm (`td.tau_lims`), and a
+wavelength window **at the fundamental**, where the retrieved field lives
+(`td.fundamental_window`: for PG/SD the trace window λm, for SHG the spectrum
+window λs, and `None` for SHG without a spectrum). For SHG, never pass the trace
+window `td.lamm_lims`: it lies
+at the second harmonic, so the taper would land above the grid and remove the
+whole field. (The full retrieval-grid extent, `td.lam_min`/`td.lam_max`, would
+taper only the outermost few bins and do nothing useful.)
 
 The stored trace and error still describe the original unfiltered fit. This is
 distinct from the [spectral-match penalty](regularisation.md), which

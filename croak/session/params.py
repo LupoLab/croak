@@ -250,6 +250,13 @@ class PreprocParams:
     lamm_max_nm: float = 1100.0
     lamm_bound_min_nm: float = 300.0
     lamm_bound_max_nm: float = 1100.0
+    # independent fundamental-spectrum window (fundamental λ domain); None means
+    # the spectrum's full extent (and is what a file without a spectrum, or one
+    # written before this window existed, reads back as)
+    lams_min_nm: float | None = None
+    lams_max_nm: float | None = None
+    lams_bound_min_nm: float | None = None
+    lams_bound_max_nm: float | None = None
     # measurement delay window (τm; always on, crops the delay axis)
     taum_min_fs: float = -500.0
     taum_max_fs: float = 500.0

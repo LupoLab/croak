@@ -97,12 +97,23 @@ A few `load_and_clean` keywords do most of the work:
 - **`tau_lims`** (soft Planck taper, the τm window) and **`tau_crop`** (hard crop,
   applied last on the regridded delay axis) — window the delay axis. `tau_lims` is
   stored on the `TraceData` for post-retrieval windowing.
-- **`lamm_lims`** — the *useful* measurement wavelength window λm (applied before
-  regridding and stored on the `TraceData` for post-retrieval windowing).
+- **`lamm_lims`** — the *useful* wavelength window λm of the **trace**, in the
+  trace's own wavelengths (for SHG, around half the fundamental). Applied to the
+  trace before regridding; it does not touch the independent spectrum.
 - **`lam_spec`, `Ilam_spec`** — an independently measured fundamental spectrum;
   when supplied it is resampled onto the grid as `td.Iomega` and can seed the
   guess, drive the [spectral-match penalty](regularisation.md), or enable SHG
   marginal correction (`marginal_correct=True`).
+- **`lams_lims`** — the wavelength window λs of the independent **spectrum**, in
+  fundamental wavelengths, independent of λm (default: the spectrum's full
+  extent). The spectrum is tapered to zero outside it before it is resampled.
+  The two windows are separate because the trace and the spectrum come from
+  different instruments, with noise at unrelated wavelengths, and for SHG lie an
+  octave apart. `td.fundamental_window` gives the window to use on the retrieved
+  field: λm for PG/SD (whose trace sits at the fundamental), λs for SHG, and
+  `None` for SHG without a spectrum. In croak 0.4 and earlier, λm also tapered
+  the spectrum (×2 for SHG); a session saved then reads back with λs unset, so set
+  λs to taper the spectrum as before.
 
 ## De-fringing: notch vs. Takeda low-pass
 

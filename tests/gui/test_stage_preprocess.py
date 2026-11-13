@@ -6,6 +6,7 @@ exercised with real :class:`~croak.gui.worker.PreprocessWorker` threads.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 pytest.importorskip("PySide6")
@@ -13,7 +14,7 @@ pytest.importorskip("PySide6")
 import shiboken6
 
 from croak.gui import stage_preprocess
-from croak.gui.stage_load import seed_preproc_defaults
+from croak.gui.stage_load import compute_preproc_defaults, seed_preproc_defaults
 from croak.gui.stage_preprocess import StagePreprocess
 from croak.gui.state import WizardState
 from croak.session.pipeline import assemble_load_data, build_tracedata
@@ -57,6 +58,7 @@ def test_stage_preprocess_range_handlers_store_values_and_schedule(stage):
         stage._on_lam_range: ("lam_min_nm", "lam_max_nm"),
         stage._on_tau_range: ("tau_min_fs", "tau_max_fs"),
         stage._on_lamm_range: ("lamm_min_nm", "lamm_max_nm"),
+        stage._on_lams_range: ("lams_min_nm", "lams_max_nm"),
         stage._on_taum_range: ("taum_min_fs", "taum_max_fs"),
     }
     p = stage.state.preproc
@@ -249,3 +251,77 @@ def test_stage_preprocess_numbers_describe_the_grid(loaded):
     assert numbers["Taper loss"].property("warn") is True
     loaded._show_tracedata(replace(td, taper_loss=0.0))
     assert numbers["Taper loss"].text() == "< 0.1%"
+
+
+def _with_spectrum(stage, *, extent_nm=(600.0, 1000.0)):
+    """Give the loaded data an independent spectrum and re-seed the defaults."""
+    data = dict(stage.state.load_data)
+    lam = np.linspace(extent_nm[0], extent_nm[1], 200) * 1e-9
+    data["lam_spec"], data["Ilam_spec"] = lam, np.ones_like(lam)
+    stage.state.set_load_data(data)
+    return lam
+
+
+def test_preproc_defaults_seed_the_spectrum_window_from_the_spectrum(loaded):
+    _with_spectrum(loaded)
+    defaults = compute_preproc_defaults(loaded.state.load_data)
+    assert (defaults.lams_min_nm, defaults.lams_max_nm) == (600.0, 1000.0)
+    assert (defaults.lams_bound_min_nm, defaults.lams_bound_max_nm) == (600.0, 1000.0)
+
+
+def test_preproc_defaults_without_a_spectrum_leave_the_spectrum_window_unset(loaded):
+    defaults = compute_preproc_defaults(loaded.state.load_data)
+    assert defaults.lams_min_nm is None and defaults.lams_max_nm is None
+    assert defaults.lams_bound_min_nm is None and defaults.lams_bound_max_nm is None
+
+
+def test_reseeding_clamps_the_spectrum_window_and_drops_it_with_the_spectrum(loaded):
+    _with_spectrum(loaded)
+    seed_preproc_defaults(loaded.state)
+    p = loaded.state.preproc
+    p.lams_min_nm, p.lams_max_nm = 650.0, 950.0
+    # same trace, narrower spectrum: values are kept but clamped to the bounds
+    _with_spectrum(loaded, extent_nm=(700.0, 900.0))
+    seed_preproc_defaults(loaded.state, reset_values=False)
+    assert (p.lams_min_nm, p.lams_max_nm) == (700.0, 900.0)
+    # spectrum removed: the window goes with it
+    data = dict(loaded.state.load_data) | dict(lam_spec=None, Ilam_spec=None)
+    loaded.state.set_load_data(data)
+    seed_preproc_defaults(loaded.state, reset_values=False)
+    assert p.lams_min_nm is None and p.lams_bound_min_nm is None
+
+
+def test_spectrum_window_control_follows_the_spectrum(loaded):
+    loaded._seed_ranges()
+    assert not loaded.lams_range.isEnabled()
+    _with_spectrum(loaded)
+    seed_preproc_defaults(loaded.state)
+    loaded._seed_ranges()
+    assert loaded.lams_range.isEnabled()
+    assert (loaded.lams_range.lo_spin.value(), loaded.lams_range.hi_spin.value()) == (
+        600.0,
+        1000.0,
+    )
+
+
+def test_reseeding_keeps_an_unset_spectrum_window_unset(loaded):
+    # An older session: a spectrum is loaded but the window was never set, so it
+    # stays "full extent" rather than being invented from the bounds.
+    _with_spectrum(loaded)
+    p = loaded.state.preproc
+    p.lams_min_nm = p.lams_max_nm = None
+    seed_preproc_defaults(loaded.state, reset_values=False)
+    assert p.lams_bound_min_nm == 600.0
+    assert p.lams_min_nm is None and p.lams_max_nm is None
+
+
+def test_reseeding_resets_a_spectrum_window_that_misses_the_new_spectrum(loaded):
+    # Same trace, a spectrum in a different band: the kept window would clamp to a
+    # zero-width band at the new edge, so it falls back to the full extent instead.
+    _with_spectrum(loaded)
+    seed_preproc_defaults(loaded.state)
+    p = loaded.state.preproc
+    p.lams_min_nm, p.lams_max_nm = 650.0, 950.0
+    _with_spectrum(loaded, extent_nm=(1400.0, 1800.0))
+    seed_preproc_defaults(loaded.state, reset_values=False)
+    assert p.lams_min_nm is None and p.lams_max_nm is None
