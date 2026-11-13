@@ -103,10 +103,13 @@ import numpy as np
 from numpy.polynomial.hermite_e import hermegauss
 from numpy.typing import ArrayLike, NDArray
 
+from .geometry import TwoBeamGeometry
 from .interactions import Interaction, get_interaction
 
 __all__ = [
+    "check_kernel",
     "collinear_sd_kernel",
+    "shg_two_beam_kernel",
     "AIRY6_RMS_COEFF",
     "deconvolve_delay",
     "SmearingKernel",
@@ -587,6 +590,110 @@ def square_boxcars_kernel(
     if reverse_delay:
         kernel = replace(kernel, rho=-kernel.rho)
     return kernel
+
+
+def check_kernel(interaction: str | Interaction, kernel: SmearingKernel) -> None:
+    """Check that a smearing kernel has a meaning for the interaction.
+
+    PG and SD take any kernel. SHG has two beams, so only the delay offset
+    survives: its kernel must have ``sigma_p = 0`` (:func:`shg_two_beam_kernel`).
+
+    Parameters
+    ----------
+    interaction : str or Interaction
+        The interaction.
+    kernel : SmearingKernel
+        The kernel.
+
+    Raises
+    ------
+    ValueError
+        If ``interaction`` is SHG and ``kernel.sigma_p`` is not zero.
+    """
+    if get_interaction(interaction).name == "shg" and kernel.sigma_p != 0.0:
+        raise ValueError(
+            "an SHG trace has two beams, so its smearing is a pure delay blur with "
+            f"no shape parameter; got sigma_p={kernel.sigma_p!r}. Build the kernel "
+            "with croak.smearing.shg_two_beam_kernel"
+        )
+
+
+def shg_two_beam_kernel(geometry: TwoBeamGeometry, wavelength: float) -> SmearingKernel:
+    r"""Delay-smearing kernel of a two-beam (non-collinear) SHG FROG.
+
+    With two beams the signal is :math:`E_1(t)\,E_2(t-\tau+\delta)`: the
+    two arrival times leave one combination, the relative delay :math:`\delta`,
+    and no shape parameter :math:`p`. So the measured trace is the unsmeared one
+    convolved along delay with the distribution of :math:`\delta` across the
+    focus.
+
+    Each Gaussian beam of 1/e² diameter :math:`D` at the focusing optic (focal
+    length :math:`f`) focuses to the waist :math:`w_0 = 2\lambda f/(\pi D)`
+    (1/e² radius), and the two spots coincide at the crossing point. The signal
+    from transverse position :math:`x` (in the crossing plane) is weighted by
+    :math:`|E_1|^2|E_2|^2 \propto e^{-4x^2/w_0^2}`, so :math:`x` has rms
+    :math:`w_0/(2\sqrt2)`. There the arms' wavefronts, tilted by
+    :math:`\pm\alpha`, give the relative delay :math:`\delta = 2x\sin\alpha/c`.
+    Hence
+
+    .. math::
+
+        \sigma_\delta = \frac{w_0\sin\alpha}{\sqrt2\,c}
+                       \approx \frac{\lambda d}{\sqrt2\,\pi D c},
+
+    with :math:`\tan\alpha = d/(2f)` and :math:`d` the beam separation; the second
+    form holds for small angles. For beams separated by their diameter
+    (:math:`d = D`) at 800 nm this is 0.60 fs rms, whatever the focal length.
+
+    Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999), Eq. 29) give
+    :math:`\delta t = \alpha_0 d_f/c`, 0.4 fs for that layout, as the term that
+    adds in quadrature to a Gaussian pulse's measured duration, with their own
+    focal diameter :math:`d_f = f\lambda/(\pi d)`. That is a different quantity
+    with a different beam-size convention, so the two numbers are not directly
+    comparable.
+
+    Validity: Gaussian beams, collimated at the optic, a crystal thin against the
+    Rayleigh range (the spots stay superposed through it), full collection of the
+    signal beam, and the spot size at the single ``wavelength`` given (it scales
+    with the wavelength across a broad spectrum).
+
+    Parameters
+    ----------
+    geometry : TwoBeamGeometry
+        The beams; ``beam_diameter`` must be set. The same object should describe
+        the crystal (:class:`croak.crystals.CrystalSetup`), so the phase matching
+        and the smearing use one crossing angle.
+    wavelength : float
+        Wavelength (m) the spot size is taken at, e.g. the pulse's centroid.
+
+    Returns
+    -------
+    SmearingKernel
+        ``sigma_p = 0``, one node, ``sigma_delta`` as above.
+
+    Raises
+    ------
+    ValueError
+        If ``geometry.beam_diameter`` is ``None`` or ``wavelength`` is not positive.
+
+    Examples
+    --------
+    >>> g = TwoBeamGeometry(beam_separation=1e-3, focal_length=0.1, beam_diameter=1e-3)
+    >>> round(shg_two_beam_kernel(g, 800e-9).sigma_delta * 1e15, 2)
+    0.6
+    """
+    if geometry.beam_diameter is None:
+        raise ValueError(
+            "the two-beam smearing kernel needs the beams' diameter: set "
+            "TwoBeamGeometry.beam_diameter (1/e² diameter at the focusing optic)"
+        )
+    if not (math.isfinite(wavelength) and wavelength > 0.0):
+        raise ValueError(f"wavelength must be finite and positive, got {wavelength!r}")
+    waist = (
+        2.0 * wavelength * geometry.focal_length / (math.pi * geometry.beam_diameter)
+    )
+    sigma = waist * math.sin(geometry.crossing_half_angle) / (math.sqrt(2.0) * _C_LIGHT)
+    return SmearingKernel(sigma_p=0.0, sigma_delta=sigma, rho=0.0, npoints=1)
 
 
 def deconvolve_delay(

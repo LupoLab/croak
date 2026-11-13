@@ -37,7 +37,7 @@ from numpy.typing import ArrayLike, NDArray
 from . import crystals
 from .crystals import CrystalSetup
 from .interactions import Interaction, get_interaction
-from .smearing import SmearingKernel, delay_frequency_grid
+from .smearing import SmearingKernel, check_kernel, delay_frequency_grid
 
 __all__ = ["ForwardModel", "quadrature_nodes_weights", "maketrace"]
 
@@ -198,12 +198,7 @@ class ForwardModel:
         # depth quadrature rather than coupling to it.
         self.smearing = smearing
         if smearing is not None:
-            if self.interaction.name not in ("pg", "sd"):
-                raise ValueError(
-                    f"geometrical smearing is not supported for the "
-                    f"{self.interaction.name.upper()} interaction; only PG (TG) and SD "
-                    f"have the required three-arm form"
-                )
+            check_kernel(self.interaction, smearing)
             self.p_nodes, self.p_weights = smearing.nodes_weights()
             self.p_mu, self.p_sigma = smearing.conditional_delay(self.p_nodes)
             self.delay_omega = delay_frequency_grid(self.delays, smearing.sigma_delta)
@@ -314,7 +309,13 @@ class ForwardModel:
         """
         per_node = np.empty((self.n, self.m, self.p_nodes.size), dtype=float)
         for j, tau in enumerate(self.delays):
-            per_node[:, j, :] = np.abs(self.signal_smeared(ew, tau)) ** 2
+            if self.interaction.name == "shg":
+                # two beams: no shape parameter (check_kernel), one node, and the
+                # unsmeared signal with each arm's own propagator (a crystal's
+                # arms differ, CrystalSetup.arm_shift)
+                per_node[:, j, 0] = np.abs(self.signal_single(ew, tau)) ** 2
+            else:
+                per_node[:, j, :] = np.abs(self.signal_smeared(ew, tau)) ** 2
         # Characteristic function of N(mu_k, sigma^2), shape (M, K):
         #   exp(-i Omega mu - sigma^2 Omega^2 / 2)
         omega_delay = self.delay_omega[:, None]
