@@ -231,11 +231,15 @@ sits $\kappa P$ off-centre (−0.57 fs for 100 µm at 1.4° with the delayed bea
 the optic axis, +0.57 fs away from it).
 
 A full-field simulation supports this choice (issue #28): two Gaussian beams of
-20 µm waist crossing at the crystal's mid-plane in BBO, simulated in two dimensions
+20 µm waist crossing in BBO, simulated in two dimensions
 (x and t) with Luna.jl, with the signal collected over the whole beam. For a 10 fs
 pulse with 30 fs² of GDD in 100 µm at 1.43°, and a 6 fs pulse with 20 fs³ of TOD
 in 30 µm at 2.86°, the full-field traces are centred to 0.02 fs, and they match the
-mid-depth-referenced model to 1.2 % and 0.2 % of the peak. The argument assumes
+mid-depth-referenced model to 1.2 % and 0.2 % of the peak, whether the beams
+cross at the crystal's entrance face, its mid-plane or its exit face. (Over these
+crystals the beams separate by little against their size, so this tells the
+references apart rather than testing beams that separate in the crystal.) The
+argument assumes
 that the whole beam is collected, that generation is spread evenly over the depth,
 and that the walk-off over the crystal, $\rho P$, is small against the spot size. A
 spectrometer slit or an iris that passes only part of the beam can bring part of the
