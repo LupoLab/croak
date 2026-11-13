@@ -1484,6 +1484,11 @@ class TraceData:
         clipping live signal, which both discards data *and* frees the retrieved
         field at the affected frequencies. ``0.0`` when the trace never went
         through the regrid.
+    marginal_corrected : bool
+        Whether the trace's frequency rows were rescaled onto the
+        spectrum-predicted SHG marginal (``marginal_correct``). A crystal model
+        refuses such a trace: the correction already divides out an estimate of
+        the crystal's phase-matching response, which the model would apply again.
     """
 
     interaction: str
@@ -1507,6 +1512,7 @@ class TraceData:
     Ilam_spec_filt: NDArray[np.float64] | None
     scalecurve: NDArray[np.float64]
     taper_loss: float = 0.0
+    marginal_corrected: bool = False
 
     @property
     def omega(self) -> NDArray[np.float64]:
@@ -1799,4 +1805,5 @@ def load_and_clean(
         Ilam_spec_filt=Ilam_spec_filt,
         scalecurve=sc,
         taper_loss=taper_loss,
+        marginal_corrected=marginal_correct,
     )

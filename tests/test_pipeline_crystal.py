@@ -9,6 +9,7 @@ models unchanged.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -142,3 +143,17 @@ def test_thickness_bootstrap_resolves_each_drawn_crystal(crystal_tracedata):
     needed = crystals.depth_points(CRYSTAL, td.grid.omega, td.omega0_pulse, drawn.max())
     assert needed > npoints  # the thickest draw would be refused at npoints
     assert np.all(np.isfinite(out.samples))
+
+
+def test_a_crystal_refuses_a_marginal_corrected_trace(crystal_tracedata):
+    # The correction already divides out an estimate of the phase-matching
+    # response, which the crystal model would apply again.
+    td = replace(crystal_tracedata, marginal_corrected=True)
+    with pytest.raises(ValueError, match="marginal-corrected"):
+        retrieve_from_tracedata(
+            td,
+            algorithm="lbfgs-ad",
+            material=CRYSTAL,
+            thickness=THICKNESS,
+            npoints=_depth_points(td),
+        )

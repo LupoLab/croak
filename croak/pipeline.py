@@ -341,6 +341,13 @@ def retrieve_from_tracedata(
                 stacklevel=2,
             )
         reg_spectrum = 0.0
+    if isinstance(material, CrystalSetup) and td.marginal_corrected:
+        raise ValueError(
+            "the trace was marginal-corrected, which already divides out an "
+            "estimate of the crystal's phase-matching response; a crystal model "
+            "would apply it twice. Load the trace without marginal_correct to "
+            "retrieve with the crystal"
+        )
     algo = algorithm.lower()
     if algo not in ALGORITHMS:
         raise ValueError(f"unknown algorithm {algorithm!r}")
