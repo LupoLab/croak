@@ -1,7 +1,8 @@
 """Generate-synthetic-trace panel.
 
 Builds a known pulse (Gaussian or sech², with GDD/TOD/FOD and optional material
-dispersion), simulates a FROG measurement of it on a user-chosen wavelength ×
+dispersion), simulates a FROG measurement of it (for SHG optionally through the
+nonlinear crystal the Retrieve stage describes) on a user-chosen wavelength ×
 delay sampling, previews the pulse and trace live, and then hands the synthetic
 "measurement" into the normal preprocess → retrieve pipeline (so the retriever
 rediscovers the pulse). The internal computation grid is chosen automatically to
@@ -18,10 +19,11 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QGridLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
 
 from .. import dispersion
 from ..constants import C
+from ..crystals import depth_points
 from ..forward import maketrace
 from ..grid import Grid
 from ..interactions import INTERACTIONS, get_interaction
@@ -29,6 +31,7 @@ from ..materials import MATERIALS
 from ..plotting.screen import pulse_field_views, raw_trace_map
 from ..processing import TruthPulse
 from ..pulses import gaussian_pulse, sech_pulse
+from ..session.pipeline import crystal_setup
 from .base import Stage
 from .controls import (
     add_wide_row,
@@ -158,6 +161,27 @@ class StageSynthetic(Stage):
         add_wide_row(form, "thickness (mm)", self.thickness)
         self.controls.addWidget(box)
 
+        # -- SHG crystal ------------------------------------------------
+        # The crystal itself (its cut, angle, polarisation and the beams' crossing)
+        # is the one the Retrieve stage describes, so a trace made here and its
+        # retrieval share one description; only the thickness is set here.
+        self.crystal_box, form = group("SHG crystal")
+        self.use_crystal = check("Generate through the crystal", False, self._changed)
+        form.addRow(self.use_crystal)
+        self.crystal_thickness = ValueControl(
+            0.0, 1000.0, 20.0, decimals=1, step=1.0, slider_scale=1.0
+        )
+        self.crystal_thickness.changed.connect(self._changed)
+        add_wide_row(form, "thickness (µm)", self.crystal_thickness)
+        form.addRow(
+            QLabel(
+                "Crystal, angle, polarisation and beam geometry as set in the "
+                "Retrieve stage."
+            )
+        )
+        self.controls.addWidget(self.crystal_box)
+        self.crystal_box.setEnabled(self.interaction.currentText() == "shg")
+
         # -- Noise ------------------------------------------------------
         box, form = group("Noise (optional)")
         self.noise_add = ValueControl(
@@ -243,6 +267,7 @@ class StageSynthetic(Stage):
         # the SHG fundamental sits at 2× the signal wavelength, so a mirrored
         # spectrum window must follow the interaction's omega0 scaling.
         self._sync_spec_mirror()
+        self.crystal_box.setEnabled(self.interaction.currentText() == "shg")
         self._changed()
 
     def _on_delay(self, lo, hi):
@@ -410,7 +435,9 @@ class StageSynthetic(Stage):
         """
         delays = self._delays()
         interaction = self.interaction.currentText()
-        trace = maketrace(grid.omega, delays, ew, interaction)  # (Nomega, Ndelay)
+        trace = maketrace(  # (Nomega, Ndelay)
+            grid.omega, delays, ew, interaction, **self._crystal_kwargs(grid, omega0)
+        )
         scale = get_interaction(interaction).omega0_scale
         omega_abs = grid.omega + omega0 * scale
         pos = omega_abs > 0
@@ -418,6 +445,23 @@ class StageSynthetic(Stage):
         T = trace[pos]
         order = np.argsort(lam)
         return lam[order], delays, T[order]
+
+    def _crystal_kwargs(self, grid, omega0) -> dict:
+        """The forward model's crystal keywords, or none for a thin medium."""
+        thickness = self.crystal_thickness.value() * 1e-6
+        if not (
+            self.interaction.currentText() == "shg"
+            and self.use_crystal.isChecked()
+            and thickness > 0
+        ):
+            return {}
+        setup = crystal_setup(self.state.retrieve)
+        return {
+            "material": setup,
+            "thickness": thickness,
+            "npoints": depth_points(setup, grid.omega, omega0, thickness),
+            "omega0": omega0,
+        }
 
     def _add_noise(self, trace):
         add = self.noise_add.value()
