@@ -32,8 +32,10 @@ from ..processing import (
 from ..retrieve import ALGORITHMS, algorithm_params
 from ..session.params import reg_defaults, reg_family
 from ..session.pipeline import (
+    beam_geometry,
     crystal_setup,
     extra_param_centres,
+    pulse_wavelength,
     retrieval_npoints,
     smearing_kernel,
 )
@@ -269,6 +271,18 @@ class StageRetrieve(RunControls, Stage):
                     "Focal length (mm)",
                     "Focal length of the optic that crosses the beams (the same "
                     "value as the focal mixture's).",
+                ),
+                (
+                    "Beam diameter (mm)",
+                    "1/e² diameter of each beam at the focusing optic. It sets the "
+                    "focal spot, across which the two beams' relative delay varies: "
+                    "the delay smearing (read-out below).",
+                ),
+                (
+                    "Model the delay smearing",
+                    "Blur the model trace along delay by the spread of the two "
+                    "beams' relative delay across the focus (Gaussian beams, the "
+                    "signal collected over the whole beam). Autodiff solvers only.",
                 ),
             ],
         ),
@@ -580,7 +594,6 @@ class StageRetrieve(RunControls, Stage):
         form.addRow("Npoints", self.npoints_spin)
         self.controls.addWidget(box)
         self._build_crystal_groups()
-        self._update_medium_groups()
 
         self.smear_box, form = group("Geometrical smearing")
         box = self.smear_box
@@ -974,6 +987,8 @@ class StageRetrieve(RunControls, Stage):
         self.set_plot_area(self.pages, strip)
         self._update_extras_readout(None)
 
+        # every group exists now: show the slab or the crystal (none loaded yet)
+        self._update_medium_groups()
         self.apply_help()
         # Remember the Retrieve combo's help tooltip so the B-spline lock can
         # swap in an explanation and restore it afterwards.
@@ -1124,7 +1139,21 @@ class StageRetrieve(RunControls, Stage):
             1, 10000, p.focal_f_mm, self._on_geometry_f_changed, decimals=1
         )
         form.addRow("Focal length (mm)", self.geometry_f_spin)
+        self.beam_diameter_spin = dspin(
+            0.01,
+            100,
+            p.beam_diameter_mm,
+            self._crystal_setter("beam_diameter_mm", float),
+            decimals=2,
+            step=0.1,
+        )
+        form.addRow("Beam diameter (mm)", self.beam_diameter_spin)
+        self.shg_smearing_check = check(
+            "Model the delay smearing", p.smearing, self._on_shg_smearing_changed
+        )
+        form.addRow(self.shg_smearing_check)
         self.geometry_readout = QLabel()
+        self.geometry_readout.setWordWrap(True)
         form.addRow(self.geometry_readout)
         self.controls.addWidget(self.geometry_box)
 
@@ -1164,6 +1193,14 @@ class StageRetrieve(RunControls, Stage):
         self.focal_f_spin.blockSignals(False)
         self._refresh_crystal()
 
+    def _on_shg_smearing_changed(self, value) -> None:
+        # one smearing switch, shown in the mask group for PG/SD and here for SHG
+        self.smearing_check.blockSignals(True)
+        self.smearing_check.setChecked(bool(value))
+        self.smearing_check.blockSignals(False)
+        self._on_smearing_changed(value)
+        self._refresh_crystal()
+
     def _on_focal_f_changed(self, value: float) -> None:
         self.state.retrieve.focal_f_mm = float(value)
         self.geometry_f_spin.blockSignals(True)
@@ -1179,6 +1216,7 @@ class StageRetrieve(RunControls, Stage):
         """Show the crystal and beam geometry for SHG, the material slab otherwise."""
         shg = self._is_shg()
         self.disp_box.setVisible(not shg)
+        self.smear_box.setVisible(not shg)  # SHG's smearing is in Beam geometry
         self.crystal_box.setVisible(shg)
         self.geometry_box.setVisible(shg)
         if shg:
@@ -1188,13 +1226,18 @@ class StageRetrieve(RunControls, Stage):
             for spinbox, value in (
                 (self.crystal_thickness_spin, p.thickness_um),
                 (self.geometry_f_spin, p.focal_f_mm),
+                (self.beam_diameter_spin, p.beam_diameter_mm),
             ):
                 spinbox.blockSignals(True)
                 spinbox.setValue(value)
                 spinbox.blockSignals(False)
-            self.crystal_check.blockSignals(True)
-            self.crystal_check.setChecked(p.dispersive)
-            self.crystal_check.blockSignals(False)
+            for checkbox, flag in (
+                (self.crystal_check, p.dispersive),
+                (self.shg_smearing_check, p.smearing),
+            ):
+                checkbox.blockSignals(True)
+                checkbox.setChecked(flag)
+                checkbox.blockSignals(False)
             self._refresh_crystal()
 
     def _refresh_crystal(self) -> None:
@@ -1214,11 +1257,19 @@ class StageRetrieve(RunControls, Stage):
         self.delayed_beam_combo.setEnabled(
             crossing and p.polarization == "perpendicular"
         )
-        if crossing:
-            alpha = math.degrees(math.atan(p.beam_separation_mm / (2 * p.focal_f_mm)))
-            self.geometry_readout.setText(f"Crossing half-angle α = {alpha:.3f}°")
+        self.shg_smearing_check.setEnabled(crossing)
+        geometry, td = beam_geometry(p), self.state.tracedata
+        if geometry is not None and td is not None:
+            alpha = math.degrees(geometry.crossing_half_angle)
+            kernel = smearing.shg_two_beam_kernel(geometry, pulse_wavelength(td))
+            sigma = kernel.sigma_delta
+            self.geometry_readout.setText(
+                f"Crossing half-angle α = {alpha:.3f}°\n"
+                f"Delay smearing σ = {sigma * 1e15:.2f} fs rms "
+                f"({2.3548 * sigma * 1e15:.2f} fs FWHM)"
+            )
         else:
-            self.geometry_readout.setText("Collinear beams")
+            self.geometry_readout.setText("Collinear beams: no delay smearing")
         self.crystal_readout.setText(self._crystal_summary())
 
     def _crystal_summary(self) -> str:
@@ -1386,19 +1437,19 @@ class StageRetrieve(RunControls, Stage):
     def _refresh_smear_sigma(self) -> None:
         """Recompute and display σ from the current geometry, signal-safe."""
         p = self.state.retrieve
-        try:
-            sigma_fs = (
-                smearing.square_boxcars_delay_width(
-                    self._smear_interaction(),
-                    hole_diameter=p.smear_hole_diameter_mm * 1e-3,
-                    hole_spacing=p.smear_hole_spacing_mm * 1e-3,
-                    wavelength=self._smear_wavelength(),
-                )
-                * 1e15
-            )
-        except ValueError:
-            # SHG has no three-arm form; leave the displayed width alone.
+        if self._smear_interaction() == "shg":
+            # the mask geometry describes PG/SD's three arms; SHG's two beams are
+            # in Beam geometry, which shows their width
             return
+        sigma_fs = (
+            smearing.square_boxcars_delay_width(
+                self._smear_interaction(),
+                hole_diameter=p.smear_hole_diameter_mm * 1e-3,
+                hole_spacing=p.smear_hole_spacing_mm * 1e-3,
+                wavelength=self._smear_wavelength(),
+            )
+            * 1e15
+        )
         p.smear_sigma_delay_fs = sigma_fs
         self.smear_sigma_spin.blockSignals(True)
         self.smear_sigma_spin.setValue(sigma_fs)
@@ -1675,6 +1726,8 @@ class StageRetrieve(RunControls, Stage):
             self.delayed_beam_combo: _label(_DELAYED_BEAMS, p.delayed_beam),
             self.separation_spin: p.beam_separation_mm,
             self.geometry_f_spin: p.focal_f_mm,
+            self.beam_diameter_spin: p.beam_diameter_mm,
+            self.shg_smearing_check: p.smearing,
         }
         for w, val in values.items():
             w.blockSignals(True)
@@ -1968,15 +2021,11 @@ class StageRetrieve(RunControls, Stage):
     def _smear_width_fs(self, smear_scale: float, td) -> float | None:
         """The modelled smearing delay width (fs) at ``smear_scale``, or ``None``.
 
-        ``None`` when there is no kernel to measure — smearing switched off, or an
-        SHG trace, which has no three-arm form and so no smearing model at all — so
-        the read-out can fall back to reporting the bare multiplier or nothing.
+        ``None`` when there is no kernel to measure (smearing switched off, or
+        collinear SHG beams), so the read-out can fall back to reporting the bare
+        multiplier or nothing.
         """
-        try:
-            kernel = smearing_kernel(self.state.retrieve, td)
-        except ValueError:
-            # SHG: square_boxcars_kernel refuses, and rightly so.
-            return None
+        kernel = smearing_kernel(self.state.retrieve, td)
         if kernel is None:
             return None
         return kernel.sigma_delta * smear_scale / 1e-15
