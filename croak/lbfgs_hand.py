@@ -27,6 +27,7 @@ from numpy.typing import NDArray
 
 from . import metrics_jax as mj
 from ._jax_pulse import make_param_grad_fns, make_spectrum_fn
+from .crystals import CrystalSetup
 from .forward_jax import make_forward_adjoint_fns
 from .result import RetrievalResult
 from .solver import (
@@ -66,7 +67,7 @@ class LBFGSHand(Retriever):
         self,
         *,
         maxiters: int = 300,
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 20,
         omega0: float = 0.0,

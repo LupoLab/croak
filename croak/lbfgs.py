@@ -17,6 +17,7 @@ import nlopt
 import numpy as np
 from numpy.typing import NDArray
 
+from .crystals import CrystalSetup
 from .forward import ForwardModel
 from .metrics import compute_mu, compute_mu_per_freq
 from .pulses import ArrayPulse
@@ -42,8 +43,10 @@ class LBFGS(Retriever):
     ----------
     maxiters : int, optional
         Maximum number of objective evaluations (default ``300``).
-    material : str or None, optional
-        Dispersive slab material; ``None`` (default) is a thin medium.
+    material : str, CrystalSetup or None, optional
+        Dispersive slab material (PG, SD), or the nonlinear crystal for SHG
+        (:class:`croak.crystals.CrystalSetup`); ``None`` (default) is a thin
+        medium.
     thickness : float, optional
         Slab thickness (m).
     npoints : int, optional
@@ -90,7 +93,7 @@ class LBFGS(Retriever):
         self,
         *,
         maxiters: int = 300,
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 20,
         omega0: float = 0.0,

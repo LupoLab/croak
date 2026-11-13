@@ -31,6 +31,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from . import metrics_jax as mj
+from .crystals import CrystalSetup
 from .forward_jax import make_forward_adjoint_fns
 from .grid import Grid
 from .interactions import get_interaction
@@ -359,7 +360,7 @@ class COPRAJax(Retriever):
         alpha: float = 0.25,
         reltol: float = 0.0,
         abstol: float = 0.0,
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 20,
         omega0: float = 0.0,

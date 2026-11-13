@@ -43,6 +43,7 @@ from scipy.optimize import least_squares
 
 from . import metrics_jax as mj
 from ._jax_pulse import ExtraParamSpec, augment, ls_parameterisation
+from .crystals import CrystalSetup
 from .focal import FocalMixture
 from .forward_jax import make_param_trace_fn
 from .result import RetrievalResult
@@ -173,7 +174,7 @@ class LM(Retriever):
         *,
         maxiters: int = 300,
         method: str = "trf",
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 20,
         omega0: float = 0.0,

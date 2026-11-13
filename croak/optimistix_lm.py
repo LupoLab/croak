@@ -28,6 +28,7 @@ import optimistix as optx
 from . import metrics_jax as mj
 from ._jax_pulse import ExtraParamSpec, augment, ls_parameterisation
 from ._optimistix import run_optx
+from .crystals import CrystalSetup
 from .focal import FocalMixture
 from .forward_jax import make_param_trace_fn
 from .result import RetrievalResult
@@ -180,7 +181,7 @@ class OptxLM(Retriever):
         self,
         *,
         maxiters: int = 300,
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 20,
         omega0: float = 0.0,

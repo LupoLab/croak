@@ -14,6 +14,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.integrate import cumulative_trapezoid
 
+from .crystals import CrystalSetup
 from .focal import FocalMixture
 from .maths import gauss
 from .preprocess import TraceData
@@ -142,7 +143,7 @@ def retrieve_from_tracedata(
     guess="auto",
     perfect_fwhm: float = 10e-15,
     truth: TruthPulse | None = None,
-    material: str | None = None,
+    material: str | CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 20,
     smearing: SmearingKernel | None = None,
@@ -212,7 +213,10 @@ def retrieve_from_tracedata(
     truth : TruthPulse, optional
         Known complex pulse used when ``guess="truth"``.
     material, thickness, npoints
-        Dispersive-slab parameters (dispersive propagation through a material).
+        Dispersive-slab parameters (dispersive propagation through a material):
+        a material name for PG and SD, or a :class:`croak.crystals.CrystalSetup`
+        for SHG in a Type I crystal (``npoints`` at least
+        :func:`croak.crystals.depth_points`).
     smearing : SmearingKernel or None, optional
         Geometric time-smearing kernel of a non-collinear BOXCARS geometry
         (``None`` = off). Only the autodiff solvers can model it; asking for it
