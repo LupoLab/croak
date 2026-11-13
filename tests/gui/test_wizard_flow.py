@@ -1880,7 +1880,7 @@ def test_retrieval_readout_cleared_when_a_run_starts(qtbot, monkeypatch):
     class _Idle:
         def __init__(self, *a, **k):
             self.progress = self.preview = self.finished_ok = _Sig()
-            self.stopped = self.failed = _Sig()
+            self.stopped = self.failed = self.notice = _Sig()
 
         def start(self):
             pass
@@ -2336,7 +2336,7 @@ class _IdleWorker:
 
     def __init__(self, *a, **k):
         self.progress = self.preview = self.finished_ok = self._Sig()
-        self.stopped = self.failed = self._Sig()
+        self.stopped = self.failed = self.notice = self._Sig()
 
     def start(self):
         pass
