@@ -144,3 +144,13 @@ def test_numpy_and_jax_agree_with_a_crystal_and_smearing():
         **{**kw, "smearing": kernel.scaled(1.5)},
     ).trace(ew, normalize=False)
     np.testing.assert_allclose(wider, expected, rtol=0, atol=1e-10 * expected.max())
+
+
+def test_jax_normalised_smeared_shg_trace_has_unit_peak():
+    ew = gaussian_pulse(GRID, 6e-15)
+    kernel = shg_two_beam_kernel(GEOMETRY, 800e-9)
+    fn = make_param_trace_fn(GRID.omega, DELAYS, "shg", smearing=kernel, normalize=True)
+    t = np.asarray(fn(ew, 0.0, 0.0))
+    expected = ForwardModel(GRID.omega, DELAYS, "shg", smearing=kernel).trace(ew)
+    assert t.max() == pytest.approx(1.0)
+    np.testing.assert_allclose(t, expected, rtol=0, atol=1e-10)
