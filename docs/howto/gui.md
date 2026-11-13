@@ -296,8 +296,8 @@ straight to Retrieve. See
 
 #### Generate the trace (synthetic)
 
-Build a test trace (pulse shape, interaction, delays, optional dispersive slab
-and noise) using {func}`~croak.forward.maketrace`, previewed live. Useful for
+Build a test trace (pulse shape, interaction, delays, optional dispersive slab,
+for SHG optionally the nonlinear crystal the Retrieve stage describes, and noise) using {func}`~croak.forward.maketrace`, previewed live. Useful for
 trying the workflow without data. The **duration** is the intensity (power) FWHM
 of the temporal envelope — both Gaussian and sech² honour this convention
 ({func}`~croak.pulses.gaussian_pulse`, {func}`~croak.pulses.sech_pulse`). The
@@ -445,7 +445,13 @@ The two spectral ones need the truth's complex field, so an intensity-only file
 shows `ε(Iₜ)` alone rather than a number derived from something else.
 
 *Dispersive propagation* models a slab (material, thickness, Δz/Npoints — see
-[The forward model](../explanation/forward_model.md)). *Geometrical smearing*
+[The forward model](../explanation/forward_model.md)). For SHG data it is
+replaced by *Nonlinear crystal* (the crystal, its thickness, cut angle,
+phase-matched wavelength or external tilt, the polarisation relative to the
+crossing plane and the delayed beam's side) and *Beam geometry* (the beam
+separation and focal length that set the crossing angle), with a read-out of the
+internal angle, the tilt, the path and the depth nodes
+([SHG with a thick crystal](shg_crystal.md)). *Geometrical smearing*
 models the tilted-pulse-front temporal blur of a non-collinear BOXCARS setup
 from the mask hole diameter and edge-to-edge spacing, with the resulting delay
 width shown — and editable, which back-computes the spacing. Both sections grey

@@ -504,7 +504,10 @@ def test_stage_retrieve_crystal_controls_store_their_settings(qtbot, stage):
     stage.separation_spin.setValue(8.0)
     stage.geometry_f_spin.setValue(250.0)
     assert (p.crystal, p.cut_angle_deg, p.angle_mode, p.tilt_deg) == (
-        "BBO", 33.4, "tilt", -1.5,
+        "BBO",
+        33.4,
+        "tilt",
+        -1.5,
     )
     assert (p.polarization, p.delayed_beam) == ("perpendicular", "away_from_axis")
     assert (p.beam_separation_mm, p.focal_f_mm) == (8.0, 250.0)

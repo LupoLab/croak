@@ -63,8 +63,10 @@ trace lies at $+\tau_0$ (the simulated gate uses $e^{i\omega(\tau-\tau_0)}$).
 integral makes thickness affect the trace beyond a single input spectral phase.
 Whether a particular trace identifies it is a separate question (see below).
 
-For **SHG**, croak has no dispersive slab model (the signal propagates at
-$2\omega_0$), so `fit_thickness` with SHG is rejected with an error.
+For **SHG**, the slab is a nonlinear crystal
+([SHG with a thick crystal](shg_crystal.md)), whose thickness is not fitted yet
+([issue #26](https://github.com/LupoLab/croak/issues/26)): `fit_thickness` with
+SHG is rejected with an error.
 
 Even within PG/SD, the *bulk-chirp* part of $L$ is partly degenerate with the
 retrieved phase; only the depth-distributed part constrains it. Thickness is

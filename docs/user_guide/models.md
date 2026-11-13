@@ -14,6 +14,7 @@ hierarchy of models croak provides and when each is needed.
 | My instrument has… | Read |
 |---|---|
 | a nonlinear medium thick enough to disperse the pulse (PG, SD) | [The forward model](../explanation/forward_model.md) |
+| an SHG crystal thick enough to filter or stretch the signal | [SHG FROG with a thick crystal](../howto/shg_crystal.md) |
 | crossed beams (BOXCARS) whose arrival times vary across the focus | [Modelling geometric time smearing](../howto/geometric_smearing.md) |
 | a collection aperture that clips the signal beam chromatically | [Modelling the collection aperture](../howto/collection_aperture.md) |
 | an uncertain thickness or delay zero to fit | [Fitting the medium thickness and delay-zero](../howto/fitting_thickness_tau0.md) |
@@ -22,6 +23,7 @@ hierarchy of models croak provides and when each is needed.
 :maxdepth: 1
 
 ../explanation/forward_model
+../howto/shg_crystal
 ../howto/geometric_smearing
 ../howto/collection_aperture
 ```
@@ -30,7 +32,9 @@ hierarchy of models croak provides and when each is needed.
 
 The models form a ladder. The **standard** model is the thin, local
 interaction. The **dispersive slab** propagates the input and signal fields
-through a medium of given material and thickness (PG and SD only). The
+through a medium of given material and thickness (PG and SD); for SHG the
+**crystal** model propagates the ordinary fundamentals and the extraordinary
+signal through a Type I crystal. The
 **extended** model adds geometric delay smearing as a kernel set by the mask
 geometry. The **full** model replaces the kernel with an explicit chromatic
 focal quadrature and a modelled collection aperture. Each step costs more, and
@@ -39,8 +43,9 @@ model defines; compare fields only at the same plane.
 
 ## Main entry points
 
-- {class}`~croak.forward.ForwardModel`: the forward model, with material,
-  thickness and depth quadrature.
+- {class}`~croak.forward.ForwardModel`: the forward model, with material (or an
+  SHG crystal, {class}`~croak.crystals.CrystalSetup`), thickness and depth
+  quadrature.
 - {func}`~croak.smearing.square_boxcars_kernel`, {class}`~croak.smearing.SmearingKernel`:
   geometric smearing from the mask geometry.
 - {func}`~croak.focal.focal_mixture`: the chromatic focal quadrature.

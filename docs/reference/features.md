@@ -94,8 +94,9 @@ Further reading: [Gradients](../explanation/gradients.md).
   with analytic adjoints; see [interaction physics](../explanation/interactions.md).
 - **Dispersive propagation** — a Gauss–Legendre depth integral through a material
   slab, propagating both the input replicas and the generated signal. Available
-  on every solver, for PG and SD (the SHG signal is not at the fundamental
-  frequency). The thin medium is the same code path with zero thickness and one
+  on every solver, for PG and SD; for SHG the slab is a Type I crystal
+  ({class}`~croak.crystals.CrystalSetup`), whose signal near $2\omega_0$ is the
+  extraordinary wave ([SHG with a thick crystal](../howto/shg_crystal.md)). The thin medium is the same code path with zero thickness and one
   quadrature node.
 - **Geometric time smearing** — {mod}`croak.smearing` represents an
   achromatic, fully collected focal average using two timing coordinates: a
