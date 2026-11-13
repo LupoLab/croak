@@ -648,9 +648,15 @@ def _pair_mismatch(
         if omega.size <= _PAIR_GRID
         else np.linspace(omega.min(), omega.max(), _PAIR_GRID)
     )
-    half = float(np.max(np.abs(omega)))
+    # A sum lands on the signal grid when it lies within the grid's own span. The
+    # test allows half a bin either side: the edge pairs sum exactly onto the end
+    # bins, and a strict comparison would keep or drop them on a rounding error, so
+    # two copies of one grid that differ in the last bit of their spacing would ask
+    # for different node counts.
+    tolerance = 0.5 * float(omega[1] - omega[0])
     o1, o2 = np.meshgrid(grid, grid)
-    keep = np.abs(o1 + o2) <= half
+    total = o1 + o2
+    keep = (total >= omega.min() - tolerance) & (total <= omega.max() + tolerance)
     w1 = o1[keep] + omega0
     w2 = o2[keep] + omega0
     theta = setup.internal_angle(omega0)
