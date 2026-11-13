@@ -204,3 +204,52 @@ def test_retrieving_a_smeared_shg_trace_needs_the_kernel():
     true = duration(ew)
     assert abs(duration(with_kernel.spectrum) - true) < 0.03 * true
     assert abs(duration(without.spectrum) - true) > 0.05 * true
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["lbfgs-ad", "lm", "lm-optx", "cma-es", "warm-lbfgs"]
+)
+def test_every_extras_solver_refuses_a_split_fit_of_a_two_beam_sd_kernel(algorithm):
+    # The two-beam SD kernel has sigma_p = 0 too; each solver that fits extras
+    # refuses the split before it starts.
+    from croak.retrieve import ALGORITHMS
+    from croak.smearing import collinear_sd_kernel
+
+    kernel = collinear_sd_kernel(
+        hole_diameter=1e-3, hole_spacing=0.5e-3, wavelength=800e-9
+    )
+    assert kernel.sigma_p == 0.0
+    ew = gaussian_pulse(GRID, 6e-15)
+    trace = ForwardModel(GRID.omega, DELAYS, "sd", smearing=kernel).trace(ew)
+    solver = ALGORITHMS[algorithm](
+        maxiters=2, smearing=kernel, fit_smearing=True, fit_smearing_split=True
+    )
+    with pytest.raises(ValueError, match="shape channel"):
+        solver.run(trace, GRID.omega, DELAYS, "sd", guess=ew)
+
+
+def test_the_covariance_refuses_a_split_fit_of_a_two_beam_kernel():
+    import croak
+    from croak.covariance import parameter_covariance
+
+    kernel = shg_two_beam_kernel(GEOMETRY, 800e-9)
+    ew = gaussian_pulse(GRID, 6e-15)
+    trace = ForwardModel(GRID.omega, DELAYS, "shg", smearing=kernel).trace(ew)
+    res = croak.retrieve(
+        trace,
+        GRID.omega,
+        DELAYS,
+        "shg",
+        algorithm="lbfgs-ad",
+        maxiters=5,
+        smearing=kernel,
+    )
+    with pytest.raises(ValueError, match="shape channel"):
+        parameter_covariance(
+            res,
+            trace,
+            noise=1e-3,
+            smearing=kernel,
+            fit_smearing=True,
+            fit_smearing_split=True,
+        )

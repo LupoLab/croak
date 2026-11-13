@@ -1197,14 +1197,10 @@ class StageRetrieve(RunControls, Stage):
         self._on_smearing_changed(value)
         self._refresh_crystal()
 
-    def _gate_shg_smearing(self) -> None:
-        """Enable SHG smearing for crossing beams and a solver that can model it."""
-        try:
-            capable = "smearing" in algorithm_params(self.state.retrieve.solver)
-        except ValueError:
-            capable = False
+    def _gate_shg_smearing(self, params: set[str]) -> None:
+        """Enable SHG smearing for crossing beams and a solver (``params``) for it."""
         crossing = self.state.retrieve.beam_separation_mm > 0
-        self.shg_smearing_check.setEnabled(crossing and capable)
+        self.shg_smearing_check.setEnabled(crossing and "smearing" in params)
 
     def _on_focal_f_changed(self, value: float) -> None:
         self.state.retrieve.focal_f_mm = float(value)
@@ -1223,6 +1219,14 @@ class StageRetrieve(RunControls, Stage):
         self.disp_box.setVisible(not shg)
         self.smear_box.setVisible(not shg)  # SHG's smearing is in Beam geometry
         self.focal_box.setVisible(not shg)  # the focal mixture is PG/SD's
+        if shg and self.state.retrieve.focal:
+            # left on from PG/SD data, it would fail the run and its box is
+            # hidden: switch it off, and say so
+            self.focal_check.setChecked(False)
+            self.set_status(
+                "The focal mixture is for PG/SD; switched off for this SHG trace.",
+                "warn",
+            )
         self.crystal_box.setVisible(shg)
         self.geometry_box.setVisible(shg)
         if shg:
@@ -1590,7 +1594,7 @@ class StageRetrieve(RunControls, Stage):
         # Capability comes from the constructor signature, so this follows
         # automatically.
         self.smear_box.setEnabled("smearing" in params)
-        self._gate_shg_smearing()
+        self._gate_shg_smearing(params)
         # The explicit chromatic focal mixture rides the same capability
         # mechanism: only solvers whose constructors take `focal` can model it.
         self.focal_box.setEnabled("focal" in params)

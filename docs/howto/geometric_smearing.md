@@ -168,7 +168,11 @@ the delay axis) and the gate-shape parameter $p$ (a symmetric split of the gate
 pair, which for a chirped gate shears the trace along frequency). The joint
 multiplier scales both together, which is the right physical prior — both
 derive from the same $d/D$ — but as a *diagnostic* it conflates them. Setting
-`fit_smearing_split=True` fits the two widths as independent multipliers:
+`fit_smearing_split=True` fits the two widths as independent multipliers. It needs
+a kernel with a shape channel: a two-beam kernel (SD's
+{func}`~croak.smearing.collinear_sd_kernel`, SHG's
+{func}`~croak.smearing.shg_two_beam_kernel`) has none, and the split is refused
+({func}`~croak.smearing.check_split_fit`):
 
 ```python
 res = croak.retrieve(
@@ -242,7 +246,7 @@ raise.
 |---|---|---|
 | `smearing` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `lbfgs-optx`, `cma-es` | PG (TG) or SD; uniform delay axis |
 | `fit_smearing` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | a `smearing` kernel |
-| `fit_smearing_split` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | `fit_smearing` |
+| `fit_smearing_split` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | `fit_smearing`; a kernel with a shape channel |
 
 `copra`, `copra-jax`, `lbfgs` and `lbfgs-hand` cannot model smearing: the
 incoherent average over the kernel breaks COPRA's magnitude-replacement projection,
@@ -278,7 +282,7 @@ res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="lbfgs-ad",
                      smearing=kernel)
 ```
 
-It works with or without a crystal ([SHG with a thick crystal](shg_crystal.md));
+It works with or without a crystal ([SHG with a thick crystal](shg_crystal.md)).
 The solver support is as above. The kernel has no shape channel, so a split fit
 (`fit_smearing_split`) is refused; `fit_smearing` scales its one width, but how
 well an SHG trace determines that width has not been established, so prefer the
@@ -292,7 +296,7 @@ the signal beam, which a thick crystal's angular acceptance or an aperture break
 Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999), Eqs. 28-29) give
 $\lambda/(2\pi c) \approx 0.4$ fs for the same layout, as the broadening of the
 pulse duration inferred from the trace; that is $\sigma_\delta/\sqrt2$, the same
-result.
+result when durations are rms widths and diameters 1/e² ones.
 
 ## In the GUI
 

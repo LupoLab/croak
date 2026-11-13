@@ -681,13 +681,15 @@ def shg_two_beam_kernel(geometry: TwoBeamGeometry, wavelength: float) -> Smearin
     independent of the focal length. For beams separated by their diameter
     (:math:`d = D`) at 800 nm this is 0.60 fs rms.
 
-    This agrees with Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999),
+    This matches Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999),
     doi:10.1109/3.753651, Eqs. 28-29), who give :math:`\delta t = \lambda/(2\pi c)`,
-    0.42 fs, for that layout. Their :math:`\delta t` is the term that adds in
-    quadrature to the pulse's duration inferred from the trace: for Gaussian
-    pulses the trace's delay marginal is the intensity autocorrelation, whose
-    width grows by :math:`\sigma_\delta` in quadrature, so the inferred rms
-    duration grows by :math:`\sigma_\delta/\sqrt2 = \lambda/(2\pi c)`.
+    0.42 fs, for that layout, as the term that adds in quadrature to the pulse's
+    duration inferred from the trace: for Gaussian pulses the trace's delay
+    marginal is the intensity autocorrelation, whose width grows by
+    :math:`\sigma_\delta` in quadrature, so the inferred duration grows by
+    :math:`\sigma_\delta/\sqrt2 = \lambda/(2\pi c)`. The match holds with rms
+    durations and :math:`d` and :math:`D` read as 1/e² diameters; with FWHM
+    beam profiles throughout, the figures differ by :math:`2\ln 2`.
 
     Validity: Gaussian beams, collimated at the optic; a crystal thin against the
     Rayleigh range (the spots stay superposed through it); full collection of the

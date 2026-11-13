@@ -674,7 +674,19 @@ def test_stage_retrieve_focal_mixture_is_hidden_for_shg_and_unticks_smearing(sta
     _shg_trace(stage)
     assert stage.focal_box.isHidden()
     stage.shg_smearing_check.setChecked(True)
-    stage._on_focal_changed(True)  # e.g. a session from PG data
+    stage._on_focal_changed(True)
     assert stage.state.retrieve.smearing is False
     assert not stage.shg_smearing_check.isChecked()
     assert not stage.smearing_check.isChecked()
+
+
+def test_stage_retrieve_switches_off_a_focal_mixture_left_from_pg_data(stage):
+    stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
+    stage.on_enter()
+    stage.focal_check.setChecked(True)
+    assert stage.state.retrieve.focal is True
+    _shg_trace(stage)
+    # its box is hidden for SHG, where it cannot be modelled: off, and said so
+    assert stage.state.retrieve.focal is False
+    assert not stage.focal_check.isChecked()
+    assert any("focal mixture is for PG/SD" in text for text in stage.said)
