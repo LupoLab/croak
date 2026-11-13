@@ -66,8 +66,8 @@ phase-match, from which :math:`\theta` is solved. Approximations: the refraction
 uses :math:`n_o` at one wavelength (the phase-matched one, else the carrier), and the
 crossing geometry is taken at normal incidence.
 
-Validity
---------
+Validity of the crystal model
+-----------------------------
 * Type I only, fundamentals ordinary (they do not walk off). The SH's walk-off
   enters only through the arms' delay drift below, its spatial picture; the SH
   beam's sideways shift out of the fundamentals' overlap is neglected (a crystal
