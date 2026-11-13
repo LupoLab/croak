@@ -329,8 +329,37 @@ class RetrieveParams:
     live_preview: bool = True
     perfect_init_fs: float = 10.0
     dispersive: bool = False  # dispersive propagation through a slab
+    #: The slab of a PG/SD retrieval (a material name, croak.materials).
     material: str = "SiO2"
+    #: The slab thickness (µm): the material slab of PG/SD, or the SHG crystal
+    #: along its face normal.
     thickness_um: float = 10.0
+    # The nonlinear crystal of an SHG retrieval, used instead of ``material`` when
+    # ``dispersive`` is set and the interaction is SHG (croak.crystals.CrystalSetup).
+    #: A built-in crystal (croak.crystals.CRYSTALS).
+    crystal: str = "BBO"
+    #: The manufacturer's cut angle θ_c (degrees): the optic axis to the face normal.
+    cut_angle_deg: float = 29.2
+    #: How the crystal's angle is set: ``"phase-match"`` solves the external tilt
+    #: that phase-matches ``phase_match_nm``; ``"tilt"`` takes ``tilt_deg``.
+    angle_mode: str = "phase-match"
+    #: External tilt γ (degrees) of the crystal, with ``angle_mode="tilt"``.
+    tilt_deg: float = 0.0
+    #: Fundamental wavelength (nm) the crystal is tuned to phase-match, with
+    #: ``angle_mode="phase-match"``.
+    phase_match_nm: float = 800.0
+    #: Fundamental polarisation relative to the crossing plane: ``"parallel"`` (in
+    #: it, so the beams cross perpendicular to the principal plane) or
+    #: ``"perpendicular"`` (the beams cross in the principal plane, which makes the
+    #: trace asymmetric in delay; see ``delayed_beam``).
+    polarization: str = "parallel"
+    #: With ``polarization="perpendicular"``: whether the delayed beam is on the
+    #: optic axis's side of the bisector (``"toward_axis"``) or not
+    #: (``"away_from_axis"``). Flipping it mirrors the model trace in delay.
+    delayed_beam: str = "toward_axis"
+    #: Beam separation (mm) at the focusing optic of focal length ``focal_f_mm``:
+    #: the crossing half-angle is atan(d / 2f). ``0`` models collinear beams.
+    beam_separation_mm: float = 5.0
     # Default node count kept consistent with the tied defaults below:
     # thickness_um / delta_z_um = 10 µm / 1 µm = 10.
     npoints: int = 10

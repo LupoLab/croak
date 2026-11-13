@@ -465,6 +465,7 @@ def test_solver_kwargs_forward_extra_fit_flags():
 
     class _TD:
         Iomega = None
+        interaction = "pg"  # a dispersive PG slab
 
     boot = bootstrap_solver_kwargs(p, _TD())
     assert boot["fit_thickness"] is True
