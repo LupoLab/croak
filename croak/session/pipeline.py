@@ -787,8 +787,9 @@ def smearing_kernel(p: RetrieveParams, td: TraceData) -> SmearingKernel | None:
     kernel is always evaluated at the wavelength the trace was actually taken at.
     For SHG the kernel is the two beams' delay blur
     (:func:`~croak.smearing.shg_two_beam_kernel`) from :func:`beam_geometry`, the
-    same beams the crystal uses, at :func:`pulse_wavelength`; collinear beams give
-    ``None``.
+    same beams the crystal uses, at :func:`pulse_wavelength`, without the fixed
+    multiplier ``smear_scale`` (which the mask geometry needs); collinear beams
+    give ``None``.
     """
     if not p.smearing:
         return None
@@ -796,7 +797,9 @@ def smearing_kernel(p: RetrieveParams, td: TraceData) -> SmearingKernel | None:
         geometry = beam_geometry(p)
         if geometry is None:
             return None  # collinear beams: no crossing, nothing to smear
-        kernel = shg_two_beam_kernel(geometry, pulse_wavelength(td))
+        # the beams set the width directly; the fixed multiplier below exists for
+        # the mask geometry's unreachable widths and does not apply
+        return shg_two_beam_kernel(geometry, pulse_wavelength(td))
     elif p.smear_layout == "sd2":
         # Two-beam self-diffraction: sigma_p is identically zero, so this is
         # NOT the "sd" branch of the boxcars closed form (which assumes two
@@ -964,6 +967,14 @@ def fits_thickness(p: RetrieveParams, medium: str | CrystalSetup | None) -> bool
     not applied; the GUI greys the control out for SHG data.
     """
     return p.fit_thickness and isinstance(medium, str)
+
+
+def fits_smearing(p: RetrieveParams, kernel: SmearingKernel | None) -> bool:
+    """Return whether the smearing width is fitted: only when there is a kernel.
+
+    Collinear SHG beams, or smearing switched off, give no kernel to scale.
+    """
+    return p.fit_smearing and kernel is not None
 
 
 def crystal_tilt_error(
@@ -1248,6 +1259,7 @@ def run_retrieval(
     td = apply_spectrum_frame(p, td)
     thickness, tau0, smear_scale, smear_delta = extra_param_centres(p, extras_seed)
     medium = retrieval_medium(p, td)
+    kernel = smearing_kernel(p, td)
     result = retrieve_from_tracedata(
         td,
         algorithm=p.solver,
@@ -1259,7 +1271,7 @@ def run_retrieval(
         material=medium,
         thickness=thickness,
         npoints=retrieval_npoints(p, td, medium, thickness),
-        smearing=smearing_kernel(p, td),
+        smearing=kernel,
         focal=focal,
         depth_weight=generation_envelope(p),
         reg_amp=p.reg_amp,
@@ -1279,8 +1291,8 @@ def run_retrieval(
         fit_thickness=fits_thickness(p, medium),
         fit_tau0=p.fit_tau0,
         # the smearing strength is only fittable when a kernel is being modelled
-        fit_smearing=p.fit_smearing and p.smearing,
-        fit_smearing_split=p.fit_smearing_split and p.fit_smearing and p.smearing,
+        fit_smearing=fits_smearing(p, kernel),
+        fit_smearing_split=fits_smearing(p, kernel) and p.fit_smearing_split,
         polish=p.polish_two_phase,
         delay_origin=p.delay_origin,
         tau0_bound=p.tau0_bound_fs * 1e-15,
@@ -1346,6 +1358,7 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
     """
     medium = retrieval_medium(p, td)
     thickness = p.thickness_um * 1e-6 if p.dispersive else 0.0
+    kernel = smearing_kernel(p, td)
     return {
         "algorithm": p.solver,
         "maxiters": p.maxiters,
@@ -1354,7 +1367,7 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
         "material": medium,
         "thickness": thickness,
         "npoints": retrieval_npoints(p, td, medium, thickness),
-        "smearing": smearing_kernel(p, td),
+        "smearing": kernel,
         "depth_weight": generation_envelope(p),
         "phase_only": not p.full,
         "phase_basis": p.phase_basis,
@@ -1368,8 +1381,8 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
         "time_window": (p.reg_time_lo_fs * 1e-15, p.reg_time_hi_fs * 1e-15),
         "fit_thickness": fits_thickness(p, medium),
         "fit_tau0": p.fit_tau0,
-        "fit_smearing": p.fit_smearing and p.smearing,
-        "fit_smearing_split": p.fit_smearing_split and p.fit_smearing and p.smearing,
+        "fit_smearing": fits_smearing(p, kernel),
+        "fit_smearing_split": fits_smearing(p, kernel) and p.fit_smearing_split,
         "polish": p.polish_two_phase,
         "strategy": p.cma_strategy,
         "popsize": p.cma_popsize,
@@ -1388,6 +1401,7 @@ def covariance_kwargs(p: RetrieveParams, td: TraceData | None = None) -> dict:
     (:func:`retrieval_medium`); without it the slab is ``p.material``.
     """
     thickness = p.thickness_um * 1e-6 if p.dispersive else 0.0
+    kernel = smearing_kernel(p, td) if td is not None else None
     if td is None:
         medium: str | CrystalSetup | None = p.material if p.dispersive else None
         npoints = p.npoints
@@ -1398,17 +1412,15 @@ def covariance_kwargs(p: RetrieveParams, td: TraceData | None = None) -> dict:
         "material": medium,
         "thickness": thickness,
         "npoints": npoints,
-        "smearing": smearing_kernel(p, td) if td is not None else None,
+        "smearing": kernel,
         "phase_only": not p.full,
         "phase_basis": p.phase_basis,
         "n_nodes": p.n_nodes,
         "R_omega": p.R_omega,
         "fit_thickness": fits_thickness(p, medium),
         "fit_tau0": p.fit_tau0,
-        "fit_smearing": p.fit_smearing and p.smearing and td is not None,
-        "fit_smearing_split": (
-            p.fit_smearing_split and p.fit_smearing and p.smearing and td is not None
-        ),
+        "fit_smearing": fits_smearing(p, kernel),
+        "fit_smearing_split": fits_smearing(p, kernel) and p.fit_smearing_split,
     }
 
 

@@ -1194,12 +1194,17 @@ class StageRetrieve(RunControls, Stage):
         self._refresh_crystal()
 
     def _on_shg_smearing_changed(self, value) -> None:
-        # one smearing switch, shown in the mask group for PG/SD and here for SHG
-        self.smearing_check.blockSignals(True)
-        self.smearing_check.setChecked(bool(value))
-        self.smearing_check.blockSignals(False)
         self._on_smearing_changed(value)
         self._refresh_crystal()
+
+    def _gate_shg_smearing(self) -> None:
+        """Enable SHG smearing for crossing beams and a solver that can model it."""
+        try:
+            capable = "smearing" in algorithm_params(self.state.retrieve.solver)
+        except ValueError:
+            capable = False
+        crossing = self.state.retrieve.beam_separation_mm > 0
+        self.shg_smearing_check.setEnabled(crossing and capable)
 
     def _on_focal_f_changed(self, value: float) -> None:
         self.state.retrieve.focal_f_mm = float(value)
@@ -1217,6 +1222,7 @@ class StageRetrieve(RunControls, Stage):
         shg = self._is_shg()
         self.disp_box.setVisible(not shg)
         self.smear_box.setVisible(not shg)  # SHG's smearing is in Beam geometry
+        self.focal_box.setVisible(not shg)  # the focal mixture is PG/SD's
         self.crystal_box.setVisible(shg)
         self.geometry_box.setVisible(shg)
         if shg:
@@ -1257,7 +1263,7 @@ class StageRetrieve(RunControls, Stage):
         self.delayed_beam_combo.setEnabled(
             crossing and p.polarization == "perpendicular"
         )
-        self.shg_smearing_check.setEnabled(crossing)
+        self._update_solver_caps()  # the smearing controls depend on the beams
         geometry, td = beam_geometry(p), self.state.tracedata
         if geometry is not None and td is not None:
             alpha = math.degrees(geometry.crossing_half_angle)
@@ -1353,6 +1359,12 @@ class StageRetrieve(RunControls, Stage):
     def _on_smearing_changed(self, value):
         # Fitting the smearing width is only available once the kernel is modelled.
         self.state.retrieve.smearing = bool(value)
+        # one switch shown in two groups (the mask's for PG/SD, Beam geometry's
+        # for SHG): keep both boxes in step whichever changed it
+        for box in (self.smearing_check, self.shg_smearing_check):
+            box.blockSignals(True)
+            box.setChecked(bool(value))
+            box.blockSignals(False)
         # The reduced kernel and the explicit focal mixture are two models of
         # the same physics — never both. Enabling one disarms the other.
         if bool(value) and self.state.retrieve.focal:
@@ -1362,7 +1374,7 @@ class StageRetrieve(RunControls, Stage):
     def _on_focal_changed(self, value):
         self.state.retrieve.focal = bool(value)
         if bool(value) and self.state.retrieve.smearing:
-            self.smearing_check.setChecked(False)
+            self._on_smearing_changed(False)
         self._update_solver_caps()
 
     def _on_collection_changed(self, value):
@@ -1578,6 +1590,7 @@ class StageRetrieve(RunControls, Stage):
         # Capability comes from the constructor signature, so this follows
         # automatically.
         self.smear_box.setEnabled("smearing" in params)
+        self._gate_shg_smearing()
         # The explicit chromatic focal mixture rides the same capability
         # mechanism: only solvers whose constructors take `focal` can model it.
         self.focal_box.setEnabled("focal" in params)
@@ -1596,9 +1609,11 @@ class StageRetrieve(RunControls, Stage):
             has_fit_thickness and self.state.retrieve.dispersive and not self._is_shg()
         )
         self.fit_tau0_check.setEnabled(has_fit_tau0)
-        self.fit_smearing_check.setEnabled(
-            has_fit_smearing and self.state.retrieve.smearing
+        # the width needs a kernel: for SHG, crossing beams
+        has_kernel = self.state.retrieve.smearing and (
+            not self._is_shg() or self.state.retrieve.beam_separation_mm > 0
         )
+        self.fit_smearing_check.setEnabled(has_fit_smearing and has_kernel)
         # Two-phase polish is a local-solver option; the global cma-es frees the
         # extras from the start, so it has no `polish` argument.
         self.polish_check.setEnabled(

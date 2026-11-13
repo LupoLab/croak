@@ -45,21 +45,28 @@ def _crystal(geometry=GEOMETRY):
     )
 
 
-def test_kernel_width_is_the_focal_rms_across_the_delay_gradient():
-    k = shg_two_beam_kernel(GEOMETRY, 800e-9)
-    waist = 2 * 800e-9 * 0.1 / (math.pi * 2.6e-3)
+def test_kernel_width_is_the_spread_of_delay_across_two_tilted_beams():
+    # Independent of the closed form: integrate over the crossing plane two
+    # Gaussian beams at +-alpha, each of 1/e^2 waist radius w0 measured across its
+    # own axis, weighting each point by the product of their intensities; each
+    # beam's pulse front reaches x at x sin(alpha)/c, ahead or behind.
     alpha = math.atan(10e-3 / 0.2)
-    # x rms under |E1|^2 |E2|^2 = exp(-4 x^2 / w0^2) is w0 / (2 sqrt 2); the delay
-    # gradient is 2 sin(alpha) / c
-    expected = 2 * math.sin(alpha) / C * waist / (2 * math.sqrt(2))
-    assert k.sigma_delta == pytest.approx(expected, rel=1e-12)
+    w0 = 2 * 800e-9 * 0.1 / (math.pi * 2.6e-3)
+    x = np.linspace(-8 * w0, 8 * w0, 200001)
+    weight = np.exp(-2 * (x * math.cos(alpha)) ** 2 / w0**2) ** 2
+    delay = 2 * x * math.sin(alpha) / C
+    rms = math.sqrt(np.sum(weight * delay**2) / np.sum(weight))
+    k = shg_two_beam_kernel(GEOMETRY, 800e-9)
+    # the sum over 200001 points of a smooth Gaussian is exact to rounding;
+    # abs=0 because the widths (~1e-15 s) are below approx's default abs tolerance
+    assert k.sigma_delta == pytest.approx(rms, rel=1e-9, abs=0)
     assert (k.sigma_p, k.rho, k.npoints) == (0.0, 0.0, 1)
-    # the small-angle form, lambda d / (sqrt 2 pi D c), to O(alpha^2)
-    small = 800e-9 * 10e-3 / (math.sqrt(2) * math.pi * 2.6e-3 * C)
-    assert k.sigma_delta == pytest.approx(small, rel=2e-3)
+    # exactly the small-angle-free form lambda d / (sqrt 2 pi D c)
+    closed = 800e-9 * 10e-3 / (math.sqrt(2) * math.pi * 2.6e-3 * C)
+    assert k.sigma_delta == pytest.approx(closed, rel=1e-12, abs=0)
     # the spot, and so the width, scales with the wavelength
     assert shg_two_beam_kernel(GEOMETRY, 400e-9).sigma_delta == pytest.approx(
-        k.sigma_delta / 2
+        k.sigma_delta / 2, rel=1e-12, abs=0
     )
 
 
@@ -154,3 +161,46 @@ def test_jax_normalised_smeared_shg_trace_has_unit_peak():
     expected = ForwardModel(GRID.omega, DELAYS, "shg", smearing=kernel).trace(ew)
     assert t.max() == pytest.approx(1.0)
     np.testing.assert_allclose(t, expected, rtol=0, atol=1e-10)
+
+
+def test_a_split_smearing_fit_needs_a_shape_channel():
+    from croak.lbfgs_ad import LBFGSAD
+    from croak.smearing import check_split_fit
+
+    kernel = shg_two_beam_kernel(GEOMETRY, 800e-9)
+    with pytest.raises(ValueError, match="needs a kernel with a shape channel"):
+        check_split_fit(kernel, True)
+    check_split_fit(kernel, False)
+    check_split_fit(None, True)
+    check_split_fit(SmearingKernel(sigma_p=0.2e-15, sigma_delta=0.3e-15), True)
+    ew = gaussian_pulse(GRID, 6e-15)
+    trace = ForwardModel(GRID.omega, DELAYS, "shg", smearing=kernel).trace(ew)
+    solver = LBFGSAD(
+        maxiters=2, smearing=kernel, fit_smearing=True, fit_smearing_split=True
+    )
+    with pytest.raises(ValueError, match="shape channel"):
+        solver.run(trace, GRID.omega, DELAYS, "shg", guess=ew)
+
+
+def test_retrieving_a_smeared_shg_trace_needs_the_kernel():
+    # A 6 fs pulse smeared by 1.5 fs: retrieved with the kernel the trace is fitted
+    # far better, and the pulse's duration recovered, than without it.
+    import croak
+    from croak.maths import fwhm
+
+    ew = gaussian_pulse(GRID, 6e-15, phases=(0.0, 20e-45))
+    kernel = shg_two_beam_kernel(GEOMETRY, 800e-9)
+    trace = ForwardModel(GRID.omega, DELAYS, "shg", smearing=kernel).trace(ew)
+    common = dict(algorithm="lbfgs-ad", maxiters=400, rng=np.random.default_rng(0))
+    with_kernel = croak.retrieve(
+        trace, GRID.omega, DELAYS, "shg", smearing=kernel, **common
+    )
+    without = croak.retrieve(trace, GRID.omega, DELAYS, "shg", **common)
+    assert with_kernel.error < 0.2 * without.error
+
+    def duration(spectrum):
+        return fwhm(GRID.t, np.abs(GRID.ifft(spectrum)) ** 2)
+
+    true = duration(ew)
+    assert abs(duration(with_kernel.spectrum) - true) < 0.03 * true
+    assert abs(duration(without.spectrum) - true) > 0.05 * true

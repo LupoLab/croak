@@ -255,11 +255,13 @@ An SHG FROG has two beams, not three, so the arrival times leave only the
 relative delay $\delta$ and no shape parameter $p$: the measured trace is the
 unsmeared one convolved along delay. For Gaussian beams of 1/e² diameter $D$ at a
 focusing optic of focal length $f$, separated by $d$, each focuses to the waist
-$w_0 = 2\lambda f/(\pi D)$; the signal from position $x$ is weighted by the
-product of the two intensities, $e^{-4x^2/w_0^2}$, and sees the relative delay
-$2x\sin\alpha/c$ with $\tan\alpha = d/(2f)$. So
+$w_0 = 2\lambda f/(\pi D)$; across the crossing plane each beam's intensity is
+$e^{-2x^2\cos^2\alpha/w_0^2}$, the signal from position $x$ is weighted by their
+product, and it sees the relative delay $2x\sin\alpha/c$ with
+$\tan\alpha = d/(2f)$ (Taft et al., IEEE J. Select. Topics Quantum Electron. 2,
+575 (1996), Eq. 7). So
 
-$$\sigma_\delta = \frac{w_0\sin\alpha}{\sqrt2\,c} \approx \frac{\lambda d}{\sqrt2\,\pi D c},$$
+$$\sigma_\delta = \frac{w_0\tan\alpha}{\sqrt2\,c} = \frac{\lambda d}{\sqrt2\,\pi D c},$$
 
 0.60 fs rms for beams separated by their diameter at 800 nm, whatever the focal
 length. {func}`~croak.smearing.shg_two_beam_kernel` builds this kernel from the same
@@ -277,15 +279,20 @@ res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="lbfgs-ad",
 ```
 
 It works with or without a crystal ([SHG with a thick crystal](shg_crystal.md));
-`smear_scale`, `fit_smearing` and the solver support are as above. A kernel with a
-shape parameter is refused for SHG ({func}`~croak.smearing.check_kernel`). The width
-scales with the wavelength, so take it at the pulse's centroid; a session does
-({func}`~croak.session.pipeline.pulse_wavelength`). It assumes Gaussian beams
-collimated at the optic, a crystal thin against the Rayleigh range and full
-collection of the signal beam. Baltuška et al. (IEEE J. Quantum Electron. 35,
-459 (1999), Eq. 29) quote 0.4 fs for the same layout, but as the term that adds in
-quadrature to a measured duration, with a different focal-diameter convention; the
-two numbers are not directly comparable.
+The solver support is as above. The kernel has no shape channel, so a split fit
+(`fit_smearing_split`) is refused; `fit_smearing` scales its one width, but how
+well an SHG trace determines that width has not been established, so prefer the
+width from the measured geometry and treat a fitted one with care. A kernel with a shape parameter is refused for SHG
+({func}`~croak.smearing.check_kernel`). The width scales with the wavelength, so
+take it at the pulse's centroid; a session does
+({func}`~croak.session.pipeline.pulse_wavelength`), and does not apply the mask
+geometry's fixed multiplier `smear_scale`. It assumes Gaussian beams collimated
+at the optic, a crystal thin against the Rayleigh range and full collection of
+the signal beam, which a thick crystal's angular acceptance or an aperture breaks.
+Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999), Eqs. 28-29) give
+$\lambda/(2\pi c) \approx 0.4$ fs for the same layout, as the broadening of the
+pulse duration inferred from the trace; that is $\sigma_\delta/\sqrt2$, the same
+result.
 
 ## In the GUI
 

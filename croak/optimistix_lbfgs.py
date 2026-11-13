@@ -53,7 +53,8 @@ class OptxLBFGS(Retriever):
         Dispersive-slab parameters; see :class:`croak.forward.ForwardModel`.
     smearing : SmearingKernel or None, optional
         Geometric time-smearing kernel of a non-collinear BOXCARS geometry
-        (default ``None`` = off). PG (TG) and SD only. See :mod:`croak.smearing`
+        (default ``None`` = off): a BOXCARS kernel for PG (TG) and SD, or the
+        two-beam kernel for SHG. See :mod:`croak.smearing`
         and :doc:`/howto/geometric_smearing`.
     focal : FocalMixture or None, optional
         Chromatic focal mixture (:mod:`croak.focal`) in place of ``smearing``:

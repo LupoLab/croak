@@ -302,9 +302,9 @@ def test_shg_smearing_kernel_is_the_two_beam_blur_at_the_pulse_wavelength():
     p = RetrieveParams(smearing=True, beam_separation_mm=10.0, beam_diameter_mm=2.0)
     kernel = smearing_kernel(p, td)
     assert kernel == shg_two_beam_kernel(beam_geometry(p), pulse_wavelength(td))
-    # the fixed width multiplier applies as for PG/SD
+    # the mask geometry's fixed multiplier does not apply to the two beams
     scaled = smearing_kernel(RetrieveParams(**{**p.__dict__, "smear_scale": 0.5}), td)
-    assert scaled.sigma_delta == pytest.approx(0.5 * kernel.sigma_delta)
+    assert scaled == kernel
     # collinear beams have nothing to smear, and smearing off is off
     assert (
         smearing_kernel(RetrieveParams(smearing=True, beam_separation_mm=0.0), td)
@@ -317,12 +317,41 @@ def test_pulse_wavelength_is_the_spectrum_centroid_else_the_carrier():
     from croak.session.pipeline import pulse_wavelength
 
     td = _td()
-    assert pulse_wavelength(td) == pytest.approx(800e-9)
+    assert pulse_wavelength(td) == pytest.approx(800e-9, rel=1e-12, abs=0)
     # a spectrum weighted to the blue moves the wavelength the kernel is taken at
     omega_abs = td.grid.omega + W0
     td.Iomega = np.exp(-(((omega_abs - 1.05 * W0) / (0.05 * W0)) ** 2))
     centroid = np.sum(omega_abs * td.Iomega) / np.sum(td.Iomega)
-    assert pulse_wavelength(td) == pytest.approx(2 * np.pi * 299792458.0 / centroid)
+    assert pulse_wavelength(td) == pytest.approx(
+        2 * np.pi * 299792458.0 / centroid, rel=1e-12, abs=0
+    )
     assert pulse_wavelength(td) < 780e-9
     td.Iomega = np.zeros_like(td.Iomega)  # an empty spectrum: the carrier
-    assert pulse_wavelength(td) == pytest.approx(800e-9)
+    assert pulse_wavelength(td) == pytest.approx(800e-9, rel=1e-12, abs=0)
+
+
+def test_collinear_shg_with_a_smearing_fit_does_not_fit_a_missing_kernel(monkeypatch):
+    from croak.session.pipeline import fits_smearing, smearing_kernel
+
+    captured: dict = {}
+
+    def _fake(td, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(spectrum=np.ones(64))
+
+    monkeypatch.setattr(session_pipeline, "retrieve_from_tracedata", _fake)
+    p = RetrieveParams(
+        solver="lbfgs-ad",
+        smearing=True,
+        fit_smearing=True,
+        fit_smearing_split=True,
+        beam_separation_mm=0.0,
+    )
+    td = _td()
+    assert smearing_kernel(p, td) is None
+    assert fits_smearing(p, None) is False
+    session_pipeline.run_retrieval(p, td)
+    assert captured["smearing"] is None
+    assert captured["fit_smearing"] is False and captured["fit_smearing_split"] is False
+    for kwargs in (bootstrap_solver_kwargs(p, td), covariance_kwargs(p, td)):
+        assert kwargs["fit_smearing"] is False

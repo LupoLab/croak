@@ -654,3 +654,27 @@ def test_stage_retrieve_smearing_switch_follows_the_mask_group(stage):
     _shg_trace(stage)
     assert stage.shg_smearing_check.isChecked()
     assert stage.beam_diameter_spin.value() == 4.0
+
+
+def test_stage_retrieve_shg_smearing_needs_a_capable_solver_and_crossing_beams(stage):
+    _shg_trace(stage)
+    stage.separation_spin.setValue(5.0)
+    stage.solver_combo.setCurrentText("copra")
+    assert not stage.shg_smearing_check.isEnabled()
+    stage.solver_combo.setCurrentText("lbfgs-ad")
+    assert stage.shg_smearing_check.isEnabled()
+    stage.shg_smearing_check.setChecked(True)
+    assert stage.fit_smearing_check.isEnabled()
+    stage.separation_spin.setValue(0.0)  # collinear: no kernel to fit
+    assert not stage.shg_smearing_check.isEnabled()
+    assert not stage.fit_smearing_check.isEnabled()
+
+
+def test_stage_retrieve_focal_mixture_is_hidden_for_shg_and_unticks_smearing(stage):
+    _shg_trace(stage)
+    assert stage.focal_box.isHidden()
+    stage.shg_smearing_check.setChecked(True)
+    stage._on_focal_changed(True)  # e.g. a session from PG data
+    assert stage.state.retrieve.smearing is False
+    assert not stage.shg_smearing_check.isChecked()
+    assert not stage.smearing_check.isChecked()

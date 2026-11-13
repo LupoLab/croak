@@ -373,8 +373,10 @@ class RetrieveParams:
     # ``npoints`` back-computes the step. Only ``npoints`` reaches the forward
     # model (:class:`croak.forward.ForwardModel`) — ``delta_z_um`` is the GUI knob.
     delta_z_um: float = 1.0
-    # Geometric time smearing of a non-collinear BOXCARS geometry (PG/SD only,
-    # autodiff solvers only). The mask hole diameter and edge-to-edge spacing are
+    # Geometric time smearing (autodiff solvers only). For PG/SD a non-collinear
+    # BOXCARS mask; for SHG the two beams of beam_separation_mm, focal_f_mm and
+    # beam_diameter_mm (croak.smearing.shg_two_beam_kernel), and the mask fields
+    # below do not apply. The mask hole diameter and edge-to-edge spacing are
     # the physical inputs; the resulting delay-offset width is tied to them via
     # croak.smearing.square_boxcars_delay_width at the measured carrier, so editing
     # either geometry field updates the width and editing the width back-computes

@@ -1,4 +1,9 @@
-r"""Geometric (pulse-front-tilt) time smearing in a non-collinear BOXCARS geometry.
+r"""Geometric (pulse-front-tilt) time smearing in a non-collinear geometry.
+
+Most of this module concerns the three-arm BOXCARS geometry of PG (TG) and SD. Two-beam
+SHG is simpler: only the relative delay of the two arms varies across the focus, so
+its kernel (:func:`shg_two_beam_kernel`) has no shape parameter and the trace is the
+unsmeared one convolved along delay.
 
 In a non-collinear geometry the input beams reach the interaction plane with tilted
 pulse fronts, so the relative arrival time between arms varies linearly across the
@@ -108,6 +113,7 @@ from .interactions import Interaction, get_interaction
 
 __all__ = [
     "check_kernel",
+    "check_split_fit",
     "collinear_sd_kernel",
     "shg_two_beam_kernel",
     "AIRY6_RMS_COEFF",
@@ -618,6 +624,35 @@ def check_kernel(interaction: str | Interaction, kernel: SmearingKernel) -> None
         )
 
 
+def check_split_fit(kernel: SmearingKernel | None, fit_smearing_split: bool) -> None:
+    """Refuse a split smearing fit for a kernel with no shape channel.
+
+    A split fit scales the shape (``p``) and delay channels separately. A kernel
+    with ``sigma_p = 0`` (two-beam SHG, :func:`shg_two_beam_kernel`; two-beam SD,
+    :func:`collinear_sd_kernel`) has no ``p`` channel, so its multiplier would not
+    move the trace: fitted, it stays where it started, and a covariance reports a
+    falsely exact zero uncertainty for it.
+
+    Parameters
+    ----------
+    kernel : SmearingKernel or None
+        The kernel.
+    fit_smearing_split : bool
+        Whether the two channels are fitted separately.
+
+    Raises
+    ------
+    ValueError
+        If ``fit_smearing_split`` is set and ``kernel.sigma_p`` is zero.
+    """
+    if fit_smearing_split and kernel is not None and kernel.sigma_p == 0.0:
+        raise ValueError(
+            "fit_smearing_split needs a kernel with a shape channel (sigma_p > 0); "
+            "this kernel has none (two beams), so fit the one width with "
+            "fit_smearing alone"
+        )
+
+
 def shg_two_beam_kernel(geometry: TwoBeamGeometry, wavelength: float) -> SmearingKernel:
     r"""Delay-smearing kernel of a two-beam (non-collinear) SHG FROG.
 
@@ -625,37 +660,41 @@ def shg_two_beam_kernel(geometry: TwoBeamGeometry, wavelength: float) -> Smearin
     two arrival times leave one combination, the relative delay :math:`\delta`,
     and no shape parameter :math:`p`. So the measured trace is the unsmeared one
     convolved along delay with the distribution of :math:`\delta` across the
-    focus.
+    focus (Taft et al., IEEE J. Select. Topics Quantum Electron. 2, 575 (1996),
+    doi:10.1109/2944.571757, Eq. 7).
 
     Each Gaussian beam of 1/e² diameter :math:`D` at the focusing optic (focal
     length :math:`f`) focuses to the waist :math:`w_0 = 2\lambda f/(\pi D)`
-    (1/e² radius), and the two spots coincide at the crossing point. The signal
-    from transverse position :math:`x` (in the crossing plane) is weighted by
-    :math:`|E_1|^2|E_2|^2 \propto e^{-4x^2/w_0^2}`, so :math:`x` has rms
-    :math:`w_0/(2\sqrt2)`. There the arms' wavefronts, tilted by
-    :math:`\pm\alpha`, give the relative delay :math:`\delta = 2x\sin\alpha/c`.
-    Hence
+    (1/e² radius), and the two spots coincide at the crossing point. Across the
+    crossing plane, at :math:`x` from the bisector, each beam's intensity is
+    :math:`e^{-2x^2\cos^2\alpha/w_0^2}` (its own transverse coordinate is
+    :math:`x\cos\alpha`), and the signal is weighted by their product, so
+    :math:`x` has rms :math:`w_0/(2\sqrt2\cos\alpha)`. There the arms' tilted
+    wavefronts give the relative delay :math:`\delta = 2x\sin\alpha/c`. Hence
 
     .. math::
 
-        \sigma_\delta = \frac{w_0\sin\alpha}{\sqrt2\,c}
-                       \approx \frac{\lambda d}{\sqrt2\,\pi D c},
+        \sigma_\delta = \frac{w_0\tan\alpha}{\sqrt2\,c}
+                       = \frac{\lambda d}{\sqrt2\,\pi D c},
 
-    with :math:`\tan\alpha = d/(2f)` and :math:`d` the beam separation; the second
-    form holds for small angles. For beams separated by their diameter
-    (:math:`d = D`) at 800 nm this is 0.60 fs rms, whatever the focal length.
+    with :math:`\tan\alpha = d/(2f)` and :math:`d` the beam separation: exactly
+    independent of the focal length. For beams separated by their diameter
+    (:math:`d = D`) at 800 nm this is 0.60 fs rms.
 
-    Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999), Eq. 29) give
-    :math:`\delta t = \alpha_0 d_f/c`, 0.4 fs for that layout, as the term that
-    adds in quadrature to a Gaussian pulse's measured duration, with their own
-    focal diameter :math:`d_f = f\lambda/(\pi d)`. That is a different quantity
-    with a different beam-size convention, so the two numbers are not directly
-    comparable.
+    This agrees with Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999),
+    doi:10.1109/3.753651, Eqs. 28-29), who give :math:`\delta t = \lambda/(2\pi c)`,
+    0.42 fs, for that layout. Their :math:`\delta t` is the term that adds in
+    quadrature to the pulse's duration inferred from the trace: for Gaussian
+    pulses the trace's delay marginal is the intensity autocorrelation, whose
+    width grows by :math:`\sigma_\delta` in quadrature, so the inferred rms
+    duration grows by :math:`\sigma_\delta/\sqrt2 = \lambda/(2\pi c)`.
 
-    Validity: Gaussian beams, collimated at the optic, a crystal thin against the
-    Rayleigh range (the spots stay superposed through it), full collection of the
-    signal beam, and the spot size at the single ``wavelength`` given (it scales
-    with the wavelength across a broad spectrum).
+    Validity: Gaussian beams, collimated at the optic; a crystal thin against the
+    Rayleigh range (the spots stay superposed through it); full collection of the
+    signal beam, which a thick crystal's angular acceptance (it filters the
+    signal's transverse wavevector) or an aperture violates; and the spot size at
+    the single ``wavelength`` given (it scales with the wavelength across a broad
+    spectrum).
 
     Parameters
     ----------
@@ -692,7 +731,7 @@ def shg_two_beam_kernel(geometry: TwoBeamGeometry, wavelength: float) -> Smearin
     waist = (
         2.0 * wavelength * geometry.focal_length / (math.pi * geometry.beam_diameter)
     )
-    sigma = waist * math.sin(geometry.crossing_half_angle) / (math.sqrt(2.0) * _C_LIGHT)
+    sigma = waist * math.tan(geometry.crossing_half_angle) / (math.sqrt(2.0) * _C_LIGHT)
     return SmearingKernel(sigma_p=0.0, sigma_delta=sigma, rho=0.0, npoints=1)
 
 

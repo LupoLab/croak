@@ -218,9 +218,10 @@ def retrieve_from_tracedata(
         for SHG in a Type I crystal (``npoints`` at least
         :func:`croak.crystals.depth_points`).
     smearing : SmearingKernel or None, optional
-        Geometric time-smearing kernel of a non-collinear BOXCARS geometry
-        (``None`` = off). Only the autodiff solvers can model it; asking for it
-        with any other algorithm raises rather than silently dropping it. See
+        Geometric time-smearing kernel of a non-collinear geometry (``None`` =
+        off): BOXCARS for PG and SD, two beams for SHG. Only the autodiff solvers
+        can model it; asking for it with any other algorithm raises rather than
+        silently dropping it. See
         :mod:`croak.smearing` and :doc:`/howto/geometric_smearing`.
     focal : FocalMixture or None, optional
         Explicit chromatic focal-plane mixture, optionally carrying a
