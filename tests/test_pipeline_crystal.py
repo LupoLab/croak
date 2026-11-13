@@ -17,12 +17,12 @@ import pytest
 from test_crystals import BBO, W0
 
 from croak import crystals, preprocess
+from croak.covariance import parameter_covariance
 from croak.crystals import CrystalSetup
 from croak.forward import ForwardModel
 from croak.geometry import TwoBeamGeometry
 from croak.grid import Grid
 from croak.maths import wlfreq
-from croak.covariance import parameter_covariance
 from croak.pipeline import retrieve_from_tracedata
 from croak.pulses import gaussian_pulse
 from croak.retrieve import ALGORITHMS
@@ -81,7 +81,9 @@ def _depth_points(td, thickness=THICKNESS):
 
 
 @pytest.mark.parametrize("algorithm", sorted(ALGORITHMS))
-def test_every_solver_retrieves_with_a_crystal(crystal_tracedata, algorithm, monkeypatch):
+def test_every_solver_retrieves_with_a_crystal(
+    crystal_tracedata, algorithm, monkeypatch
+):
     # Spy on the solver's constructor: the crystal must reach it unchanged (a
     # solver that dropped `material` would otherwise still return finite numbers).
     original = ALGORITHMS[algorithm]
