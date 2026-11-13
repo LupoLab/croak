@@ -189,14 +189,14 @@ $\psi = c k_x/(\omega_s n_s)$, the self-consistency entering only at second orde
 When the beams cross in the crystal's principal plane (the fundamental polarised
 perpendicular to the crossing plane), the tilt changes the signal's angle to the
 optic axis, so its index changes to first order, by $n_e'\psi$. The extra mismatch
-is $\kappa(\omega_1-\omega_2)$ with $\kappa = (n_e'/n_s)\sin\alpha/c$, and over the
-remaining path it factorises into opposite delays of the two arms that drift
-apart with depth: in croak's convention (a factor $e^{i\Omega\tau}$ delays a field
-by $\tau$) the test arm is delayed by $+\kappa(P-z)$ and the gate by
-$-\kappa(P-z)$, so the gate-minus-test delay at depth $z$ is
-$\tau - 2\kappa(P-z)$. The model includes this
-({meth}`~croak.crystals.CrystalSetup.arm_shift`): about 0.57 fs per 100 µm per arm
-for BBO at 800 nm crossing at 1.4°.
+is $\kappa(\omega_1-\omega_2)$ with $\kappa = (n_e'/n_s)\sin\alpha/c$, and it
+factorises into opposite delays of the two arms that drift apart with depth. In
+croak's convention (a factor $e^{i\Omega\tau}$ delays a field by $\tau$), with the
+drift referenced to mid-depth (below), the test arm is delayed by
+$+\kappa(P/2-z)$ and the gate by $-\kappa(P/2-z)$, so the gate-minus-test delay
+at depth $z$ is $\tau - 2\kappa(P/2-z)$. The model includes this
+({meth}`~croak.crystals.CrystalSetup.arm_shift`): $\kappa$ is about 0.57 fs per
+100 µm for BBO at 800 nm crossing at 1.4°.
 
 The same term has a picture in space. The crossing beams' wavefronts make the
 delay between the arms vary across the focal spot, $\tau + 2x\sin\alpha/c$ (the
@@ -211,13 +211,45 @@ changes how the pairs that make one signal frequency interfere. Crossing out of 
 principal plane, the SH walks off along the direction in which the delay does not
 vary, and the term vanishes.
 
+**Where the drift is referenced.** The model treats each pair as plane waves, so a
+pair's signal has the transverse wavevector $k_x = (\omega_1-\omega_2)\sin\alpha/c$,
+and its first-order phase is the walk-off acting on that $k_x$. In real beams the
+signal's transverse wavevector is $k_x + q$, where $q$, of order the inverse spot
+size, comes from the beams' own angular spread, and the walk-off acts on $q$ too:
+it contributes $e^{-iq\rho(P-z)} = e^{-iq\rho(z_\mathrm{ref}-z)}\,e^{-iq\rho(P-z_\mathrm{ref})}$
+for any reference depth $z_\mathrm{ref}$. The second factor is the same at every
+depth: it moves the whole SH beam sideways, which a detector that collects the
+whole beam cannot see (by Parseval's theorem, a phase that depends only on the
+signal's transverse wavevector leaves the beam-integrated signal unchanged). The
+first, the walk-off between depths, is what the plane-wave model leaves out with
+$q$; averaged over the depth it is smallest when $z_\mathrm{ref}$ is the mean
+generation depth, which for a uniform slab is mid-depth. croak therefore writes the
+drift as $\kappa\Omega(P/2-z)$. The choice matters for the delay origin only: the
+exit-face reference differs from it exactly by the delay shift
+$\tau \to \tau - \kappa P$ and a linear spectral phase on the signal, so its trace
+sits $\kappa P$ off-centre (−0.57 fs for 100 µm at 1.4° with the delayed beam toward
+the optic axis, +0.57 fs away from it).
+
+A full-field simulation supports this choice (issue #28): two Gaussian beams of
+20 µm waist crossing at the crystal's mid-plane in BBO, simulated in two dimensions
+(x and t) with Luna.jl, with the signal collected over the whole beam. For a 10 fs
+pulse with 30 fs² of GDD in 100 µm at 1.43°, and a 6 fs pulse with 20 fs³ of TOD
+in 30 µm at 2.86°, the full-field traces are centred to 0.02 fs, and they match the
+mid-depth-referenced model to 1.2 % and 0.2 % of the peak. The argument assumes
+that the whole beam is collected, that generation is spread evenly over the depth,
+and that the walk-off over the crystal, $\rho P$, is small against the spot size. A
+spectrometer slit or an iris that passes only part of the beam can bring part of the
+offset back, and strong phase mismatch weights the depths unevenly and moves the
+mean generation depth; neither is modelled. A remaining offset is indistinguishable
+from a mis-set delay origin, which `fit_tau0` absorbs.
+
 Two consequences follow:
 
 - **The trace is not symmetric in delay.** The drift distinguishes the two arms, so
   $I(\omega,\tau) \ne I(\omega,-\tau)$, unlike the ideal SHG FROG trace. For BBO
-  at 800 nm crossing at 1.4° the term changes the signal by about 0.5 % for a
-  12 fs pulse in 10 µm, 5 % in 100 µm, and about 1 % for a 5 fs pulse in 10 µm (on delays sampled finely enough to
-  catch its peak, about 1 fs apart). At zero
+  at 800 nm crossing at 1.4° the term changes the signal field by about 0.03 %
+  for a 12 fs pulse in 10 µm, 1.7 % in 100 µm, and 0.2 % for a 5 fs pulse in
+  10 µm (4.6 % in 100 µm), relative to its peak, on delays 1 fs apart. At zero
   delay its first-order effect cancels between the pairs $(\omega_1,\omega_2)$ and
   $(\omega_2,\omega_1)$, so it shows away from zero delay.
 - **Its sign depends on which beam is nearer the optic axis**
@@ -231,7 +263,9 @@ What remains is second order in the tilt. {func}`croak.crystals.tilt_field_error
 computes it for a given spectrum and set of delays, against an exact pair sum with
 each pair's signal in its own self-consistent direction, and
 {func}`croak.crystals.check_tilt` warns above 1 %. It is under 0.3 % for pulses of
-5-12 fs in up to 100 µm at 1.4°. Polarised in the crossing plane, the principal
+5-12 fs in up to 100 µm at 1.4°. In both sums the first-order drift is referenced
+to mid-depth and the rest of each pair's mismatch to the exit face, so the
+estimate is not made smaller by the choice of reference. Polarised in the crossing plane, the principal
 plane is perpendicular to the crossing plane and the first-order term vanishes.
 
 **What is neglected.** The SH's walk-off is kept only through its effect on the

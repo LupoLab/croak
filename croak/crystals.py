@@ -473,14 +473,18 @@ class CrystalSetup:
         the bisector, which changes its index by :math:`n_e'\delta\theta`. Its
         mismatch grows by :math:`\kappa(\omega_1-\omega_2)` with
         :math:`\kappa = \pm(n_e'/n_s)\sin\alpha/c`, with :math:`n_s = n_e(\theta)`,
-        taken at the signal carrier. Over the rest of the path :math:`P-z` that is
-        the phase :math:`e^{i\kappa\Omega(P-z)}` on the test arm and its inverse on
-        the gate. With croak's convention (a factor :math:`e^{i\Omega\tau}` delays a
-        field by :math:`\tau`) the test arm is delayed by :math:`+\kappa(P-z)` and
-        the gate by :math:`-\kappa(P-z)`, so the gate-minus-test delay at depth
-        :math:`z` is :math:`\tau - 2\kappa(P-z)`. The sign of :math:`\kappa` is
-        ``+`` with the delayed beam toward the optic axis. ``0`` out of the
-        principal plane, where the term is second order.
+        taken at the signal carrier. Referenced to mid-depth, that is the phase
+        :math:`e^{i\kappa\Omega(P/2-z)}` on the test arm and its inverse on the
+        gate. With croak's convention (a factor :math:`e^{i\Omega\tau}` delays a
+        field by :math:`\tau`) the test arm is delayed by :math:`+\kappa(P/2-z)` and
+        the gate by :math:`-\kappa(P/2-z)`, so the gate-minus-test delay at depth
+        :math:`z` is :math:`\tau - 2\kappa(P/2-z)`. Only the drift between depths
+        is observable when the whole beam is collected: the part common to every
+        depth moves the whole signal beam sideways, which a detector of the whole
+        beam cannot see, so the reference is the mean generation depth, which keeps
+        the trace's time zero (:doc:`/explanation/forward_model`). The sign of
+        :math:`\kappa` is ``+`` with the delayed beam toward the optic axis. ``0``
+        out of the principal plane, where the term is second order.
         """
         if not self.in_principal_plane:
             return 0.0
@@ -541,12 +545,15 @@ class Propagation:
         ``beta_in`` and ``omega`` in the order the caller works in (centred or
         DFT-bin). Each arm travels to depth ``z_q`` with ``beta_in``; with an
         :attr:`arm_shift` :math:`\kappa`, the test arm also carries
-        :math:`e^{i\kappa\Omega(P-z_q)}` and the gate its inverse.
+        :math:`e^{i\kappa\Omega(P/2-z_q)}` and the gate its inverse (the drift
+        referenced to mid-depth; :meth:`CrystalSetup.arm_shift`).
         """
         base = np.exp(1j * np.outer(beta_in, nodes))
         if self.arm_shift == 0.0:
             return base, base
-        drift = np.exp(1j * self.arm_shift * np.outer(omega, self.path_length - nodes))
+        drift = np.exp(
+            1j * self.arm_shift * np.outer(omega, 0.5 * self.path_length - nodes)
+        )
         test = np.asarray(base * drift, dtype=np.complex128)
         return test, np.asarray(base / drift, dtype=np.complex128)
 
@@ -829,7 +836,11 @@ def _pair_signal(
     model: each pair's signal along the bisector, with the arms' first-order delay
     drift. With ``tilted`` each pair's signal propagates in its own direction,
     found self-consistently with the index in that direction
-    (:func:`_signal_direction`).
+    (:func:`_signal_direction`). In both, the first-order part of the pair's
+    change of mismatch, :math:`\kappa(\omega_1-\omega_2)`, is referenced to
+    mid-depth, as the model's drift is (:meth:`CrystalSetup.arm_shift`); the rest,
+    which the model leaves out, keeps the exit-face reference, so that what the
+    comparison measures is not reduced by the choice of reference.
     """
     prop = propagation(setup, omega, omega0, thickness)
     path = prop.path_length
@@ -866,7 +877,11 @@ def _pair_signal(
         with np.errstate(divide="ignore", invalid="ignore"):
             depth = (np.exp(1j * a * path) - 1.0) / (1j * a)
         depth = np.where(np.abs(a * path) < 1e-12, path, depth)
-        psi[k] = amp[k] * np.sum(e[j] * e_tau[m] * np.exp(1j * bs * path) * depth)
+        # the first-order drift, referenced to mid-depth as in the model
+        shift = np.exp(-0.5j * prop.arm_shift * (w[j] - w[m]) * path)
+        psi[k] = amp[k] * np.sum(
+            e[j] * e_tau[m] * np.exp(1j * bs * path) * shift * depth
+        )
     return np.fft.fftshift(psi)
 
 
@@ -890,7 +905,10 @@ def tilt_field_error(
 
     For a tilted plate both sums use the mismatch along the beams over the
     effective path (:meth:`CrystalSetup.path_length`), so the comparison is exact
-    for an untilted plate and first order in the tilt otherwise.
+    for an untilted plate and first order in the tilt otherwise. Both reference the
+    first-order drift to mid-depth, as the model does, and the rest of each pair's
+    mismatch to the exit face, so the choice of reference does not reduce the
+    estimate.
 
     Scan the delays: the tilt's mismatch is odd in :math:`\omega_1-\omega_2`, so
     at zero delay, where the pairs :math:`(\omega_1,\omega_2)` and

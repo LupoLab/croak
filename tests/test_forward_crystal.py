@@ -65,9 +65,10 @@ def _depth_integral(a, path):
     return np.where(np.abs(a * path) < 1e-12, path, out)
 
 
-def _pair_sum(setup, thickness, ew, tau, beta_sig_pair=None):
+def _pair_sum(setup, thickness, ew, tau, beta_sig_pair=None, drift=True):
     """Exact double sum over pairs, centred order; ``beta_sig_pair(j, m, k)`` may
-    replace the signal's propagation constant per pair."""
+    replace the signal's propagation constant per pair. ``drift`` references the
+    first-order drift to mid-depth (off for a model without the drift)."""
     prop = crystals.propagation(setup, GRID.omega, W0, thickness)
     path = prop.path_length
     n = GRID.n
@@ -85,7 +86,10 @@ def _pair_sum(setup, thickness, ew, tau, beta_sig_pair=None):
         model = b_sig[k] + prop.arm_shift * (w[j] - w[m])
         bs = model if beta_sig_pair is None else beta_sig_pair(j, m, k)
         a = b_in[j] + b_in[m] - bs
-        h = np.exp(1j * bs * path) * _depth_integral(a, path)
+        # the first-order drift is referenced to mid-depth, as in the model
+        # (CrystalSetup.arm_shift); the rest of a pair's mismatch is not
+        mid = np.exp(-0.5j * prop.arm_shift * (w[j] - w[m]) * path) if drift else 1.0
+        h = np.exp(1j * bs * path) * mid * _depth_integral(a, path)
         psi[k] = amp[k] * np.sum(e[j] * e_tau[m] * h)
     return scipy.fft.fftshift(psi)
 
@@ -217,12 +221,12 @@ DELAYS = np.linspace(-24e-15, 24e-15, 9)
 PRINCIPAL = dict(geometry=GEOMETRY, polarization="perpendicular")
 
 
-def _worst(setup, thickness, amp, beta_sig_pair):
+def _worst(setup, thickness, amp, beta_sig_pair, drift=True):
     """Largest |model - reference| over DELAYS, relative to the reference's peak."""
     reference = _tilted_signal(setup, thickness)
     pairs = [
         (
-            _pair_sum(setup, thickness, amp, t, beta_sig_pair),
+            _pair_sum(setup, thickness, amp, t, beta_sig_pair, drift),
             _pair_sum(setup, thickness, amp, t, reference),
         )
         for t in DELAYS
@@ -236,15 +240,34 @@ def test_arm_drift_captures_the_signal_tilt(side):
     # 12 fs in 100 um crossing at 1.43 degrees in the principal plane. Against each
     # pair's signal in its own self-consistent direction: with the arms' drift the
     # model is within 0.1 % (the residual is second order in the tilt); without it,
-    # about 5 % off.
+    # about 1.6 % off (the drift referenced to mid-depth, so no shift of time zero).
     setup = _setup(**PRINCIPAL, delayed_beam=side)
     amp = np.abs(_pulse(GRID, gdd=0.0))
     with_drift = _worst(setup, 100e-6, amp, None)
     prop = crystals.propagation(setup, GRID.omega, W0, 100e-6)
     b_sig = scipy.fft.ifftshift(prop.beta_sig)
-    without = _worst(setup, 100e-6, amp, lambda j, m, k: b_sig[k])
+    without = _worst(setup, 100e-6, amp, lambda j, m, k: b_sig[k], drift=False)
     assert with_drift < 1e-3
-    assert without > 0.03
+    assert without > 0.01
+
+
+@pytest.mark.parametrize("side", ["toward_axis", "away_from_axis"])
+def test_arm_drift_keeps_the_trace_time_zero(side):
+    # Pins the convention that the drift is referenced to mid-depth, so that the
+    # trace keeps its delay origin, as a full-field simulation collecting the
+    # whole beam finds (CrystalSetup.arm_shift; issue #28). Referenced to the exit
+    # face, the delay marginal's centroid sits at +kappa P (kappa P is -0.57 fs
+    # toward the axis, +0.57 fs away from it). The tolerance is set by this 12 fs
+    # pulse with 30 fs^2: its shape asymmetry leaves the centroid at 0.02 kappa P
+    # (a strongly chirped 5 fs pulse reaches about 0.2 kappa P).
+    setup = _setup(**PRINCIPAL, delayed_beam=side)
+    delays = GRID.dt * np.arange(-12, 13)
+    trace = _model(setup, 100e-6, delays).trace(_pulse(GRID), normalize=False)
+    marginal = trace.sum(axis=0)
+    centroid = np.sum(delays * marginal) / np.sum(marginal)
+    kappa_path = setup.arm_shift(W0) * setup.path_length(100e-6, W0)
+    assert abs(kappa_path) > 0.5e-15
+    assert abs(centroid) < 0.1 * abs(kappa_path)
 
 
 def test_the_wrong_side_is_the_delay_mirror():
@@ -284,7 +307,7 @@ def test_tilt_field_error_vanishes_out_of_the_principal_plane():
 
 def test_check_tilt_warns_above_one_percent():
     # A 5 fs pulse, 300 um, crossing at 2.86 degrees: the second-order residual
-    # reaches about 3 %.
+    # reaches about 2 %.
     setup = _setup(
         geometry=TwoBeamGeometry(beam_separation=10e-3, focal_length=0.1),
         polarization="perpendicular",
