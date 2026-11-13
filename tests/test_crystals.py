@@ -291,7 +291,8 @@ def test_arm_shift_is_the_first_order_tilt_rate():
         * math.sin(geometry.crossing_half_angle)
         / C
     )
-    assert toward.arm_shift(W0) == pytest.approx(expected, rel=1e-12)
+    # abs=0: kappa is ~6e-12 s/m, below pytest.approx's default absolute tolerance
+    assert toward.arm_shift(W0) == pytest.approx(expected, rel=1e-12, abs=0)
     assert away.arm_shift(W0) == -toward.arm_shift(W0)
     # BBO at 800 nm, 1.43 degrees: -0.567 fs per 100 um (the explainer's number)
     assert toward.arm_shift(W0) * 100e-6 == pytest.approx(-0.567e-15, abs=0.001e-15)
