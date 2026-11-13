@@ -405,3 +405,26 @@ def test_tilt_field_error_needs_a_delay():
     )
     with pytest.raises(ValueError, match="at least one delay"):
         crystals.tilt_field_error(setup, GRID.omega, W0, 50e-6, np.ones(GRID.n), [])
+
+
+def test_builtin_bbo_phase_matches_800_nm_at_the_papers_cut():
+    # Tamosauskas et al. 2018 (optmat's recommended BBO, both rays) give the
+    # collinear Type I SHG angle of 800 nm as 29.23 degrees, consistent with the
+    # paper's nominal 29.2 degree cut; optmat pins 29.226 (TC-1095). The tilt
+    # solve converges far below the 1e-3 degree tolerance.
+    bbo = crystals.builtin_crystal("BBO")
+    setup = CrystalSetup(bbo, math.radians(29.2), phase_match_wavelength=800e-9)
+    assert math.degrees(setup.internal_angle(W0)) == pytest.approx(29.226, abs=1e-3)
+    # the range both of optmat's formulas hold over: 0.188-5.2 um (stated)
+    lo, hi = bbo.transparency
+    assert 0.18e-6 < lo < 0.19e-6 and 5.1e-6 < hi < 5.3e-6
+
+
+def test_builtin_crystal_names_are_case_insensitive_and_cached():
+    assert crystals.builtin_crystal("bbo") is crystals.builtin_crystal("BBO")
+    assert crystals.builtin_crystal("bbo").name == "BBO"
+
+
+def test_unknown_builtin_crystal_raises():
+    with pytest.raises(ValueError, match="unknown crystal 'KDP'.*BBO"):
+        crystals.builtin_crystal("KDP")

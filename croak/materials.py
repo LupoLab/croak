@@ -51,6 +51,7 @@ __all__ = [
     "unregister_material",
     "make_tabulated_material",
     "material_model",
+    "optmat_index",
     "canonical_name",
     "read_nk_csv",
     "MATERIALS",
@@ -295,8 +296,21 @@ def material_model(material: str) -> Model:
     return default_model(builtin.optmat_id, axis=builtin.axis)
 
 
-def _optmat_index(model: Model) -> Callable[[ArrayLike], NDArray[np.float64]]:
-    """Wrap an optmat model as croak's ``n(wavelength_m)`` callable."""
+def optmat_index(model: Model) -> Callable[[ArrayLike], NDArray[np.float64]]:
+    """Wrap an optmat model as croak's ``n(wavelength_m)`` callable.
+
+    Parameters
+    ----------
+    model : optmat.solid.models.base.Model
+        An optmat refractive-index model, e.g. from :func:`material_model`.
+
+    Returns
+    -------
+    callable
+        ``n(wavelength_m)``: the real refractive index at vacuum wavelengths (m),
+        ``nan`` where a wavelength is not positive and finite. The model is
+        extrapolated without warning beyond its stated range.
+    """
 
     def n(wavelength_m: ArrayLike) -> NDArray[np.float64]:
         lam = np.asarray(wavelength_m, dtype=float)
@@ -348,7 +362,7 @@ def refractive_index(material: str) -> Callable[[ArrayLike], NDArray[np.float64]
     if canonical_name(material) not in _BUILTINS:
         available = ", ".join((*MATERIALS, *_CUSTOM))
         raise ValueError(f"unknown material {material!r}; available: {available}")
-    return _optmat_index(material_model(material))
+    return optmat_index(material_model(material))
 
 
 def beta1(material: str, omega0: float) -> float:

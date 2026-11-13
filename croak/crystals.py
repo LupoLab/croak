@@ -91,6 +91,7 @@ See :doc:`/explanation/forward_model` for the full model.
 
 from __future__ import annotations
 
+import functools
 import math
 import warnings
 from collections.abc import Callable
@@ -100,6 +101,7 @@ from typing import Literal, cast
 import numpy as np
 import scipy.optimize
 from numpy.typing import ArrayLike, NDArray
+from optmat.solid.models.registry import default_model
 
 from . import materials
 from .constants import C
@@ -108,11 +110,13 @@ from .interactions import Interaction
 from .maths import derivative, wlfreq
 
 __all__ = [
+    "CRYSTALS",
     "TILT_ERROR_WARN",
     "CrystalSetup",
     "CrystalApproximationWarning",
     "Propagation",
     "UniaxialCrystal",
+    "builtin_crystal",
     "check_medium",
     "check_tilt",
     "depth_points",
@@ -175,6 +179,54 @@ class UniaxialCrystal:
                 lam = wlfreq(np.where(inside, omega, np.inf))
             inside &= (lam >= lo) & (lam <= hi)
         return inside
+
+
+#: Names of the built-in crystals. Each uses optmat's recommended models of its
+#: ordinary and extraordinary rays (``optmat.solid.models.registry.default_model``),
+#: which state their sources and validity ranges.
+CRYSTALS: tuple[str, ...] = ("BBO",)
+
+
+def builtin_crystal(name: str) -> UniaxialCrystal:
+    """Return a built-in crystal by name.
+
+    Parameters
+    ----------
+    name : str
+        One of :data:`CRYSTALS`, case-insensitive.
+
+    Returns
+    -------
+    UniaxialCrystal
+        The crystal, with optmat's recommended ordinary and extraordinary
+        models and, as its transparency range, the range both models hold over.
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is not a built-in crystal.
+    """
+    match = next((c for c in CRYSTALS if c.lower() == name.lower()), None)
+    if match is None:
+        raise ValueError(
+            f"unknown crystal {name!r}; the built-in crystals are {', '.join(CRYSTALS)}"
+        )
+    return _load_crystal(match)
+
+
+@functools.cache
+def _load_crystal(name: str) -> UniaxialCrystal:
+    """Build a built-in crystal from optmat's models, once per canonical name."""
+    ordinary = default_model(name, axis="o")
+    extraordinary = default_model(name, axis="e")
+    lo = max(ordinary.wavelength_range[0], extraordinary.wavelength_range[0])
+    hi = min(ordinary.wavelength_range[1], extraordinary.wavelength_range[1])
+    return UniaxialCrystal(
+        name,
+        materials.optmat_index(ordinary),
+        materials.optmat_index(extraordinary),
+        (float(lo), float(hi)),
+    )
 
 
 def extraordinary_index(
