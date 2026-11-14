@@ -1,0 +1,1 @@
+`load_and_clean` (and `filter_frog_trace`) now reject a delay axis with fewer than two distinct finite values with a `ValueError` naming what was given, instead of failing later with an unrelated `ZeroDivisionError` or a segfault (#32).

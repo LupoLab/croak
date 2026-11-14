@@ -442,6 +442,40 @@ def test_load_and_clean_produces_retrievable_trace(experiment):
     assert res.error < 7e-2
 
 
+@pytest.mark.parametrize(
+    "delays",
+    [
+        np.array([0.0]),  # a single delay cannot be a FROG trace
+        np.array([0.0, 0.0, 0.0]),  # repeated delays carry no delay information
+        np.array([0.0, np.nan]),  # only one finite delay
+    ],
+)
+def test_load_and_clean_rejects_degenerate_delay_axis(delays):
+    """A one-delay (or repeated-delay) trace fails at the boundary (#32)."""
+    lam = np.linspace(350e-9, 450e-9, 64)
+    trace = np.exp(-(((lam - 400e-9) / 15e-9) ** 2))[:, None].repeat(
+        delays.size, axis=1
+    )
+    with pytest.raises(ValueError, match="the delay axis needs at least two distinct"):
+        preprocess.load_and_clean(
+            trace,
+            lam,
+            delays,
+            "shg",
+            lam_min=600e-9,
+            lam_max=1000e-9,
+            input_unit="delay",
+        )
+
+
+def test_filter_frog_trace_rejects_single_delay():
+    """Direct callers of the filter get the same boundary error (#32)."""
+    lam = np.linspace(700e-9, 900e-9, 6)
+    trace = np.ones((lam.size, 1))
+    with pytest.raises(ValueError, match="the delay axis needs at least two distinct"):
+        preprocess.filter_frog_trace(trace, lam, np.array([0.0]))
+
+
 def test_tau_crop_reduces_delays(experiment):
     exp = experiment
     full = preprocess.load_and_clean(
