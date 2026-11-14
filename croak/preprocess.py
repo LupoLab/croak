@@ -268,6 +268,18 @@ def marginal_peak_delay(delays: ArrayLike, marginal: ArrayLike) -> float:
     return float(delays[i] + min(max(vertex, x0), x2))
 
 
+def _validate_delay_axis(tau: ArrayLike) -> NDArray[np.float64]:
+    """Return ``tau`` as a float array with at least two finite, distinct delays."""
+    values = np.asarray(tau, dtype=float)
+    finite = values[np.isfinite(values)]
+    if values.size < 2 or np.unique(finite).size < 2:
+        raise ValueError(
+            "the delay axis needs at least two distinct finite values "
+            f"(got {values.size} value(s), {np.unique(finite).size} distinct)"
+        )
+    return values
+
+
 def _delay_filter(
     Ifrog: NDArray[np.float64],
     tau: NDArray[np.float64],
@@ -518,7 +530,9 @@ def filter_frog_trace(
     # Bind to a fresh local (not the ``tau`` parameter): its inferred ndarray type
     # then survives the in-place recentre/subsample below, instead of being reset
     # to the parameter's wide ``ArrayLike`` declared type.
-    delays = np.asarray(tau, dtype=float).copy()
+    # A single (or repeated) delay cannot be a FROG trace: reject it here with a
+    # clear error instead of failing later in the filter or the grid.
+    delays = _validate_delay_axis(np.asarray(tau, dtype=float).copy())
 
     Ifrogf = _delay_filter(
         Ifrog,
@@ -1710,6 +1724,11 @@ def load_and_clean(
         tau_meas = scanaxis.copy()
     else:
         raise ValueError("input_unit must be 'position' or 'delay'")
+
+    # A single (or repeated) delay cannot be a FROG trace: reject it at the
+    # boundary with a clear error instead of failing later in the filter or
+    # the grid (``filter_frog_trace`` validates again for direct callers).
+    tau_meas = _validate_delay_axis(tau_meas)
 
     tau_filt, Ifrog_filt = filter_frog_trace(
         Ifrog,
