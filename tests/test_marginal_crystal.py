@@ -479,3 +479,10 @@ def test_a_crystal_corrected_trace_refuses_a_generation_envelope(corrected_trace
             depth_weight=np.ones(npoints),
             maxiters=3,
         )
+
+
+def test_a_thin_corrected_trace_retrieves_without_a_crystal(corrected_tracedata):
+    # a thin-medium correction and an ideal-SHG retrieval describe the same medium
+    td = replace(corrected_tracedata, marginal_crystal=None)
+    res = retrieve_from_tracedata(td, algorithm="lbfgs-ad", maxiters=3)
+    assert np.all(np.isfinite(res.spectrum))

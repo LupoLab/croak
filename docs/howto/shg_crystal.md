@@ -88,12 +88,13 @@ crystal by `crystal`, `cut_angle_deg`, `angle_mode` (`"phase-match"` with
 `thickness_um` is its thickness. For an SHG trace the session builds the crystal
 from them ({func}`~croak.session.pipeline.crystal_setup`) and uses the depth
 nodes it needs. `phase_match_nm` defaults to 800 nm: set it to the wavelength the
-crystal was tuned for. In the GUI the Retrieve stage shows these as the
-*Nonlinear crystal* and *Beam geometry* groups for SHG data, with a read-out of
-the internal angle, the tilt, the path and the depth nodes. The Synthetic stage
-can generate an SHG trace through the same crystal, at a thickness set there;
-switching the crystal on for the retrieval, at that thickness, is a separate
-step in the Retrieve stage.
+crystal was tuned for. In the GUI they are set on the Data stage, in the
+*Nonlinear crystal* and *Beam geometry* groups shown for SHG data, with a read-out
+of the internal angle, the tilt, the path and the depth nodes: they describe the
+measurement, and the Check step's marginal prediction and correction use them
+before the retrieval does. The Retrieve stage shows a read-only summary. The
+Synthetic stage generates an SHG trace through the same crystal when it is
+switched on.
 
 ## Delay smearing
 
@@ -118,7 +119,9 @@ res = croak.retrieve(
 ```
 
 In a session, `smearing` switches it on and `beam_diameter_mm` gives the
-diameter; the GUI shows both in *Beam geometry*.
+diameter; the GUI sets the diameter in *Beam geometry* on the Data stage and the
+switch, *Model the delay smearing*, on the Retrieve stage, since only some solvers
+support it.
 
 ## The marginal correction
 

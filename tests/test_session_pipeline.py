@@ -381,7 +381,9 @@ def tiny_retrieval():
         omega0=wlfreq(800e-9),
         progress=False,
     )
-    td = SimpleNamespace(trace=trace, Iomega=None, interaction="pg")
+    td = SimpleNamespace(
+        trace=trace, Iomega=None, interaction="pg", marginal_crystal=None
+    )
     return result, td
 
 
