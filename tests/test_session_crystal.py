@@ -34,6 +34,7 @@ def _td(interaction="shg"):
         grid=Grid(64, dt=3e-15),
         omega0_pulse=W0,
         Iomega=None,
+        marginal_crystal=None,
     )
 
 
@@ -419,3 +420,15 @@ def test_pulse_carrier_is_the_retrieval_grids_carrier():
     preproc.lam_min_nm, preproc.lam_max_nm = 600.0, 1100.0
     _, _, omega0 = gridparams_lambda(100e-15, lambda_min=600e-9, lambda_max=1100e-9)
     assert session_pipeline.pulse_carrier(preproc) == pytest.approx(omega0, rel=1e-12)
+
+
+def test_the_thickness_uncertainty_refuses_a_crystal_corrected_trace():
+    # each draw would retrieve at another thickness a trace whose marginal the
+    # correction fixed to the central thickness's
+    rp = RetrieveParams(solver="lbfgs-ad", dispersive=True)
+    up = session_pipeline.UncertaintyParams(method="thickness")
+    td = _td()
+    td.trace = np.ones((4, 3))
+    td.marginal_crystal = crystals.PhaseMatching(crystal_setup(rp), 10e-6)
+    with pytest.raises(ValueError, match="marginal-corrected through the crystal"):
+        session_pipeline.run_uncertainty(up, rp, SimpleNamespace(omega0=W0), td)

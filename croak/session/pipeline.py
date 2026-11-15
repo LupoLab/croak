@@ -969,12 +969,13 @@ def correction_crystal(
 
 
 def pulse_carrier(p: PreprocParams) -> float:
-    """Return the pulse carrier (rad/s) the retrieval grid will have.
+    """Return the pulse carrier (rad/s) the regridded retrieval grid will have.
 
     The middle of the retrieval band in angular frequency, as
     :func:`croak.grid.gridparams_lambda` places it; the crystal's angle and path
     are taken there, so a prediction made before preprocessing matches the one
-    the correction makes.
+    the correction makes. The simulated loader's ``raw_direct`` path keeps the
+    simulation's own carrier instead (and applies no correction).
     """
     return 0.5 * float(wlfreq(p.lam_min_nm * 1e-9) + wlfreq(p.lam_max_nm * 1e-9))
 
@@ -1541,6 +1542,14 @@ def run_uncertainty(
             raise ValueError(
                 "the thickness uncertainty needs dispersive propagation: switch on "
                 "the slab, or for SHG the crystal, whose thickness is uncertain"
+            )
+        if td.marginal_crystal is not None:
+            # each draw would retrieve at another thickness a trace whose marginal
+            # was put onto the central thickness's prediction
+            raise ValueError(
+                "the thickness uncertainty cannot use a trace marginal-corrected "
+                "through the crystal: the correction fixes its marginal to the "
+                "central thickness. Switch off the marginal correction for it"
             )
         # Central thickness from the retrieval settings; 1σ from the uncertainty
         # stage. The dispersive pair is injected per draw, so drop it from kw to

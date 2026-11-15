@@ -871,7 +871,10 @@ def thickness_bootstrap(
         forwarded ``retrieve_kwargs`` must reproduce the original settings.
     measured : array_like
         The measured trace ``(Nomega, Ndelay)`` to re-fit at each drawn thickness
-        (the data are held fixed; only the assumed thickness varies).
+        (the data are held fixed; only the assumed thickness varies). Not a trace
+        marginal-corrected through the crystal
+        (:attr:`croak.preprocess.TraceData.marginal_crystal`): the correction fixes
+        its marginal to the central thickness's, which the draws would then misfit.
     central_thickness : float
         Central (measured) substrate thickness :math:`L_0` in **metres**.
     thickness_sigma : float

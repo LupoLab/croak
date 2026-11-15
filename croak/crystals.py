@@ -854,15 +854,18 @@ def shg_marginal(
     Raises
     ------
     ValueError
-        If ``omega`` is not a uniform ascending axis of at least two points, or
-        ``spectrum`` has another shape.
+        If ``omega`` is not a uniform ascending axis of at least two points,
+        ``spectrum`` has another shape, or either holds a non-finite value.
     """
     omega = np.asarray(omega, dtype=float)
-    spectrum = np.clip(np.asarray(spectrum, dtype=float), 0.0, None)
+    spectrum = np.asarray(spectrum, dtype=float)
     if omega.ndim != 1 or omega.size < 2:
         raise ValueError("omega must be a 1-D axis with at least 2 samples")
     if spectrum.shape != omega.shape:
         raise ValueError("spectrum and omega must have the same shape")
+    if not (np.all(np.isfinite(omega)) and np.all(np.isfinite(spectrum))):
+        raise ValueError("omega and spectrum must be finite")
+    spectrum = np.clip(spectrum, 0.0, None)
     step = np.diff(omega)
     if not (step[0] > 0.0 and np.allclose(step, step[0], rtol=1e-6, atol=0.0)):
         raise ValueError("omega must be uniform and ascending")

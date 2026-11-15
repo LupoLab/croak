@@ -263,6 +263,7 @@ def _measurement():
     trace = model.trace(ew, normalize=False)
     trace = trace * np.linspace(0.5, 1.5, g.n)[:, None]  # the instrument's tilt
     lam = wlfreq(g.omega + 2.0 * W0)
+    trace = trace / (lam**2)[:, None]  # per unit wavelength, as measured
     order = np.argsort(lam)
     lam_spec = wlfreq(g.omega + W0)
     spec_order = np.argsort(lam_spec)
@@ -347,7 +348,7 @@ def test_a_crystal_corrected_trace_retrieves_through_the_same_crystal(
     ("material", "thickness", "got"),
     [
         (None, 0.0, "no crystal"),
-        (_setup(), PIPE_THICKNESS, "another crystal set-up"),
+        (_setup(), PIPE_THICKNESS, "another crystal set-up: pass the CrystalSetup"),
         (PIPE_CRYSTAL, 20e-6, "20 um"),
     ],
 )
@@ -362,3 +363,119 @@ def test_a_thin_corrected_trace_refuses_a_crystal(corrected_tracedata):
     td = replace(corrected_tracedata, marginal_crystal=None)
     with pytest.raises(ValueError, match="onto the thin-medium marginal"):
         _retrieve(td, PIPE_CRYSTAL, PIPE_THICKNESS)
+
+
+@pytest.mark.parametrize("n", [63, 81])
+def test_the_correction_maps_the_marginal_onto_an_odd_grid(n):
+    # On an odd grid the zero offset is not at n/2; the correction of an exact
+    # crystal trace must leave it unchanged (to the identity's tolerance).
+    g = Grid(n, dt=3.0e-15)
+    setup = _setup(**SETUPS["principal-toward"])
+    pm = PhaseMatching(setup, 50e-6)
+    ew = _pulse(g)
+    trace = _full_period_trace(setup, pm.thickness, ew, g)
+    out = mc.apply_marginal_correction(
+        trace, np.abs(ew) ** 2, crystal=pm, omega=g.omega, omega0=W0
+    )
+    np.testing.assert_allclose(out / out.max(), trace / trace.max(), atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "omega",
+    [GRID.omega + W0, GRID.omega + 0.3 * GRID.domega, GRID.omega[: GRID.n // 2]],
+    ids=["absolute", "off-sample", "half-grid"],
+)
+def test_a_crystal_correction_needs_the_centred_grid(omega):
+    trace = np.ones((omega.size, 3))
+    with pytest.raises(ValueError, match="centred grid"):
+        mc.apply_marginal_correction(
+            trace,
+            np.ones(omega.size),
+            crystal=PhaseMatching(_setup(), 1e-6),
+            omega=omega,
+            omega0=W0,
+        )
+
+
+@pytest.mark.parametrize("bad", ["spectrum", "omega"])
+def test_shg_marginal_refuses_non_finite_input(bad):
+    omega = GRID.omega + W0
+    spectrum = np.abs(_pulse()) ** 2
+    if bad == "spectrum":
+        spectrum[10] = np.nan
+    else:
+        omega = omega.copy()
+        omega[-1] = np.inf
+    with pytest.raises(ValueError, match="must be finite"):
+        crystals.shg_marginal(omega, spectrum, PhaseMatching(_setup(), 1e-6), W0)
+
+
+def test_load_and_clean_takes_out_a_response_on_a_grid_with_another_carrier():
+    # End to end: a crystal trace over a delay scan that holds it, seen through an
+    # instrument response, regridded on a band whose carrier is not the
+    # simulation's. Corrected through the crystal it matches the response-free
+    # trace regridded the same way; the residual is the resampling's (measured
+    # about 2e-4 of the peak), and uncorrected it is off by several per cent.
+    g = Grid(256, dt=1.5e-15)  # fundamental axis stays at positive frequencies
+    ew = gaussian_pulse(g, 10e-15, phases=(30e-30,))
+    delays = 2.0e-15 * np.arange(-60, 61)
+    model = ForwardModel(
+        g.omega,
+        delays,
+        "shg",
+        material=PIPE_CRYSTAL,
+        thickness=PIPE_THICKNESS,
+        npoints=crystals.depth_points(PIPE_CRYSTAL, g.omega, W0, PIPE_THICKNESS),
+        omega0=W0,
+    )
+    clean = model.trace(ew, normalize=False)
+    response = np.exp(-(((g.omega - 0.4e15) / 2.0e15) ** 2))[:, None]
+    lam = wlfreq(g.omega + 2.0 * W0)
+    clean = clean / (lam**2)[:, None]  # per unit wavelength, as measured
+    order = np.argsort(lam)
+    lam_spec = wlfreq(g.omega + W0)
+    spec_order = np.argsort(lam_spec)
+    i_lam = np.abs(ew) ** 2 / lam_spec**2
+    common = dict(
+        lam_frog=lam[order],
+        scanaxis=delays,
+        interaction="shg",
+        lam_min=620e-9,
+        lam_max=1150e-9,
+        input_unit="delay",
+        lam_spec=lam_spec[spec_order],
+        Ilam_spec=i_lam[spec_order] / i_lam.max(),
+    )
+    reference = preprocess.load_and_clean(clean[order], **common).trace
+    pm = PhaseMatching(PIPE_CRYSTAL, PIPE_THICKNESS)
+    measured = (clean * response)[order]
+    corrected = preprocess.load_and_clean(
+        measured, **common, marginal_correct=True, marginal_crystal=pm
+    )
+    assert corrected.omega0_pulse != pytest.approx(W0, rel=1e-3)
+    plain = preprocess.load_and_clean(measured, **common).trace
+
+    def deviation(trace):
+        return np.max(np.abs(trace / trace.max() - reference / reference.max()))
+
+    assert deviation(corrected.trace) < 1e-3
+    assert deviation(plain) > 2e-2
+
+
+def test_a_crystal_corrected_trace_refuses_a_generation_envelope(corrected_tracedata):
+    npoints = crystals.depth_points(
+        PIPE_CRYSTAL,
+        corrected_tracedata.grid.omega,
+        corrected_tracedata.omega0_pulse,
+        PIPE_THICKNESS,
+    )
+    with pytest.raises(ValueError, match="generation envelope"):
+        retrieve_from_tracedata(
+            corrected_tracedata,
+            algorithm="lbfgs-ad",
+            material=PIPE_CRYSTAL,
+            thickness=PIPE_THICKNESS,
+            npoints=npoints,
+            depth_weight=np.ones(npoints),
+            maxiters=3,
+        )

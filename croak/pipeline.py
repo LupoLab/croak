@@ -343,7 +343,7 @@ def retrieve_from_tracedata(
                 stacklevel=2,
             )
         reg_spectrum = 0.0
-    _check_marginal_medium(td, material, thickness)
+    _check_marginal_medium(td, material, thickness, depth_weight)
     algo = algorithm.lower()
     if algo not in ALGORITHMS:
         raise ValueError(f"unknown algorithm {algorithm!r}")
@@ -441,7 +441,10 @@ def retrieve_from_tracedata(
 
 
 def _check_marginal_medium(
-    td: TraceData, material: str | CrystalSetup | None, thickness: float
+    td: TraceData,
+    material: str | CrystalSetup | None,
+    thickness: float,
+    depth_weight=None,
 ) -> None:
     """Refuse a marginal-corrected trace retrieved through another medium.
 
@@ -449,7 +452,10 @@ def _check_marginal_medium(
     autoconvolution, or a crystal model's marginal (``td.marginal_crystal``). Only a
     retrieval through the same medium can reproduce it: a crystal model applied to
     a thin-medium correction filters by phase matching a second time, and a thin
-    model cannot produce a crystal-filtered marginal.
+    model cannot produce a crystal-filtered marginal. A generation envelope
+    (``depth_weight``) reweights the depth integral, so the crystal's marginal is no
+    longer the one the correction targeted (:func:`croak.crystals.shg_marginal`
+    weights every depth equally).
     """
     if not td.marginal_corrected:
         return
@@ -464,10 +470,19 @@ def _check_marginal_medium(
         )
     if corrected is None:
         return
+    if depth_weight is not None:
+        raise ValueError(
+            "the trace was marginal-corrected through a crystal with every depth "
+            "weighted equally; a generation envelope (depth_weight) changes the "
+            "crystal's marginal. Retrieve without the envelope, or load the trace "
+            "without marginal_correct"
+        )
     if crystal is None:
         got = "no crystal"
     elif crystal != corrected.setup:
-        got = "another crystal set-up"
+        # CrystalSetup compares its index functions by identity, so pass the same
+        # crystal object (or a built-in one, which is cached) to both
+        got = "another crystal set-up: pass the CrystalSetup the correction used"
     elif not math.isclose(thickness, corrected.thickness):
         got = f"{thickness * 1e6:g} um"
     else:

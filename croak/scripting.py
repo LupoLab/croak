@@ -44,12 +44,12 @@ OUTPUT = {output!r}
 _LOAD_STEPS: dict[str, str] = {
     "experimental": (
         "data = assemble_load_data(load)\n"
-        "crystal = marginal_crystal(retrieve, data['interaction'])\n"
+        "crystal = correction_crystal(preproc, retrieve, data['interaction'])\n"
         "tracedata = build_tracedata(preproc, data, crystal=crystal)"
     ),
     "simulated": (
         "data = assemble_simulated_load_data(simulated)\n"
-        "crystal = marginal_crystal(retrieve, data['interaction'])\n"
+        "crystal = correction_crystal(preproc, retrieve, data['interaction'])\n"
         "tracedata = build_tracedata(preproc, data, crystal=crystal)"
     ),
     # Keep the lightweight display/truth bundle alongside the native-grid trace:
@@ -64,11 +64,11 @@ _LOAD_STEPS: dict[str, str] = {
 _LOAD_IMPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "experimental": (
         ("LoadParams",),
-        ("assemble_load_data", "build_tracedata", "marginal_crystal"),
+        ("assemble_load_data", "build_tracedata", "correction_crystal"),
     ),
     "simulated": (
         ("SimulatedLoadParams",),
-        ("assemble_simulated_load_data", "build_tracedata", "marginal_crystal"),
+        ("assemble_simulated_load_data", "build_tracedata", "correction_crystal"),
     ),
     "simulated-raw": (
         ("SimulatedLoadParams",),

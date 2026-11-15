@@ -222,8 +222,8 @@ def apply_marginal_correction(
     Raises
     ------
     ValueError
-        If ``crystal`` is given without ``omega`` and ``omega0``, or ``omega`` does
-        not match the trace's frequency axis.
+        If ``crystal`` is given without ``omega`` and ``omega0``, or ``omega`` is
+        not the trace's centred frequency grid.
     """
     trace = np.asarray(trace, dtype=float)
     if crystal is None:
@@ -261,10 +261,17 @@ def _crystal_trace_marginal(
         raise ValueError(
             f"omega has shape {omega.shape}, the trace {trace.shape[0]} frequency rows"
         )
-    marginal = shg_marginal(omega + omega0, Iomega, crystal, omega0)
     # The linear marginal starts at twice the grid's first offset; the trace's row k
-    # sits at offset omega[k] around the signal carrier 2 * omega0.
-    start = round(-float(omega[0]) / float(omega[1] - omega[0]))
+    # sits at offset omega[k] around the signal carrier 2 * omega0. That holds on a
+    # centred grid (croak.grid.Grid.omega), which has zero offset on a sample.
+    domega = float(omega[1] - omega[0])
+    start = round(-float(omega[0]) / domega)
+    if not (0 <= start < omega.size and abs(omega[start]) < 1e-6 * abs(domega)):
+        raise ValueError(
+            "omega must be the trace's centred grid (offsets from the carrier, with "
+            "a sample at zero), not absolute frequencies"
+        )
+    marginal = shg_marginal(omega + omega0, Iomega, crystal, omega0)
     return marginal[start : start + omega.size]
 
 

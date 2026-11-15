@@ -79,7 +79,9 @@ def test_generate_script_uses_the_simulated_loader(simulated_scan_h5):
     assert "simulated = SimulatedLoadParams(" in source
     assert f"frog_path={simulated_scan_h5!r}" in source
     assert "data = assemble_simulated_load_data(simulated)" in source
-    assert "crystal = marginal_crystal(retrieve, data['interaction'])" in source
+    assert (
+        "crystal = correction_crystal(preproc, retrieve, data['interaction'])" in source
+    )
     assert "tracedata = build_tracedata(preproc, data, crystal=crystal)" in source
     # the experimental loader has no business in this script
     assert "assemble_load_data(load)" not in source
