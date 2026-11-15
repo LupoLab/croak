@@ -142,6 +142,71 @@ def test_stage_marginal_check_shg_correction_needs_a_spectrum(stage):
     assert "(exact)" in stage.status_label.text()  # SHG predicts the width exactly
 
 
+# -- the SHG crystal set on the Data stage --------------------------------------
+def test_stage_marginal_check_predicts_through_the_crystal_and_back(stage):
+    spec = _data("shg")["Ilam_spec"]
+    _enter(stage, _data("shg"))
+    assert "predicted (thin medium)" in _legend(stage.marg_view)
+    assert stage.status_label.text().startswith("SHG marginal check (thin medium)")
+    assert "thin medium" in stage.marginal_correct_check.toolTip()
+    thin = stage._predict(LAM, spec, "shg")
+    # the crystal is modelled on the Data stage: entering the check follows it
+    p = stage.state.retrieve
+    p.dispersive, p.thickness_um = True, 500.0
+    stage.on_enter()
+    assert "predicted (through the crystal, 500 µm)" in _legend(stage.marg_view)
+    assert stage.status_label.text().startswith(
+        "SHG marginal check (through the crystal, 500 µm)"
+    )
+    tip = stage.marginal_correct_check.toolTip()
+    assert "through the crystal, 500 µm" in tip
+    assert "keeps the crystal's phase matching" in tip
+    thick = stage._predict(LAM, spec, "shg")
+    # 500 µm of BBO accepts far less bandwidth than the 30 nm spectrum spans
+    assert thick["rms_width"] < 0.8 * thin["rms_width"]
+    # the correction previews onto the same, crystal, prediction
+    stage.marginal_correct_check.setChecked(True)
+    assert "trace marginal (corrected)" in _legend(stage.marg_view)
+    p.dispersive = False
+    stage.on_enter()
+    assert "predicted (thin medium)" in _legend(stage.marg_view)
+
+
+def test_stage_marginal_check_invalid_crystal_falls_back_to_thin(stage):
+    p = stage.state.retrieve
+    p.dispersive, p.angle_mode = True, "bogus"
+    _enter(stage, _data("shg"))
+    assert "predicted (thin medium)" in _legend(stage.marg_view)
+    text = stage.status_label.text()
+    assert "the crystal set on the Data stage is not valid (angle_mode" in text
+    assert text.endswith("showing the thin-medium prediction")
+    assert "thin medium" in stage.marginal_correct_check.toolTip()
+
+
+def test_stage_marginal_check_crystal_without_a_marginal_falls_back(stage, monkeypatch):
+    real = stage_marginal_check.predicted_marginal
+
+    def thin_only(*args, crystal=None, **kwargs):
+        if crystal is not None:
+            raise ValueError("the spectrum generates no SHG through the crystal")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(stage_marginal_check, "predicted_marginal", thin_only)
+    stage.state.retrieve.dispersive = True
+    _enter(stage, _data("shg"))
+    assert "predicted (thin medium)" in _legend(stage.marg_view)
+    assert "no marginal through the crystal (the spectrum generates no SHG" in (
+        stage.status_label.text()
+    )
+
+
+def test_stage_marginal_check_crystal_is_for_shg_only(stage):
+    stage.state.retrieve.dispersive = True
+    _enter(stage, _data("pg"))
+    assert "predicted" in _legend(stage.marg_view)
+    assert stage.status_label.text().startswith("PG marginal check  •")
+
+
 # -- display ------------------------------------------------------------------
 def test_stage_marginal_check_wavelength_axis_and_log_scale(stage):
     _enter(stage, _data())
@@ -208,6 +273,8 @@ def test_stage_marginal_check_width_bracket_flags(stage, sigma_meas, flag):
         "width_bracket": (1.0, 3.0),
         "width_is_hard": False,
         "rms_width": 2.0,
+        "medium": "",
+        "note": "",
     }
     stage._annotate_checks(801.0, sigma_meas, pred, "pg")
     text = stage.status_label.text()
@@ -226,6 +293,8 @@ def test_stage_marginal_check_sd_reports_only_the_lower_bound(stage, sigma_meas,
         "width_bracket": None,
         "width_is_hard": False,
         "rms_width": 2.0,
+        "medium": "",
+        "note": "",
     }
     stage._annotate_checks(800.0, sigma_meas, pred, "sd")
     text = stage.status_label.text()
