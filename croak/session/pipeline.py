@@ -29,6 +29,7 @@ from ..crystals import (
     CrystalApproximationWarning,
     CrystalSetup,
     DelayedBeam,
+    PhaseMatching,
     Polarization,
     builtin_crystal,
     depth_points,
@@ -696,12 +697,21 @@ _FAST_BASELINE_SKIP_BELOW = 0.01
 
 
 def build_tracedata(
-    p: PreprocParams, data: dict, *, fast_baseline: bool = False
+    p: PreprocParams,
+    data: dict,
+    *,
+    crystal: PhaseMatching | None = None,
+    fast_baseline: bool = False,
 ) -> TraceData:
     """Clean and regrid a loaded trace into a :class:`~croak.preprocess.TraceData`.
 
     Maps the (nm/fs) preprocess parameters onto
     :func:`croak.preprocess.load_and_clean` SI arguments.
+
+    ``crystal`` is the SHG crystal the trace was measured through
+    (:func:`marginal_crystal`); the marginal correction, when ``p.marginal_correct``
+    asks for it, then targets the crystal model's marginal. It is not used
+    otherwise.
 
     ``fast_baseline`` (off by default) solves the arPLS baseline on a coarse delay
     grid and skips near-zero rows — a ~3× speedup at ~1 % baseline difference,
@@ -741,6 +751,7 @@ def build_tracedata(
         subsample=p.subsample_tau if p.use_subsample else None,
         threshold=p.threshold if p.use_threshold else None,
         marginal_correct=p.marginal_correct,
+        marginal_crystal=crystal if p.marginal_correct else None,
         prefilter=p.prefilter,
         lam_spec=data["lam_spec"],
         Ilam_spec=data["Ilam_spec"],
@@ -928,6 +939,18 @@ def crystal_setup(p: RetrieveParams) -> CrystalSetup:
         ),
         **angle,
     )
+
+
+def marginal_crystal(p: RetrieveParams, interaction: str) -> PhaseMatching | None:
+    """Return the crystal an SHG trace's marginal is predicted through, if any.
+
+    The retrieval's crystal and thickness (:func:`crystal_setup`) for an SHG trace
+    with ``dispersive`` set, so that the marginal correction and the retrieval
+    always describe the same medium; ``None`` otherwise.
+    """
+    if not p.dispersive or get_interaction(interaction).name != "shg":
+        return None
+    return PhaseMatching(crystal_setup(p), p.thickness_um * 1e-6)
 
 
 def retrieval_medium(p: RetrieveParams, td: TraceData) -> str | CrystalSetup | None:

@@ -95,7 +95,13 @@ def _preproc_stage(options: SessionOptions, data: dict) -> TraceData:
     """
     if options.entry == "simulated" and options.simulated.raw_direct:
         return pipeline.assemble_simulated_tracedata(options.simulated)
-    return pipeline.build_tracedata(options.preproc, data)
+    # the marginal correction predicts through the retrieval's crystal, if any
+    crystal = (
+        pipeline.marginal_crystal(options.retrieve, data["interaction"])
+        if options.preproc.marginal_correct
+        else None
+    )
+    return pipeline.build_tracedata(options.preproc, data, crystal=crystal)
 
 
 def _check_stages(stages: tuple[str, ...]) -> list[str]:
