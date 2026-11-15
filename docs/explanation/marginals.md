@@ -108,6 +108,36 @@ The three identities are:
 Place the prediction on the second-harmonic frequency axis and compare to the
 measured marginal after consistent wavelength calibration.
 
+### Through a nonlinear crystal
+
+In a crystal of finite thickness the pair of fundamental components
+$(\omega_1,\omega_2)$ generates its signal with the wavevector mismatch
+$\Delta k = k_s(\omega_1+\omega_2) - k_z(\omega_1) - k_z(\omega_2)$, and the depth
+integral over the path $P$ weights the pair by
+$\lvert\int_0^P e^{i\Delta k z}\,\mathrm dz\rvert^2 = P^2\operatorname{sinc}^2(\Delta k P/2)$.
+The delay integral still turns $\lvert\psi\rvert^2$ into a sum over pairs
+(Parseval), with that weight in it, so in croak's crystal model
+({doc}`forward_model`) the marginal is
+
+```{math}
+M(\omega) = a_s(\omega)^2 \int S(\omega')\,S(\omega-\omega')\,
+P^2\operatorname{sinc}^2\!\bigl(\Delta k(\omega',\omega-\omega')\,P/2\bigr)\,\mathrm d\omega',
+```
+
+with $a_s$ the generation prefactor ({func}`croak.crystals.shg_marginal`). It is
+still phase-independent and computable from $S$, so it remains an exact check, but
+of the model: the centroid and width are those of this $M$, no longer
+$2\bar\omega_S$ and $\sqrt2\,\sigma_S$. Crossing in the principal plane adds the
+arms' delay drift $\kappa(\omega_1-\omega_2)$ to $\Delta k$; because the pairs
+$(\omega_1,\omega_2)$ and $(\omega_2,\omega_1)$ enter with the same weight, it
+changes the marginal only at second order. Smearing along delay leaves the
+marginal unchanged.
+
+The same $M$ is the target of the marginal correction for a crystal trace
+({func}`croak.marginal_checks.apply_marginal_correction` with a crystal): the
+correction then takes out the spectral response the model does not describe and
+keeps the phase matching, which the retrieval's crystal model supplies.
+
 ## PG (and TG) — three checks
 
 ```{math}

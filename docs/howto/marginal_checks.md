@@ -11,6 +11,8 @@ page is the recipe.
 
 The identities assume a thin, local interaction and complete delay support; a
 dispersive slab, smearing or a finite collection aperture also reshape the marginal.
+For SHG through a crystal, the prediction can include the crystal's phase matching
+(see [Through an SHG crystal](#through-an-shg-crystal) below).
 
 ## Predict a marginal from a spectrum
 
@@ -95,6 +97,64 @@ corrected = trace * croak.preprocess.third_order_scale(lam, n)[:, None]
 This fits one empirical response exponent; it does not correct delay-dependent
 collection effects.
 
+## Through an SHG crystal
+
+In a crystal of tens of µm the phase matching filters the SHG marginal strongly,
+so the thin-medium $S*S$ would flag a correct trace. Give the prediction the
+crystal ({class}`croak.crystals.PhaseMatching`: a
+{class}`~croak.crystals.CrystalSetup` and its thickness) and the carrier the
+retrieval uses, and it becomes the crystal model's own marginal
+({func}`croak.crystals.shg_marginal`):
+
+```python
+import math
+from croak.crystals import CrystalSetup, PhaseMatching, builtin_crystal
+from croak.geometry import TwoBeamGeometry
+
+crystal = CrystalSetup(
+    builtin_crystal("BBO"),
+    math.radians(29.2),
+    phase_match_wavelength=800e-9,
+    geometry=TwoBeamGeometry(beam_separation=5e-3, focal_length=0.2),
+    polarization="parallel",
+)
+pm = PhaseMatching(crystal, thickness=50e-6)
+pred = mc.predicted_marginal(omega, S, "shg", crystal=pm, omega0=omega0)
+pred.centroid, pred.rms_width   # of the crystal's marginal, still hard checks
+```
+
+The centroid and width are no longer $2\bar\omega_S$ and $\sqrt2\,\sigma_S$ but
+those of the computed marginal; for the crystal model they are as exact as the
+thin-medium ones. The `omega0` is the retrieval grid's carrier
+(`td.omega0_pulse`; the middle of the retrieval band), at which an explicit tilt is
+refracted and the path and delay drift are taken.
+
+The **marginal correction** can target the same prediction. Load the trace with
+the crystal it was measured through:
+
+```python
+td = croak.preprocess.load_and_clean(
+    trace, lam, delays, "shg", lam_min=600e-9, lam_max=1100e-9,
+    lam_spec=lam_spec, Ilam_spec=Ilam_spec,
+    marginal_correct=True, marginal_crystal=pm,
+)
+```
+
+Each frequency row is then rescaled onto the crystal's marginal, which removes
+what the model leaves out (the spectrometer's and detector's response, the
+dispersion of the nonlinear coefficient, the beams' overlap) and keeps the phase
+matching for the retrieval's crystal model to describe. `td.marginal_crystal`
+records the crystal, and {func}`~croak.pipeline.retrieve_from_tracedata` refuses to
+retrieve a corrected trace through any other medium: a thin-medium correction
+divides out the phase matching, which a crystal model would apply again, and a
+crystal correction leaves in a filter a thin model cannot reproduce. A session
+uses the retrieval's crystal for the correction
+({func}`croak.session.pipeline.correction_crystal`), so the two cannot disagree.
+
+The correction relies on the same assumption as the check: the delay scan holds
+the whole trace. A crystal's walk-off lengthens the trace in delay, so check that
+the scan covers its tails.
+
 ## In the GUI
 
 All of the above is interactive on the GUI's **Check the marginal** step, the
@@ -104,8 +164,10 @@ one, marks the predicted vs measured centroid, reports the width-bracket check,
 and exposes the trust region, a log/linear toggle and the `(λ/µm)^exp` correction
 with an `Auto` (centroid-matching) button. The **SHG marginal correction** also
 lives here: it rescales the trace's frequency rows onto the predicted SHG
-autoconvolution ({func}`~croak.marginal_checks.apply_marginal_correction`),
-enabled only for an SHG trace with an independent spectrum, and previews the snap
+marginal ({func}`~croak.marginal_checks.apply_marginal_correction`): the
+autoconvolution, or the crystal's marginal when the crystal is modelled (its
+settings are on the Data stage, before this step). It is enabled only for an SHG
+trace with an independent spectrum, and previews the snap
 onto the prediction live (the correction itself is applied during preprocessing,
 via {func}`~croak.preprocess.load_and_clean`'s `marginal_correct`). See the
 [GUI guide](gui.md).

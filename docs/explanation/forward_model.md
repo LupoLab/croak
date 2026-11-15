@@ -144,13 +144,17 @@ frequency marginal is therefore the sum over pairs of
 $a^2\lvert E(\omega_1)E(\omega_2)\rvert^2 P^2\mathrm{sinc}^2(\Delta k P/2)$, with
 $a$ the generation prefactor below, which
 `tests/test_forward_crystal.py` checks to the quadrature's accuracy.
+{func}`croak.crystals.shg_marginal` computes it from the fundamental spectrum, for
+the marginal checks and the marginal correction ({doc}`marginals`).
 
 **Generation prefactor.** The generated second-harmonic field grows as
 $\omega_s/n_s$, so the model multiplies the signal by
 $a(\Omega) = (\omega_s/n_s)/(2\omega_0/n_s(2\omega_0))$. Other spectral factors (the
 beams' mode overlap, the dispersion of $\chi^{(2)}$, the detector's response) are
 not modelled; the solvers' per-frequency response `R_omega` absorbs any that
-matter.
+matter, or, with an independent spectrum, the marginal correction through the
+crystal removes them before the retrieval
+([Marginal consistency checks](../howto/marginal_checks.md#through-an-shg-crystal)).
 
 **The crystal's angle.** A {class}`~croak.crystals.CrystalSetup` takes the
 manufacturer's cut angle $\theta_c$ and either the external tilt $\gamma$ or the

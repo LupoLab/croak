@@ -120,14 +120,35 @@ res = croak.retrieve(
 In a session, `smearing` switches it on and `beam_diameter_mm` gives the
 diameter; the GUI shows both in *Beam geometry*.
 
+## The marginal correction
+
+A measured trace carries the instrument's spectral response (spectrometer,
+detector, the nonlinear coefficient's dispersion), which the model does not. The
+marginal correction removes it by rescaling the trace's frequency rows onto the
+marginal predicted from the independent spectrum. Through a crystal that
+prediction must include the phase matching, or the correction divides it out and
+the crystal model applies it a second time; give the correction the crystal:
+
+```python
+from croak.crystals import PhaseMatching
+
+td = croak.preprocess.load_and_clean(
+    ..., lam_spec=lam_spec, Ilam_spec=Ilam_spec,
+    marginal_correct=True, marginal_crystal=PhaseMatching(crystal, thickness),
+)
+```
+
+A retrieval of the corrected trace must use the same crystal and thickness, and
+refuses anything else. A session does this by itself: with `marginal_correct` on,
+the correction uses the retrieval's crystal. The marginal checks predict through
+the crystal in the same way; see
+[Marginal consistency checks](marginal_checks.md#through-an-shg-crystal).
+
 ## What is not modelled yet
 
 - **Fitting the crystal.** Its thickness and angle are inputs, not fitted
   parameters ([issue #26](https://github.com/LupoLab/croak/issues/26)); a
   session's `fit_thickness` is not applied to a crystal.
-- **The marginal correction.** A trace loaded with `marginal_correct=True` has
-  already had an estimate of the phase-matching response divided out, so a
-  crystal model refuses it.
 
 ## How well it works
 
