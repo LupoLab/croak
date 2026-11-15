@@ -376,6 +376,7 @@ class StageLoad(Stage):
         # The SHG crystal and its beams are part of the apparatus (shown for SHG).
         self.crystal_panel = CrystalPanel(state)
         self.crystal_panel.set_shg(p.interaction == "shg")
+        self.crystal_panel.edited.connect(self._on_crystal_edited)
         self.controls.addWidget(self.crystal_panel)
 
         # FROG bg/calib (the (λ/µm)^exp third-order correction is tuned on the
@@ -485,6 +486,12 @@ class StageLoad(Stage):
             self._seed_spec_combos_from_params()
         if self._bg_fd is None:
             self._seed_bg_combos_from_params()
+
+    def _on_crystal_edited(self) -> None:
+        # With the marginal correction on, the prepared trace was corrected
+        # through the crystal as it was; Prepare redoes it with the new one.
+        if self.state.preproc.marginal_correct:
+            self.state.invalidate_tracedata()
 
     def _on_interaction(self, value: str) -> None:
         self.state.load.interaction = value

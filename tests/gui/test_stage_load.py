@@ -447,3 +447,18 @@ def test_stage_load_on_enter_shows_crystal_settings_changed_elsewhere(stage):
     stage.state.retrieve.dispersive = True
     stage.on_enter()
     assert stage.crystal_panel.crystal_check.isChecked()
+
+
+@pytest.mark.parametrize("correct", [False, True])
+def test_stage_load_a_crystal_edit_drops_a_trace_corrected_through_it(
+    stage, monkeypatch, correct
+):
+    # only a trace corrected through the crystal depends on it before retrieval
+    dropped = []
+    monkeypatch.setattr(
+        stage.state, "invalidate_tracedata", lambda: dropped.append(True)
+    )
+    stage.interaction_combo.setCurrentText("shg")
+    stage.state.preproc.marginal_correct = correct
+    stage.crystal_panel.thickness_spin.setValue(123.0)
+    assert dropped == ([True] if correct else [])

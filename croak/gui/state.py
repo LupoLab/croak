@@ -138,6 +138,20 @@ class WizardState(QObject):
         self.processed = None
         self.load_data_changed.emit()
 
+    def invalidate_tracedata(self) -> None:
+        """Drop the prepared trace and what was built on it, keeping the loaded data.
+
+        For a setting that changes how the trace is prepared but is not on the
+        Prepare stage (the marginal correction, the crystal it corrects through),
+        so that Prepare recomputes on entry instead of keeping a stale trace.
+        """
+        if self.tracedata is None:
+            return
+        self.tracedata = None
+        self.result = None
+        self.processed = None
+        self.tracedata_changed.emit()
+
     def set_tracedata(self, td) -> None:
         self.tracedata = td
         self.result = None

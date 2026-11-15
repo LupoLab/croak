@@ -389,3 +389,11 @@ def test_peak_norm_falls_back_outside_the_mask():
     # all-zero data is returned unchanged
     np.testing.assert_allclose(_peak_norm(np.zeros(3), np.ones(3, bool)), 0.0)
     assert _peak_norm(np.zeros(0), np.zeros(0, bool)).size == 0
+
+
+def test_stage_marginal_check_toggling_the_correction_drops_the_prepared_trace(stage):
+    # the prepared trace was made with the other setting; Prepare must redo it
+    _enter(stage, _data("shg"))
+    stage.state.tracedata = "prepared"
+    stage.marginal_correct_check.setChecked(True)
+    assert stage.state.tracedata is None

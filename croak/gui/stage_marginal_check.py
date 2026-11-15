@@ -376,6 +376,8 @@ class StageMarginalCheck(Stage):
         # The flag drives the preprocess regrid (croak.preprocess.load_and_clean);
         # here we only redraw to preview the marginal snapping onto the prediction.
         self.state.preproc.marginal_correct = bool(checked)
+        # a trace prepared with the other setting is stale: Prepare redoes it
+        self.state.invalidate_tracedata()
         self._draw()
 
     def _on_third_order_toggled(self, value: bool) -> None:
