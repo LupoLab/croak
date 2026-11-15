@@ -191,19 +191,25 @@ def test_preview_draws_the_four_panels(stage):
     assert stage._last is not None
 
 
-def test_shg_traces_can_be_made_through_the_retrieve_stages_crystal(stage):
+def test_shg_traces_can_be_made_through_the_crystal_panels_crystal(stage):
     from croak.crystals import depth_points
     from croak.forward import maketrace
     from croak.session.pipeline import crystal_setup
 
     stage.interaction.setCurrentText("shg")
-    assert stage.crystal_box.isEnabled()
+    panel = stage.crystal_panel
+    assert not panel.isHidden()
     grid, ew, omega0 = stage._pulse()
     _, delays, ideal = stage._signal_trace(grid, ew, omega0)
-    stage.use_crystal.setChecked(True)
-    stage.crystal_thickness.set_value(100.0)
+    stage._timer.stop()
+    panel.crystal_check.setChecked(True)
+    panel.thickness_spin.setValue(100.0)
+    # the panel's edits are the session's crystal, and they redraw the preview
+    assert stage.state.retrieve.dispersive is True
+    assert stage.state.retrieve.thickness_um == 100.0
+    assert stage._timer.isActive()
     _, _, made = stage._signal_trace(grid, ew, omega0)
-    # the crystal is the one the Retrieve stage's settings describe
+    # the crystal is the one the session's settings describe
     setup = crystal_setup(stage.state.retrieve)
     expected = maketrace(
         grid.omega,
@@ -222,14 +228,25 @@ def test_shg_traces_can_be_made_through_the_retrieve_stages_crystal(stage):
     np.testing.assert_allclose(made, want, rtol=0.0, atol=1e-12 * want.max())
     # 100 um of phase matching changes the trace
     assert not np.allclose(made, ideal)
-    # a zero thickness is the thin medium again
-    stage.crystal_thickness.set_value(0.0)
+    # a zero thickness is the thin medium again, as is the crystal unmodelled
+    panel.thickness_spin.setValue(0.0)
+    np.testing.assert_array_equal(stage._signal_trace(grid, ew, omega0)[2], ideal)
+    panel.thickness_spin.setValue(100.0)
+    panel.crystal_check.setChecked(False)
     np.testing.assert_array_equal(stage._signal_trace(grid, ew, omega0)[2], ideal)
 
 
 def test_the_crystal_is_for_shg_only(stage):
     stage.interaction.setCurrentText("pg")
-    assert not stage.crystal_box.isEnabled()
-    stage.use_crystal.setChecked(True)
-    stage.crystal_thickness.set_value(100.0)
+    assert stage.crystal_panel.isHidden()
+    stage.state.retrieve.dispersive = True
+    stage.state.retrieve.thickness_um = 100.0
     assert stage._crystal_kwargs(*stage._pulse()[::2]) == {}
+    stage.interaction.setCurrentText("shg")
+    assert not stage.crystal_panel.isHidden()
+
+
+def test_entering_shows_crystal_settings_changed_elsewhere(stage):
+    stage.state.retrieve.thickness_um = 42.0
+    stage.on_enter()
+    assert stage.crystal_panel.thickness_spin.value() == 42.0

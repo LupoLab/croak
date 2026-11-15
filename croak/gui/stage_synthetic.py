@@ -2,7 +2,7 @@
 
 Builds a known pulse (Gaussian or sech², with GDD/TOD/FOD and optional material
 dispersion), simulates a FROG measurement of it (for SHG optionally through the
-nonlinear crystal the Retrieve stage describes) on a user-chosen wavelength ×
+nonlinear crystal of the page's crystal panel) on a user-chosen wavelength ×
 delay sampling, previews the pulse and trace live, and then hands the synthetic
 "measurement" into the normal preprocess → retrieve pipeline (so the retriever
 rediscovers the pulse). The internal computation grid is chosen automatically to
@@ -19,7 +19,7 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
+from PySide6.QtWidgets import QGridLayout, QWidget
 
 from .. import dispersion
 from ..constants import C
@@ -41,6 +41,7 @@ from .controls import (
     group,
     spin,
 )
+from .crystal_panel import CrystalPanel
 from .stage_load import seed_preproc_defaults
 from .view_panel import ViewPanel
 from .widgets import RangeControl, ValueControl
@@ -162,25 +163,13 @@ class StageSynthetic(Stage):
         self.controls.addWidget(box)
 
         # -- SHG crystal ------------------------------------------------
-        # The crystal itself (its cut, angle, polarisation and the beams' crossing)
-        # is the one the Retrieve stage describes, so a trace made here and its
-        # retrieval share one description; only the thickness is set here.
-        self.crystal_box, form = group("SHG crystal")
-        self.use_crystal = check("Generate through the crystal", False, self._changed)
-        form.addRow(self.use_crystal)
-        self.crystal_thickness = ValueControl(
-            0.0, 1000.0, 20.0, decimals=1, step=1.0, slider_scale=1.0
-        )
-        self.crystal_thickness.changed.connect(self._changed)
-        add_wide_row(form, "thickness (µm)", self.crystal_thickness)
-        note = QLabel(
-            "Crystal, angle, polarisation and beam geometry as set in the "
-            "Retrieve stage."
-        )
-        note.setWordWrap(True)
-        form.addRow(note)
-        self.controls.addWidget(self.crystal_box)
-        self.crystal_box.setEnabled(self.interaction.currentText() == "shg")
+        # The crystal and the beams are the session's (state.retrieve), set on
+        # this panel as on every Data page: a trace generated through them is
+        # then predicted, corrected and retrieved through the same crystal.
+        self.crystal_panel = CrystalPanel(state)
+        self.crystal_panel.edited.connect(self._changed)
+        self.crystal_panel.set_shg(self.interaction.currentText() == "shg")
+        self.controls.addWidget(self.crystal_panel)
 
         # -- Noise ------------------------------------------------------
         box, form = group("Noise (optional)")
@@ -219,6 +208,8 @@ class StageSynthetic(Stage):
 
     # -- lifecycle ----------------------------------------------------------
     def on_enter(self):
+        # the crystal settings are shared with Retrieve, which may have changed them
+        self.crystal_panel.set_shg(self.interaction.currentText() == "shg")
         self._recompute()
 
     def _changed(self, *_):
@@ -267,7 +258,7 @@ class StageSynthetic(Stage):
         # the SHG fundamental sits at 2× the signal wavelength, so a mirrored
         # spectrum window must follow the interaction's omega0 scaling.
         self._sync_spec_mirror()
-        self.crystal_box.setEnabled(self.interaction.currentText() == "shg")
+        self.crystal_panel.set_shg(self.interaction.currentText() == "shg")
         self._changed()
 
     def _on_delay(self, lo, hi):
@@ -447,15 +438,18 @@ class StageSynthetic(Stage):
         return lam[order], delays, T[order]
 
     def _crystal_kwargs(self, grid, omega0) -> dict:
-        """The forward model's crystal keywords, or none for a thin medium."""
-        thickness = self.crystal_thickness.value() * 1e-6
+        """The forward model's crystal keywords, or none for a thin medium.
+
+        Through the crystal panel's crystal when it is modelled, as the marginal
+        check and the retrieval will see it.
+        """
+        p = self.state.retrieve
+        thickness = p.thickness_um * 1e-6
         if not (
-            self.interaction.currentText() == "shg"
-            and self.use_crystal.isChecked()
-            and thickness > 0
+            self.interaction.currentText() == "shg" and p.dispersive and thickness > 0
         ):
             return {}
-        setup = crystal_setup(self.state.retrieve)
+        setup = crystal_setup(p)
         return {
             "material": setup,
             "thickness": thickness,
