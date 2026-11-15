@@ -8,6 +8,7 @@ spectrum), selects the solver and pulse mode, runs the retrieval, and returns a
 
 from __future__ import annotations
 
+import math
 import warnings
 
 import numpy as np
@@ -342,13 +343,7 @@ def retrieve_from_tracedata(
                 stacklevel=2,
             )
         reg_spectrum = 0.0
-    if isinstance(material, CrystalSetup) and td.marginal_corrected:
-        raise ValueError(
-            "the trace was marginal-corrected, which already divides out an "
-            "estimate of the crystal's phase-matching response; a crystal model "
-            "would apply it twice. Load the trace without marginal_correct to "
-            "retrieve with the crystal"
-        )
+    _check_marginal_medium(td, material, thickness)
     algo = algorithm.lower()
     if algo not in ALGORITHMS:
         raise ValueError(f"unknown algorithm {algorithm!r}")
@@ -442,4 +437,43 @@ def retrieve_from_tracedata(
         omega0=omega0,
         rng=rng,
         callback=callback,
+    )
+
+
+def _check_marginal_medium(
+    td: TraceData, material: str | CrystalSetup | None, thickness: float
+) -> None:
+    """Refuse a marginal-corrected trace retrieved through another medium.
+
+    The correction puts the trace's marginal onto a prediction: the thin-medium
+    autoconvolution, or a crystal model's marginal (``td.marginal_crystal``). Only a
+    retrieval through the same medium can reproduce it: a crystal model applied to
+    a thin-medium correction filters by phase matching a second time, and a thin
+    model cannot produce a crystal-filtered marginal.
+    """
+    if not td.marginal_corrected:
+        return
+    crystal = material if isinstance(material, CrystalSetup) else None
+    corrected = td.marginal_crystal
+    if corrected is None and crystal is not None:
+        raise ValueError(
+            "the trace was marginal-corrected onto the thin-medium marginal, which "
+            "divides out the crystal's phase matching; a crystal model would apply "
+            "it again. Load the trace with marginal_crystal set to the crystal, or "
+            "without marginal_correct"
+        )
+    if corrected is None:
+        return
+    if crystal is None:
+        got = "no crystal"
+    elif crystal != corrected.setup:
+        got = "another crystal set-up"
+    elif not math.isclose(thickness, corrected.thickness):
+        got = f"{thickness * 1e6:g} um"
+    else:
+        return
+    raise ValueError(
+        f"the trace was marginal-corrected through {corrected.thickness * 1e6:g} um "
+        f"of a crystal, so it must be retrieved through the same crystal set-up and "
+        f"thickness (got {got})"
     )
