@@ -249,3 +249,51 @@ def test_stage_preprocess_numbers_describe_the_grid(loaded):
     assert numbers["Taper loss"].property("warn") is True
     loaded._show_tracedata(replace(td, taper_loss=0.0))
     assert numbers["Taper loss"].text() == "< 0.1%"
+
+
+# -- the marginal correction's crystal ------------------------------------------
+def _correct_through_a_crystal(stage):
+    """Ask for the marginal correction of an SHG trace through a 50 µm crystal."""
+    state = stage.state
+    state.load_data = {**state.load_data, "interaction": "shg"}
+    state.preproc.marginal_correct = True
+    state.retrieve.dispersive = True
+    state.retrieve.thickness_um = 50.0
+
+
+def test_stage_preprocess_corrects_through_the_data_stages_crystal(
+    loaded, monkeypatch, qtbot
+):
+    from croak.crystals import PhaseMatching
+
+    _correct_through_a_crystal(loaded)
+    seen = []
+
+    def build(params, data, *, crystal=None, fast_baseline=False):
+        seen.append(crystal)
+        raise ValueError("stop after the call")
+
+    monkeypatch.setattr(stage_preprocess.pipeline, "build_tracedata", build)
+    loaded.apply(block=True)
+    assert loaded.status_label.text() == "Preprocess failed: stop after the call"
+    # the threaded path snapshots the same crystal with the parameters
+    loaded.apply()
+    qtbot.waitUntil(lambda: not loaded._workers, timeout=20000)
+    assert len(seen) == 2
+    for crystal in seen:
+        assert isinstance(crystal, PhaseMatching)
+        assert crystal.thickness == pytest.approx(50e-6)
+    assert loaded._pending[2] is seen[1]
+
+
+def test_stage_preprocess_reports_an_invalid_crystal(loaded):
+    _correct_through_a_crystal(loaded)
+    loaded.state.retrieve.angle_mode = "bogus"
+    loaded.apply()
+    text = loaded.status_label.text()
+    assert text.startswith(
+        "Preprocess failed: the crystal set on the Data stage is not valid"
+    )
+    assert "angle_mode" in text
+    assert loaded.state.tracedata is None
+    assert loaded._workers == []

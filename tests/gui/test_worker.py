@@ -39,15 +39,18 @@ class _Recorder:
 def test_preprocess_worker_emits_result_with_request_id_and_mode(monkeypatch):
     seen = {}
 
-    def build(params, data, fast_baseline):
+    def build(params, data, crystal, fast_baseline):
         seen["fast"] = fast_baseline
+        seen["crystal"] = crystal
         return ("td", params, data)
 
     monkeypatch.setattr(worker_mod.pipeline, "build_tracedata", build)
-    w = PreprocessWorker("p", "d", 7, fast=True)
+    # the crystal the caller resolved with its snapshot goes to the build
+    w = PreprocessWorker("p", "d", 7, crystal="crystal", fast=True)
     rec = _Recorder(w, "finished_ok", "failed")
     w.run()
     assert seen["fast"] is True
+    assert seen["crystal"] == "crystal"
     assert rec.named("finished_ok") == [(("td", "p", "d"), 7, True)]
     assert rec.named("failed") == []
 
