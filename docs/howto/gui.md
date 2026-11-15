@@ -284,6 +284,7 @@ The trace preview uses the same colour scheme as Prepare (white→viridis for
 positive, white→red for negative), with the display scaled to the in-trust-band
 signal so an aggressive efficiency tilt cannot wash the image out.
 
+(the-shg-crystal-and-the-beams)=
 #### The SHG crystal and the beams
 
 For an SHG trace the measured and synthetic loaders show two more sections,
