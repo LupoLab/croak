@@ -40,6 +40,7 @@ from ..forward import quadrature_nodes_weights
 from ..geometry import TwoBeamGeometry
 from ..grid import Grid
 from ..interactions import get_interaction
+from ..maths import wlfreq
 from ..pipeline import retrieve_from_tracedata
 from ..preprocess import TraceData
 from ..processing import (
@@ -951,6 +952,31 @@ def marginal_crystal(p: RetrieveParams, interaction: str) -> PhaseMatching | Non
     if not p.dispersive or get_interaction(interaction).name != "shg":
         return None
     return PhaseMatching(crystal_setup(p), p.thickness_um * 1e-6)
+
+
+def correction_crystal(
+    preproc: PreprocParams, retrieve: RetrieveParams, interaction: str
+) -> PhaseMatching | None:
+    """Return the crystal :func:`build_tracedata` corrects the marginal through.
+
+    :func:`marginal_crystal` when ``preproc.marginal_correct`` asks for a
+    correction, ``None`` otherwise (so crystal settings that do not describe a
+    valid crystal fail only when they are used).
+    """
+    if not preproc.marginal_correct:
+        return None
+    return marginal_crystal(retrieve, interaction)
+
+
+def pulse_carrier(p: PreprocParams) -> float:
+    """Return the pulse carrier (rad/s) the retrieval grid will have.
+
+    The middle of the retrieval band in angular frequency, as
+    :func:`croak.grid.gridparams_lambda` places it; the crystal's angle and path
+    are taken there, so a prediction made before preprocessing matches the one
+    the correction makes.
+    """
+    return 0.5 * float(wlfreq(p.lam_min_nm * 1e-9) + wlfreq(p.lam_max_nm * 1e-9))
 
 
 def retrieval_medium(p: RetrieveParams, td: TraceData) -> str | CrystalSetup | None:

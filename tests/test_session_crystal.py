@@ -410,3 +410,12 @@ def test_the_session_corrects_through_the_retrievals_crystal(monkeypatch, correc
         return
     assert seen["crystal"].setup == crystal_setup(options.retrieve)
     assert seen["crystal"].thickness == pytest.approx(25e-6, rel=1e-12)
+
+
+def test_pulse_carrier_is_the_retrieval_grids_carrier():
+    from croak.grid import gridparams_lambda
+
+    preproc = SessionOptions().preproc
+    preproc.lam_min_nm, preproc.lam_max_nm = 600.0, 1100.0
+    _, _, omega0 = gridparams_lambda(100e-15, lambda_min=600e-9, lambda_max=1100e-9)
+    assert session_pipeline.pulse_carrier(preproc) == pytest.approx(omega0, rel=1e-12)
