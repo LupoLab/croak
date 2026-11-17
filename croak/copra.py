@@ -20,6 +20,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
+from .crystals import CrystalSetup
 from .forward import ForwardModel
 from .grid import Grid
 from .interactions import get_interaction
@@ -313,9 +314,10 @@ class COPRA(Retriever):
         ``maxiters``); see :func:`run_copra`.
     abstol : float, optional
         Absolute target FROG error (default ``0`` = off); see :func:`run_copra`.
-    material : str or None, optional
-        Slab material for dispersive propagation (e.g. ``"SiO2"``); ``None`` for
-        a thin medium.
+    material : str, CrystalSetup or None, optional
+        Slab material for dispersive propagation (e.g. ``"SiO2"``) for PG and SD,
+        or the nonlinear crystal for SHG (:class:`croak.crystals.CrystalSetup`);
+        ``None`` for a thin medium.
     thickness : float, optional
         Slab thickness (m).
     npoints : int, optional
@@ -342,7 +344,7 @@ class COPRA(Retriever):
         alpha: float = 0.25,
         reltol: float = 0.0,
         abstol: float = 0.0,
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 20,
         omega0: float = 0.0,

@@ -37,6 +37,7 @@ from ._jax_pulse import (
     build_parameterisation,
     time_window_mask,
 )
+from .crystals import CrystalSetup
 from .delay_origin import DELAY_ORIGINS, recentring
 from .focal import FocalMixture
 from .forward_jax import make_param_trace_fn
@@ -225,7 +226,7 @@ class LBFGSAD(Retriever):
         self,
         *,
         maxiters: int = 300,
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 20,
         omega0: float = 0.0,

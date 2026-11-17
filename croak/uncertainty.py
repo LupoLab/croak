@@ -32,6 +32,8 @@ import numpy as np
 import scipy.stats
 from numpy.typing import ArrayLike, NDArray
 
+from . import crystals
+from .crystals import CrystalSetup
 from .forward import maketrace
 from .grid import Grid
 from .maths import fwhm as _fwhm
@@ -824,7 +826,7 @@ def thickness_bootstrap(
     *,
     central_thickness: float,
     thickness_sigma: float,
-    material: str,
+    material: str | CrystalSetup,
     n_resamples: int = 300,
     warm_start: bool = True,
     rng: np.random.Generator | None = None,
@@ -875,9 +877,12 @@ def thickness_bootstrap(
     thickness_sigma : float
         Standard deviation :math:`\sigma_L` of the thickness prior in **metres**
         (``>= 0``; ``0`` gives a degenerate, zero-width distribution).
-    material : str
+    material : str or CrystalSetup
         Substrate material name (e.g. ``"SiO2"``), as accepted by
-        :func:`croak.materials.refractive_index`.
+        :func:`croak.materials.refractive_index`, or the nonlinear crystal of an
+        SHG retrieval (:class:`croak.crystals.CrystalSetup`). For a crystal each
+        draw uses at least :func:`croak.crystals.depth_points` depth nodes for its
+        thickness, since the phase mismatch to resolve grows with it.
     n_resamples : int, optional
         Number of Monte-Carlo draws ``B`` (≈200–300 for a 1σ interval).
     warm_start : bool, optional
@@ -941,9 +946,16 @@ def thickness_bootstrap(
 
     # Establish the centre: retrieve once at L0 to define both the reported point
     # estimate and the warm-start guess shared by every draw.
-    runner0 = _build_runner(
-        result, {**base_kwargs, "material": material, "thickness": central_thickness}
-    )
+    def medium(thickness: float) -> dict:
+        kwargs = {**base_kwargs, "material": material, "thickness": thickness}
+        if isinstance(material, CrystalSetup):
+            needed = crystals.depth_points(
+                material, result.omega, result.omega0, thickness
+            )
+            kwargs["npoints"] = max(int(base_kwargs.get("npoints", 0)), needed)
+        return kwargs
+
+    runner0 = _build_runner(result, medium(central_thickness))
     central_guess = result.spectrum if warm_start else None
     base = runner0(measured, delays, guess=central_guess, rng=rng)
     point_estimate, _, _ = _fwhm_and_profile(
@@ -961,9 +973,7 @@ def thickness_bootstrap(
         thickness_b = float(
             max(clip_min, rng.normal(central_thickness, thickness_sigma))
         )
-        runner = _build_runner(
-            result, {**base_kwargs, "material": material, "thickness": thickness_b}
-        )
+        runner = _build_runner(result, medium(thickness_b))
         rb = runner(measured, delays, guess=guess, rng=rng)
         fw, t_over, prof = _fwhm_and_profile(
             rb.grid, _apply_propagation(rb.spectrum, propagation), oversampling

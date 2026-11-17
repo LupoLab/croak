@@ -44,6 +44,7 @@ from ._jax_pulse import (
     build_parameterisation,
     time_window_mask,
 )
+from .crystals import CrystalSetup
 from .focal import FocalMixture
 from .forward_jax import make_param_trace_fn
 from .result import RetrievalResult
@@ -261,7 +262,7 @@ class CMAES(Retriever):
         strategy: str = "cma",
         popsize: int = 0,
         std_init: float = 0.5,
-        material: str | None = None,
+        material: str | CrystalSetup | None = None,
         thickness: float = 0.0,
         npoints: int = 20,
         omega0: float = 0.0,

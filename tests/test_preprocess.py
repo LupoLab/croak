@@ -1237,3 +1237,22 @@ def test_load_and_clean_carries_the_independent_spectrum():
     # the 1600 nm fundamental peaks at the pulse carrier (grid centre), within
     # 5 % of the grid's half-span
     assert abs(td.grid.omega[int(np.argmax(td.Iomega))]) < 0.05 * td.grid.omega.max()
+
+
+@pytest.mark.parametrize("correct", [False, True])
+def test_load_and_clean_records_the_marginal_correction(correct):
+    exp, lam_spec, Ilam_spec, lam_min, lam_max = _shg_experiment()
+    td = preprocess.load_and_clean(
+        exp.trace,
+        exp.lam_nm * 1e-9,
+        exp.delay_fs * 1e-15,
+        "shg",
+        lam_min=lam_min,
+        lam_max=lam_max,
+        input_unit="delay",
+        lam_spec=lam_spec,
+        Ilam_spec=Ilam_spec,
+        marginal_correct=correct,
+        taper_warn_level=0.0,
+    )
+    assert td.marginal_corrected is correct

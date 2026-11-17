@@ -13,8 +13,10 @@ a saved session into a retrieval.
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
+from typing import cast
 
 import numpy as np
 
@@ -22,8 +24,19 @@ from .. import io, preprocess
 from ..collection import aperture_from_scan, mask_hole_aperture
 from ..constants import C
 from ..covariance import covariance_uncertainty
+from ..crystals import (
+    TILT_ERROR_WARN,
+    CrystalApproximationWarning,
+    CrystalSetup,
+    DelayedBeam,
+    Polarization,
+    builtin_crystal,
+    depth_points,
+    tilt_field_error,
+)
 from ..focal import FocalMixture, focal_mixture
 from ..forward import quadrature_nodes_weights
+from ..geometry import TwoBeamGeometry
 from ..grid import Grid
 from ..interactions import get_interaction
 from ..pipeline import retrieve_from_tracedata
@@ -826,6 +839,148 @@ def generation_envelope(p: RetrieveParams):
     return amp * np.exp(1j * p.envelope_gouy * np.arctan(u))
 
 
+def crystal_setup(p: RetrieveParams) -> CrystalSetup:
+    """Build the SHG crystal the retrieval settings describe.
+
+    Parameters
+    ----------
+    p : RetrieveParams
+        Retrieval settings: ``crystal``, ``cut_angle_deg``, ``angle_mode`` with
+        ``tilt_deg`` or ``phase_match_nm``, ``polarization``, ``delayed_beam``,
+        ``beam_separation_mm`` and ``focal_f_mm``.
+
+    Returns
+    -------
+    CrystalSetup
+        The crystal; collinear when ``beam_separation_mm`` is ``0``.
+
+    Raises
+    ------
+    ValueError
+        If ``angle_mode`` is neither ``"tilt"`` nor ``"phase-match"``, or a
+        setting is one :class:`~croak.crystals.CrystalSetup` refuses.
+    """
+    if p.angle_mode == "tilt":
+        angle: dict = {"tilt": np.radians(p.tilt_deg)}
+    elif p.angle_mode == "phase-match":
+        angle = {"phase_match_wavelength": p.phase_match_nm * 1e-9}
+    else:
+        raise ValueError(
+            f"angle_mode must be 'tilt' or 'phase-match', got {p.angle_mode!r}"
+        )
+    geometry = (
+        TwoBeamGeometry(p.beam_separation_mm * 1e-3, p.focal_f_mm * 1e-3)
+        if p.beam_separation_mm > 0
+        else None
+    )
+    in_plane = p.polarization == "perpendicular"
+    return CrystalSetup(
+        builtin_crystal(p.crystal),
+        float(np.radians(p.cut_angle_deg)),
+        geometry=geometry,
+        # a polarisation means something only with crossing beams
+        # CrystalSetup validates both strings
+        polarization=cast(Polarization, p.polarization) if geometry else None,
+        delayed_beam=(
+            cast(DelayedBeam, p.delayed_beam) if geometry and in_plane else None
+        ),
+        **angle,
+    )
+
+
+def retrieval_medium(p: RetrieveParams, td: TraceData) -> str | CrystalSetup | None:
+    """Return what the forward model propagates through: ``None``, a slab or a crystal.
+
+    ``None`` without ``dispersive``; for an SHG trace ``td`` the crystal of
+    :func:`crystal_setup`; for PG and SD the material slab named by ``p.material``.
+    """
+    if not p.dispersive:
+        return None
+    if get_interaction(td.interaction).name == "shg":
+        return crystal_setup(p)
+    return p.material
+
+
+def retrieval_npoints(
+    p: RetrieveParams,
+    td: TraceData,
+    medium: str | CrystalSetup | None,
+    thickness: float,
+) -> int:
+    """Return the depth nodes: ``p.npoints`` for a slab, what a crystal needs.
+
+    A crystal's phase mismatch sets how finely its depth must be sampled, and
+    :func:`~croak.crystals.depth_points` gives the count that resolves it; the
+    slab's ``npoints`` (tied to its depth step in the GUI) does not apply.
+    """
+    if isinstance(medium, CrystalSetup) and thickness > 0:
+        return depth_points(medium, td.grid.omega, td.omega0_pulse, thickness)
+    return p.npoints
+
+
+def fits_thickness(p: RetrieveParams, medium: str | CrystalSetup | None) -> bool:
+    """Return whether the thickness is fitted: a slab's, not yet a crystal's (#26).
+
+    Like ``fit_thickness`` without ``dispersive``, a ticked fit with a crystal is
+    not applied; the GUI greys the control out for SHG data.
+    """
+    return p.fit_thickness and isinstance(medium, str)
+
+
+def crystal_tilt_error(
+    p: RetrieveParams, td: TraceData, result: RetrievalResult
+) -> float | None:
+    """Return what the crystal's first-order tilt model leaves out, or ``None``.
+
+    The relative field error of :func:`~croak.crystals.tilt_field_error` for the
+    retrieved spectrum, at nine delays across the trace's live delay range. Only
+    for an SHG crystal with the beams crossing in its principal plane; ``None``
+    otherwise, and when the trace or the retrieved spectrum has nothing to check
+    (no live delays, or no finite, positive spectrum).
+
+    The pair sum costs :math:`N^2` per delay, so it runs on the part of the grid
+    the pulse occupies: the spectrum's live band, doubled (every pair's sum
+    frequency then lies on the cropped grid without wrapping round), with margin.
+    """
+    medium = retrieval_medium(p, td)
+    if not (isinstance(medium, CrystalSetup) and medium.in_principal_plane):
+        return None
+    amplitude = np.abs(np.asarray(result.spectrum))
+    marginal = np.asarray(td.trace, dtype=float).sum(axis=0)
+    if not (np.all(np.isfinite(amplitude)) and amplitude.max() > 0):
+        return None
+    if not (np.all(np.isfinite(marginal)) and marginal.max() > 0):
+        return None
+    live = np.asarray(td.delays)[marginal > 1e-2 * marginal.max()]
+    omega = td.grid.omega
+    band = np.abs(omega[amplitude > 1e-3 * amplitude.max()]).max()
+    keep = np.abs(omega) <= 2.2 * band
+    # a centred grid stays centred when cropped symmetrically about its zero bin
+    centre = int(np.argmin(np.abs(omega)))
+    half = int(keep.sum() // 2) + 1
+    window = slice(max(centre - half, 0), min(centre + half, omega.size))
+    return tilt_field_error(
+        medium,
+        omega[window],
+        td.omega0_pulse,
+        p.thickness_um * 1e-6,
+        amplitude[window],
+        np.linspace(live.min(), live.max(), 9),
+    )
+
+
+def warn_crystal_tilt(error: float | None) -> None:
+    """Warn when :func:`crystal_tilt_error` exceeds the crystals module's threshold."""
+    if error is not None and error > TILT_ERROR_WARN:
+        warnings.warn(
+            f"the crystal model keeps the signal's tilt to first order only; what "
+            f"it leaves out changes the signal field by {error:.1%} for this pulse "
+            f"(croak.crystals.check_tilt)",
+            CrystalApproximationWarning,
+            stacklevel=3,
+        )
+
+
 def extra_param_centres(
     p: RetrieveParams, seed: RetrievalResult | None
 ) -> tuple[float, float, float, float]:
@@ -1001,6 +1156,7 @@ def run_retrieval(
     focal=None,
     scan_path: str | None = None,
     scan_window: str | int | None = None,
+    check_tilt: bool = True,
 ) -> RetrievalResult:
     """Run :func:`~croak.pipeline.retrieve_from_tracedata` from a ``RetrieveParams``.
 
@@ -1041,13 +1197,19 @@ def run_retrieval(
         Which collection hole of a multi-aperture scan the trace came from (the
         loader's ``window_key``); with ``p.collection == "file"`` the aperture
         is rebuilt from that hole's record. ``None`` = the first window.
+    check_tilt : bool, optional
+        Warn (:class:`~croak.crystals.CrystalApproximationWarning`) when an SHG
+        crystal crossed in its principal plane needs more than the first-order
+        tilt model for the retrieved pulse (:func:`crystal_tilt_error`). The GUI
+        turns it off and reports the estimate itself.
     """
     rng = np.random.default_rng() if rng is None else rng
     if focal is None:
         focal = focal_mixture_from_params(p, td, scan_path, scan_window)
     td = apply_spectrum_frame(p, td)
     thickness, tau0, smear_scale, smear_delta = extra_param_centres(p, extras_seed)
-    return retrieve_from_tracedata(
+    medium = retrieval_medium(p, td)
+    result = retrieve_from_tracedata(
         td,
         algorithm=p.solver,
         full=p.full,
@@ -1055,9 +1217,9 @@ def run_retrieval(
         guess=resolve_guess(p, guess_override),
         perfect_fwhm=p.perfect_init_fs * 1e-15,
         truth=truth,
-        material=p.material if p.dispersive else None,
+        material=medium,
         thickness=thickness,
-        npoints=p.npoints,
+        npoints=retrieval_npoints(p, td, medium, thickness),
         smearing=smearing_kernel(p, td),
         focal=focal,
         depth_weight=generation_envelope(p),
@@ -1074,8 +1236,8 @@ def run_retrieval(
         tau0=tau0,
         smear_scale=smear_scale,
         smear_scale_delta=smear_delta,
-        # thickness fitting needs a dispersive slab (the solver guards SHG)
-        fit_thickness=p.fit_thickness and p.dispersive,
+        # thickness fitting needs a dispersive slab, not yet a crystal (#26)
+        fit_thickness=fits_thickness(p, medium),
         fit_tau0=p.fit_tau0,
         # the smearing strength is only fittable when a kernel is being modelled
         fit_smearing=p.fit_smearing and p.smearing,
@@ -1096,6 +1258,9 @@ def run_retrieval(
         rng=rng,
         callback=callback,
     )
+    if check_tilt:
+        warn_crystal_tilt(crystal_tilt_error(p, td, result))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1140,14 +1305,16 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
     internally and filters these by what the chosen algorithm accepts, so it is
     safe to pass the full candidate set.
     """
+    medium = retrieval_medium(p, td)
+    thickness = p.thickness_um * 1e-6 if p.dispersive else 0.0
     return {
         "algorithm": p.solver,
         "maxiters": p.maxiters,
         "reltol": p.reltol,
         "abstol": p.abstol,
-        "material": p.material if p.dispersive else None,
-        "thickness": p.thickness_um * 1e-6 if p.dispersive else 0.0,
-        "npoints": p.npoints,
+        "material": medium,
+        "thickness": thickness,
+        "npoints": retrieval_npoints(p, td, medium, thickness),
         "smearing": smearing_kernel(p, td),
         "depth_weight": generation_envelope(p),
         "phase_only": not p.full,
@@ -1160,7 +1327,7 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
         "spectrum_target": td.Iomega if p.reg_spectrum > 0 and p.full else None,
         "reg_time": p.reg_time,
         "time_window": (p.reg_time_lo_fs * 1e-15, p.reg_time_hi_fs * 1e-15),
-        "fit_thickness": p.fit_thickness and p.dispersive,
+        "fit_thickness": fits_thickness(p, medium),
         "fit_tau0": p.fit_tau0,
         "fit_smearing": p.fit_smearing and p.smearing,
         "fit_smearing_split": p.fit_smearing_split and p.fit_smearing and p.smearing,
@@ -1177,18 +1344,27 @@ def covariance_kwargs(p: RetrieveParams, td: TraceData | None = None) -> dict:
     This includes the core slab, reduced smearing and phase parameterisation.
     It does not reconstruct focal/collection, depth-weight or marginal-peak
     centred models; do not interpret its output as matching those retrievals.
-    ``td`` supplies the carrier needed to rebuild a reduced smearing kernel.
+    ``td`` supplies the carrier needed to rebuild a reduced smearing kernel, and
+    the interaction that decides between a material slab and an SHG crystal
+    (:func:`retrieval_medium`); without it the slab is ``p.material``.
     """
+    thickness = p.thickness_um * 1e-6 if p.dispersive else 0.0
+    if td is None:
+        medium: str | CrystalSetup | None = p.material if p.dispersive else None
+        npoints = p.npoints
+    else:
+        medium = retrieval_medium(p, td)
+        npoints = retrieval_npoints(p, td, medium, thickness)
     return {
-        "material": p.material if p.dispersive else None,
-        "thickness": p.thickness_um * 1e-6 if p.dispersive else 0.0,
-        "npoints": p.npoints,
+        "material": medium,
+        "thickness": thickness,
+        "npoints": npoints,
         "smearing": smearing_kernel(p, td) if td is not None else None,
         "phase_only": not p.full,
         "phase_basis": p.phase_basis,
         "n_nodes": p.n_nodes,
         "R_omega": p.R_omega,
-        "fit_thickness": p.fit_thickness and p.dispersive,
+        "fit_thickness": fits_thickness(p, medium),
         "fit_tau0": p.fit_tau0,
         "fit_smearing": p.fit_smearing and p.smearing and td is not None,
         "fit_smearing_split": (
@@ -1260,13 +1436,19 @@ def run_uncertainty(
             else NoiseModel(sigma=up.noise_sigma)
         )
     elif up.method == "thickness":
+        medium = retrieval_medium(rp, td)
+        if medium is None:
+            raise ValueError(
+                "the thickness uncertainty needs dispersive propagation: switch on "
+                "the slab, or for SHG the crystal, whose thickness is uncertain"
+            )
         # Central thickness from the retrieval settings; 1σ from the uncertainty
         # stage. The dispersive pair is injected per draw, so drop it from kw to
         # avoid colliding with the explicit `material=` keyword below.
         extra = {
             "central_thickness": rp.thickness_um * 1e-6,
             "thickness_sigma": up.thickness_sigma_um * 1e-6,
-            "material": rp.material,
+            "material": medium,
         }
         # Bootstrapping the thickness systematic and *fitting* the thickness are
         # alternative ways to account for it — never both, so drop the fit here.

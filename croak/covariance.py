@@ -59,6 +59,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from . import metrics_jax as mj
 from ._jax_pulse import ExtraParamSpec, augment, ls_parameterisation
+from .crystals import CrystalSetup
 from .forward_jax import make_param_trace_fn  # enables jax_enable_x64 at import
 from .result import RetrievalResult
 from .smearing import SmearingKernel
@@ -209,7 +210,7 @@ def _compute_core(
     *,
     noise: NoiseModel | float | None,
     weights: NDArray[np.float64] | None,
-    material: str | None,
+    material: str | CrystalSetup | None,
     thickness: float,
     npoints: int,
     omega0: float | None,
@@ -378,7 +379,7 @@ def parameter_covariance(
     *,
     noise: NoiseModel | float | None = None,
     weights: NDArray[np.float64] | None = None,
-    material: str | None = None,
+    material: str | CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 20,
     omega0: float | None = None,
@@ -507,7 +508,7 @@ def covariance_uncertainty(
     interval: str = "bias-corrected",
     rng: np.random.Generator | None = None,
     weights: NDArray[np.float64] | None = None,
-    material: str | None = None,
+    material: str | CrystalSetup | None = None,
     thickness: float = 0.0,
     npoints: int = 20,
     omega0: float | None = None,
