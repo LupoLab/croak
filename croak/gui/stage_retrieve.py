@@ -316,8 +316,10 @@ class StageRetrieve(RunControls, Stage):
                     "Spectral (λ window)",
                     "Mask the retrieved result outside the spectral window at the "
                     "fundamental: the trace window λm for PG/SD, the spectrum "
-                    "window λs for SHG (off for SHG without a spectrum). Applied "
-                    "to the stored result, no re-run.",
+                    "window λs for SHG (off for SHG without a spectrum). At the "
+                    "default λs, the spectrometer's full range, the SHG filter does "
+                    "essentially nothing; narrow λs in Prepare to make it act. "
+                    "Applied to the stored result, no re-run.",
                 ),
                 (
                     "Temporal (τ window)",
