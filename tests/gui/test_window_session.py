@@ -366,3 +366,40 @@ def test_window_every_form_fits_its_column(qtbot, entry):
             content = form.findChild(QScrollArea).widget()
             # Nothing scrolls sideways: every row fits the fixed column.
             assert content.minimumSizeHint().width() < FORM_WIDTH, (number, entry)
+
+
+def test_window_restores_an_old_sessions_spectrum_window(
+    qtbot, tmp_path, experiment_h5, experiment
+):
+    # A session saved before the spectrum window λs existed: its spectrum was
+    # windowed by λm (× 1 for this PG trace). It reopens with λs = λm, and the
+    # Prepare control takes its bounds from the reloaded spectrum.
+    lam = experiment.lam_nm
+    spec = tmp_path / "spec.csv"
+    np.savetxt(spec, np.column_stack([lam, np.ones_like(lam)]), delimiter=",")
+    src = WizardState()
+    _point_at_experiment(src, experiment_h5, experiment)
+    src.load.use_spec, src.load.spec_path = True, str(spec)
+    lamm = (float(np.ceil(lam[0])) + 5.0, float(np.floor(lam[-1])) - 5.0)
+    src.preproc.lamm_min_nm, src.preproc.lamm_max_nm = lamm
+    opts = tmp_path / "options.toml"
+    save.save_options(src.to_options(), str(opts))
+    options = save.load_options(str(opts))
+    options["options_version"] = 2  # as written before λs existed
+    d = Driver(qtbot, "experimental")
+    d.state.from_options(options)
+    d.rebuild()
+    win = d.win
+    assert win.pages[Stage.DATA].restore()
+    p = win.state.preproc
+    assert (p.lams_min_nm, p.lams_max_nm) == lamm
+    assert (p.lams_bound_min_nm, p.lams_bound_max_nm) == (
+        float(np.floor(lam[0])),
+        float(np.ceil(lam[-1])),
+    )
+    prepare = win.pages[Stage.PREPARE]
+    prepare._seed_ranges()
+    assert prepare.lams_range.isEnabled()
+    assert (prepare.lams_range.lo_spin.value(), prepare.lams_range.hi_spin.value()) == (
+        lamm
+    )

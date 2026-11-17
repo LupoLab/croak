@@ -158,6 +158,14 @@ def _clamp_preproc_to_bounds(pp: PreprocParams) -> None:
     pp.lamm_max_nm = min(
         max(pp.lamm_max_nm, pp.lamm_bound_min_nm), pp.lamm_bound_max_nm
     )
+    _clamp_spectrum_window(pp)
+    for attr in ("tau_min_fs", "tau_max_fs", "taum_min_fs", "taum_max_fs"):
+        v = getattr(pp, attr)
+        setattr(pp, attr, min(max(v, pp.tau_bound_min_fs), pp.tau_bound_max_fs))
+
+
+def _clamp_spectrum_window(pp: PreprocParams) -> None:
+    """Clamp the spectrum window λs into its bounds, the spectrum's extent."""
     if pp.lams_bound_min_nm is None or pp.lams_bound_max_nm is None:
         # no spectrum (any more): its window goes with it
         pp.lams_min_nm = pp.lams_max_nm = None
@@ -171,9 +179,23 @@ def _clamp_preproc_to_bounds(pp: PreprocParams) -> None:
             pp.lams_min_nm, pp.lams_max_nm = low, high
         else:
             pp.lams_min_nm = pp.lams_max_nm = None
-    for attr in ("tau_min_fs", "tau_max_fs", "taum_min_fs", "taum_max_fs"):
-        v = getattr(pp, attr)
-        setattr(pp, attr, min(max(v, pp.tau_bound_min_fs), pp.tau_bound_max_fs))
+
+
+def adopt_spectrum_bounds(pp: PreprocParams, defaults: PreprocParams) -> None:
+    """Take λs's bounds from the reloaded data when a reopened session lacks them.
+
+    A session written before the spectrum window existed has its λs migrated
+    from λm (:meth:`~croak.session.options.SessionOptions.from_dict`) but no
+    bounds, which are the spectrum's extent and so come from the data. Without
+    them the Prepare stage would show λs disabled while the window still applies.
+    The window is then clamped into them; a migrated window that misses the
+    spectrum falls back to the full extent. Bounds already saved are kept.
+    """
+    if pp.lams_bound_min_nm is not None and pp.lams_bound_max_nm is not None:
+        return
+    pp.lams_bound_min_nm = defaults.lams_bound_min_nm
+    pp.lams_bound_max_nm = defaults.lams_bound_max_nm
+    _clamp_spectrum_window(pp)
 
 
 def seed_preproc_defaults(state, *, reset_values: bool = True) -> None:

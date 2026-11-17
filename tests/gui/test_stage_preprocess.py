@@ -14,7 +14,11 @@ pytest.importorskip("PySide6")
 import shiboken6
 
 from croak.gui import stage_preprocess
-from croak.gui.stage_load import compute_preproc_defaults, seed_preproc_defaults
+from croak.gui.stage_load import (
+    adopt_spectrum_bounds,
+    compute_preproc_defaults,
+    seed_preproc_defaults,
+)
 from croak.gui.stage_preprocess import StagePreprocess
 from croak.gui.state import WizardState
 from croak.session.pipeline import assemble_load_data, build_tracedata
@@ -325,3 +329,37 @@ def test_reseeding_resets_a_spectrum_window_that_misses_the_new_spectrum(loaded)
     _with_spectrum(loaded, extent_nm=(1400.0, 1800.0))
     seed_preproc_defaults(loaded.state, reset_values=False)
     assert p.lams_min_nm is None and p.lams_max_nm is None
+
+
+@pytest.mark.parametrize(
+    ("window", "expected"),
+    [
+        # a migrated window wider than the spectrum clamps to it, which windows
+        # the spectrum exactly as before (its taper lay outside the data)
+        ((500.0, 900.0), (600.0, 900.0)),
+        # one that misses the spectrum falls back to the full extent
+        ((1200.0, 1400.0), (None, None)),
+    ],
+)
+def test_adopt_spectrum_bounds_fills_missing_bounds_from_the_data(
+    loaded, window, expected
+):
+    _with_spectrum(loaded)
+    defaults = compute_preproc_defaults(loaded.state.load_data)
+    p = loaded.state.preproc
+    p.lams_bound_min_nm = p.lams_bound_max_nm = None
+    p.lams_min_nm, p.lams_max_nm = window
+    adopt_spectrum_bounds(p, defaults)
+    assert (p.lams_bound_min_nm, p.lams_bound_max_nm) == (600.0, 1000.0)
+    assert (p.lams_min_nm, p.lams_max_nm) == expected
+
+
+def test_adopt_spectrum_bounds_keeps_saved_bounds(loaded):
+    _with_spectrum(loaded)
+    defaults = compute_preproc_defaults(loaded.state.load_data)
+    p = loaded.state.preproc
+    p.lams_bound_min_nm, p.lams_bound_max_nm = 650.0, 950.0
+    p.lams_min_nm, p.lams_max_nm = 500.0, 900.0
+    adopt_spectrum_bounds(p, defaults)
+    assert (p.lams_bound_min_nm, p.lams_bound_max_nm) == (650.0, 950.0)
+    assert (p.lams_min_nm, p.lams_max_nm) == (500.0, 900.0)  # left as saved
