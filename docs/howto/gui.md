@@ -321,13 +321,12 @@ overlays the predicted marginal, marks the predicted vs measured **centroid**,
 reports the **width-bracket** check, and exposes two spectral **trust regions**:
 **trace λ** for the trace marginal (defaults to 190–1000 nm for a measured trace,
 or the full loaded range for the noise-free simulated/synthetic traces) and
-**spectrum λ** for the independent spectrum (a measured spectrum defaults to its
-range within 190–1000 nm, or its full range if it lies outside that band; a
-simulated or synthetic one to its full range; off without a spectrum). There are two because the trace and the spectrum come from
-different instruments and, for SHG, lie an octave apart. The page also has a
-**log/linear** marginal toggle (default
-linear, peak-normalised)
-and the **3rd-order** `(λ/µm)^exp` efficiency correction. Its **Auto** button
+**spectrum λ** for the independent spectrum (defaults to the spectrum's full
+range, as Prepare's λs does; off without a spectrum). There are two because the
+trace and the spectrum come from different instruments and, for SHG, lie an
+octave apart. The page also has a **log/linear** marginal toggle (default
+linear, peak-normalised) and the **3rd-order** `(λ/µm)^exp` efficiency
+correction. Its **Auto** button
 picks the exponent whose corrected-marginal centroid matches the prediction
 ({func}`~croak.marginal_checks.auto_third_order_exponent`). The **SHG marginal
 correction** is available here: it scales the trace's frequency rows onto the
@@ -352,8 +351,8 @@ change a setting. The *Windowing* group has three windows: **λm** for the trace
 in its own wavelengths (for SHG, around half the fundamental); **λs** for the
 independent spectrum, in fundamental wavelengths (its full range by default, and
 off without a spectrum; for SHG it is also the post-filter's spectral window,
-which for PG/SD is λm); and
-**τm** for the delay axis. λm and λs are independent of each other. The plots show six maps in two rows of three — the measured,
+which for PG/SD is λm); and **τm** for the delay axis. λm and λs are independent
+of each other. The plots show six maps in two rows of three — the measured,
 filtered and regridded trace, in dB above and linear below — with linked axes:
 all six share the delay axis, and the measured and filtered maps share the
 wavelength axis, so a zoom on one follows on the others. Above the maps, five

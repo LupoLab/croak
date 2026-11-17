@@ -108,13 +108,15 @@ collection effects.
 
 All of the above is interactive on the GUI's **Check the marginal** step, the
 second step of the Data stage, which sits between the data loaders and Prepare
-for measured, simulated and synthetic sessions. It overlays the predicted marginal on the measured
-one, marks the predicted vs measured centroid, reports the width-bracket check,
-and exposes the two trust regions (trace and spectrum), a log/linear toggle and the `(λ/µm)^exp` correction
-with an `Auto` (centroid-matching) button. The **SHG marginal correction** also
-lives here: it rescales the trace's frequency rows onto the predicted SHG
-autoconvolution ({func}`~croak.marginal_checks.apply_marginal_correction`),
-enabled only for an SHG trace with an independent spectrum, and previews the snap
-onto the prediction live (the correction itself is applied during preprocessing,
-via {func}`~croak.preprocess.load_and_clean`'s `marginal_correct`). See the
+for measured, simulated and synthetic sessions. It overlays the predicted marginal
+on the measured one, marks the predicted vs measured centroid, reports the
+width-bracket check, and exposes the two trust regions (the trace's, 190–1000 nm
+for a measured trace, and the spectrum's, the spectrum's full range by default), a
+log/linear toggle and the `(λ/µm)^exp` correction with an `Auto`
+(centroid-matching) button. The **SHG marginal correction** also lives here: it
+rescales the trace's frequency rows onto the predicted SHG autoconvolution
+({func}`~croak.marginal_checks.apply_marginal_correction`), enabled only for an
+SHG trace with an independent spectrum, and previews the snap onto the prediction
+live (the correction itself is applied during preprocessing, via
+{func}`~croak.preprocess.load_and_clean`'s `marginal_correct`). See the
 [GUI guide](gui.md).
