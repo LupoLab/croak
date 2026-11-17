@@ -810,15 +810,16 @@ def make_param_trace_fn(
         w_hat = jnp.asarray(weights0)
 
         def props(thk: jnp.ndarray | float):
+            """``(input_prop, gate_prop, signal_prop, weights)`` at thickness ``thk``.
+
+            An isotropic slab: the gate arm's propagator is the test arm's.
+            """
             nodes = thk * xi
             input_prop = jnp.exp(1j * beta_bin[:, None] * nodes[None, :])
             signal_prop = jnp.exp(1j * beta_bin[:, None] * (thk - nodes)[None, :])
             weights = thk * w_hat
-            return input_prop, signal_prop, weights if dw is None else weights * dw
-
-        def gate_props(thk: jnp.ndarray | float, input_prop: jnp.ndarray):
-            """Gate arm's propagator: the test arm's, for an isotropic slab."""
-            return input_prop
+            weights = weights if dw is None else weights * dw
+            return input_prop, input_prop, signal_prop, weights
 
         def depth_remaining(thk: jnp.ndarray | float) -> jnp.ndarray:
             """Remaining slab ``L - z_q`` per depth node, differentiable in ``L``."""
@@ -838,11 +839,12 @@ def make_param_trace_fn(
         remaining_c = jnp.asarray(float(thickness) - np.asarray(nodes0))
 
         def props(thk: jnp.ndarray | float):
-            return input_prop_c, signal_prop_c, weights_c
+            """``(input_prop, gate_prop, signal_prop, weights)``, thickness fixed.
 
-        def gate_props(thk: jnp.ndarray | float, input_prop: jnp.ndarray):
-            """Gate arm's propagator (differs for a crystal's arm drift)."""
-            return gate_prop_c
+            The gate arm's propagator differs from the test arm's for a crystal
+            crossed in its principal plane (the arms' delay drift).
+            """
+            return input_prop_c, gate_prop_c, signal_prop_c, weights_c
 
         def depth_remaining(thk: jnp.ndarray | float) -> jnp.ndarray:
             """Remaining slab ``L - z_q`` per depth node (thickness held fixed)."""
@@ -851,9 +853,9 @@ def make_param_trace_fn(
     def signal(ew, tau, thickness_v, tau0_v):
         ew_bin = jnp.fft.ifftshift(ew)
         phase = jnp.exp(1j * omega_bin * (tau - tau0_v))
-        input_prop, signal_prop, weights = props(thickness_v)
+        input_prop, gate_prop, signal_prop, weights = props(thickness_v)
         e0 = ew_bin[:, None] * input_prop
-        etau = (ew_bin * phase)[:, None] * gate_props(thickness_v, input_prop)
+        etau = (ew_bin * phase)[:, None] * gate_prop
         test = jnp.fft.fft(e0, axis=0)
         gate = jnp.fft.fft(etau, axis=0)
         sig = signal_map(test, gate)
@@ -960,7 +962,9 @@ def make_param_trace_fn(
                     the depth_transverse exit phase and the fc-z entrance-side
                     evolution compose orthogonally.
                     """
-                    input_prop, signal_prop, weights = props(thickness_v)
+                    # a slab only (a crystal is refused here), so the gate arm's
+                    # propagator is the test arm's
+                    input_prop, _, signal_prop, weights = props(thickness_v)
                     in_q = input_prop[:, iq]
                     fixed_shift, varying_base = inter.smeared_shifts(
                         tau - tau0_v - theta_k[k]
@@ -1049,7 +1053,9 @@ def make_param_trace_fn(
                 return jnp.einsum("djw,jw->dw", jnp.abs(s) ** 2, weight_sq).T
 
         def signal_focal(ew, tau, thickness_v, tau0_v, k):
-            input_prop, signal_prop, weights = props(thickness_v)
+            # a slab only (a crystal is refused here), so the gate arm's
+            # propagator is the test arm's
+            input_prop, _, signal_prop, weights = props(thickness_v)
             # theta translates the delay axis for this node.
             fixed_shift, varying_base = inter.smeared_shifts(tau - tau0_v - theta_k[k])
             if arm_filt_bin is None:
@@ -1150,7 +1156,9 @@ def make_param_trace_fn(
 
     def signal_smeared(ew, tau, thickness_v, tau0_v, scale_p):
         ew_bin = jnp.fft.ifftshift(ew)
-        input_prop, signal_prop, weights = props(thickness_v)
+        # a slab only (a crystal is refused here), so the gate arm's
+        # propagator is the test arm's
+        input_prop, _, signal_prop, weights = props(thickness_v)
         fixed_shift, varying_base = inter.smeared_shifts(tau - tau0_v)
         # (N, Q): the replica that does not move with p.
         fixed = jnp.fft.fft(
