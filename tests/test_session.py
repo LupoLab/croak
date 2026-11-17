@@ -719,14 +719,91 @@ def test_build_tracedata_ignores_the_spectrum_window_without_a_spectrum(
     assert seen["lams_lims"] is None
 
 
-def test_an_options_file_without_the_spectrum_window_loads_it_unset(tmp_path):
-    # options.toml files written before the spectrum window existed lack its
-    # keys; they must read back as "full extent", and None must round-trip.
-    SessionOptions().to_toml(str(tmp_path / "options.toml"))
+def test_an_unset_spectrum_window_round_trips_as_unset(tmp_path):
+    # None is omitted from the TOML; a current file must read it back as "full
+    # extent", not migrate it from the narrowed λm as an old file would be.
+    options = SessionOptions(preproc=PreprocParams(lamm_min_nm=380.0))
+    options.to_toml(str(tmp_path / "options.toml"))
     back = SessionOptions.from_toml(str(tmp_path / "options.toml"))
     assert back.preproc.lams_min_nm is None and back.preproc.lams_max_nm is None
-    old = SessionOptions.from_dict({"preproc": {"lamm_min_nm": 400.0}})
-    assert old.preproc.lams_min_nm is None and old.preproc.lams_max_nm is None
+    assert back == options
+    # a mapping with no version header (an in-memory to_dict) is not migrated
+    unversioned = SessionOptions.from_dict({"preproc": {"lamm_min_nm": 400.0}})
+    assert unversioned.preproc.lams_min_nm is None
+
+
+def _old_options_file(path: Path, entry: str, interaction: str, preproc: str) -> str:
+    """Write an ``options_version = 2`` file, as croak wrote before λs existed."""
+    loader = "load" if entry == "experimental" else "simulated"
+    path.write_text(
+        f'options_version = 2\nentry = "{entry}"\n\n'
+        f'[{loader}]\ninteraction = "{interaction}"\n\n'
+        f"[preproc]\n{preproc}"
+    )
+    return str(path)
+
+
+@pytest.mark.parametrize(
+    ("entry", "interaction", "expected"),
+    [
+        # PG/SD: the trace is at the fundamental, so λm windowed the spectrum as is
+        ("experimental", "pg", (750.0, 850.0)),
+        ("experimental", "sd", (750.0, 850.0)),
+        # SHG: λm, at the second harmonic, was doubled onto the fundamental
+        ("experimental", "shg", (1500.0, 1700.0)),
+        ("simulated", "shg", (1500.0, 1700.0)),
+    ],
+)
+def test_an_old_options_file_keeps_its_spectrum_window(
+    tmp_path, monkeypatch, experiment, entry, interaction, expected
+):
+    path = _old_options_file(
+        tmp_path / "options.toml",
+        entry,
+        interaction,
+        "lamm_min_nm = 750.0\nlamm_max_nm = 850.0\n",
+    )
+    preproc = SessionOptions.from_toml(path).preproc
+    assert (preproc.lams_min_nm, preproc.lams_max_nm) == expected
+    # the bounds are the spectrum's extent: they come from the data, not the file
+    assert preproc.lams_bound_min_nm is None and preproc.lams_bound_max_nm is None
+    # and the pipeline windows the spectrum where the old code did, λm × scale
+    seen = _captured_load_and_clean(monkeypatch)
+    build_tracedata(preproc, _data_with_spectrum(experiment))
+    assert seen["lams_lims"] == pytest.approx(np.array(expected) * 1e-9)
+
+
+@pytest.mark.parametrize(
+    ("entry", "version", "preproc"),
+    [
+        # a current file: an absent λs means "full extent" by design
+        ("experimental", 3, "lamm_min_nm = 750.0\nlamm_max_nm = 850.0\n"),
+        # an old file without λm has no window to migrate
+        ("experimental", 2, "lam_min_nm = 700.0\n"),
+        # a synthetic session names no loader interaction and is re-seeded
+        ("synthetic", 2, "lamm_min_nm = 750.0\nlamm_max_nm = 850.0\n"),
+    ],
+)
+def test_options_files_that_are_not_migrated(tmp_path, entry, version, preproc):
+    path = tmp_path / "options.toml"
+    path.write_text(
+        f'options_version = {version}\nentry = "{entry}"\n\n[preproc]\n{preproc}'
+    )
+    loaded = SessionOptions.from_toml(str(path)).preproc
+    assert loaded.lams_min_nm is None and loaded.lams_max_nm is None
+
+
+def test_an_old_options_file_with_a_spectrum_window_keeps_it(tmp_path):
+    # λs written into an old-version file (by hand) is taken as written
+    path = _old_options_file(
+        tmp_path / "options.toml",
+        "experimental",
+        "shg",
+        "lamm_min_nm = 750.0\nlamm_max_nm = 850.0\n"
+        "lams_min_nm = 700.0\nlams_max_nm = 900.0\n",
+    )
+    preproc = SessionOptions.from_toml(path).preproc
+    assert (preproc.lams_min_nm, preproc.lams_max_nm) == (700.0, 900.0)
 
 
 def test_build_tracedata_rejects_a_half_set_spectrum_window(experiment):

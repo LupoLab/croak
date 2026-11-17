@@ -112,8 +112,10 @@ A few `load_and_clean` keywords do most of the work:
   octave apart. `td.fundamental_window` gives the window to use on the retrieved
   field: λm for PG/SD (whose trace sits at the fundamental), λs for SHG, and
   `None` for SHG without a spectrum. In croak 0.4 and earlier, λm also tapered
-  the spectrum (×2 for SHG); a session saved then reads back with λs unset, so set
-  λs to taper the spectrum as before.
+  the spectrum (×2 for SHG); a session saved then reads back with λs set to that
+  mapped window, so it windows its spectrum as before. A call to
+  `load_and_clean` without `lams_lims` no longer tapers the spectrum; pass
+  `lams_lims` to do so.
 
 ## De-fringing: notch vs. Takeda low-pass
 

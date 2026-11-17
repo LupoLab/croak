@@ -251,8 +251,9 @@ class PreprocParams:
     lamm_bound_min_nm: float = 300.0
     lamm_bound_max_nm: float = 1100.0
     # independent fundamental-spectrum window (fundamental λ domain); None means
-    # the spectrum's full extent (and is what a file without a spectrum, or one
-    # written before this window existed, reads back as)
+    # the spectrum's full extent (and is what a file without a spectrum reads
+    # back as; a file written before this window existed gets λm × omega0_scale,
+    # see SessionOptions.from_dict)
     lams_min_nm: float | None = None
     lams_max_nm: float | None = None
     lams_bound_min_nm: float | None = None

@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
 from .. import gases, materials
+from ..interactions import get_interaction
 from ..save import load_options, save_options
 from .params import (
     BeamPathMirror,
@@ -107,6 +108,47 @@ def _retrieve_from_mapping(data: Any) -> RetrieveParams:
     return obj
 
 
+#: The ``options_version`` that added the independent spectrum's window
+#: (``lams_min_nm``/``lams_max_nm`` in ``[preproc]``); see
+#: :func:`_migrate_spectrum_window`.
+_SPECTRUM_WINDOW_VERSION = 3
+
+
+def _migrate_spectrum_window(
+    data: dict[str, Any], preproc: PreprocParams, interaction: str
+) -> None:
+    """Give a session written before the spectrum window its old spectrum taper.
+
+    Before ``options_version`` 3 the independent spectrum was windowed by the
+    trace window λm mapped to the fundamental by the interaction's
+    ``omega0_scale`` (×1 for PG/SD, ×2 for SHG); it now has its own window λs,
+    whose ``None`` means the spectrum's full extent. Reading such a file with λs
+    unset would silently drop the old taper, so λs is set to λm × scale here,
+    which reproduces the old spectrum exactly. Files carry the version header,
+    and only a file whose version predates the window *and* whose ``[preproc]``
+    has λm but no λs is migrated: a newer file omits an unset λs too (TOML has no
+    null), and must keep meaning "full extent". A mapping without a version
+    header (an in-memory :meth:`SessionOptions.to_dict`) is never migrated.
+
+    The λs slider *bounds* are left unset: they are data extents, which the GUI
+    takes from the reloaded spectrum. A migrated window that misses the spectrum
+    is kept as it is: the GUI's clamp to the spectrum then falls back to the full
+    extent, and :func:`~croak.preprocess.load_and_clean` refuses it with a clear
+    error, where the old code failed too (on an empty band).
+    """
+    version = data.get("options_version")
+    table = data.get("preproc")
+    if not isinstance(version, int) or version >= _SPECTRUM_WINDOW_VERSION:
+        return
+    if not isinstance(table, dict) or {"lamm_min_nm", "lamm_max_nm"} - table.keys():
+        return
+    if {"lams_min_nm", "lams_max_nm"} & table.keys():
+        return
+    scale = get_interaction(interaction).omega0_scale
+    preproc.lams_min_nm = float(preproc.lamm_min_nm) * scale
+    preproc.lams_max_nm = float(preproc.lamm_max_nm) * scale
+
+
 #: Stage section names written to / read from the TOML, in order.
 _SECTION_NAMES: tuple[str, ...] = (
     "load",
@@ -172,9 +214,11 @@ class SessionOptions:
         """Build from a nested options mapping (version header keys are ignored).
 
         A file written before ``entry`` existed has no simulated workflow to
-        restore, so it reads back as an experimental session.
+        restore, so it reads back as an experimental session. A file written
+        before the spectrum window λs existed has it set from its trace window,
+        as the spectrum was then windowed (see :func:`_migrate_spectrum_window`).
         """
-        return cls(
+        options = cls(
             entry=str(data.get("entry", "experimental")),
             load=_from_mapping(LoadParams, data.get("load", {})),
             simulated=_from_mapping(SimulatedLoadParams, data.get("simulated", {})),
@@ -183,6 +227,15 @@ class SessionOptions:
             dispersion=_dispersion_from_mapping(data.get("dispersion", {})),
             uncertainty=_from_mapping(UncertaintyParams, data.get("uncertainty", {})),
         )
+        # A synthetic session has no loader to name its interaction, and its
+        # windows are re-seeded when the trace is regenerated, so it is left alone.
+        if options.entry == "experimental":
+            _migrate_spectrum_window(data, options.preproc, options.load.interaction)
+        elif options.entry == "simulated":
+            _migrate_spectrum_window(
+                data, options.preproc, options.simulated.interaction
+            )
+        return options
 
     def to_toml(self, path: str) -> str:
         """Write the session to ``path`` as an options TOML (with version header)."""
