@@ -37,6 +37,7 @@ from scipy.interpolate import CubicSpline, InterpolatedUnivariateSpline
 from scipy.linalg import solveh_banded
 
 from .constants import C
+from .crystals import PhaseMatching
 from .grid import Grid, gridparams_lambda
 from .interactions import get_interaction
 from .marginal_checks import apply_marginal_correction
@@ -1255,6 +1256,7 @@ def regrid(
     trange: float | None = None,
     resample_t: bool = False,
     marginal_correct: bool = False,
+    marginal_crystal: PhaseMatching | None = None,
     prefilter: bool = True,
     taper_warn_level: float = 0.01,
 ):
@@ -1280,6 +1282,9 @@ def regrid(
         Resample the delay axis onto the grid time axis.
     marginal_correct : bool, optional
         Apply SHG autoconvolution marginal correction (needs a spectrum).
+    marginal_crystal : PhaseMatching, optional
+        With ``marginal_correct``, correct onto the marginal through this crystal
+        (:func:`croak.marginal_checks.apply_marginal_correction`).
     prefilter : bool, optional
         Anti-alias before downsampling in :func:`resample_spectrum`.
     taper_warn_level : float, optional
@@ -1345,8 +1350,13 @@ def regrid(
         if inter.name != "shg":
             raise ValueError("marginal correction is only implemented for SHG")
         # Scale each frequency row onto the spectrum-predicted SHG marginal (the
-        # spectral autoconvolution); shared with the marginal-check preview.
-        out = apply_marginal_correction(out, Iomega)
+        # spectral autoconvolution, through the crystal if one is given); shared
+        # with the marginal-check preview.
+        out = apply_marginal_correction(
+            out, Iomega, crystal=marginal_crystal, omega=grid.omega, omega0=omega0_pulse
+        )
+    elif marginal_crystal is not None:
+        raise ValueError("marginal_crystal applies only with marginal_correct=True")
 
     if resample_t:
         outt = np.empty((grid.n, grid.n))
@@ -1486,9 +1496,14 @@ class TraceData:
         through the regrid.
     marginal_corrected : bool
         Whether the trace's frequency rows were rescaled onto the
-        spectrum-predicted SHG marginal (``marginal_correct``). A crystal model
-        refuses such a trace: the correction already divides out an estimate of
-        the crystal's phase-matching response, which the model would apply again.
+        spectrum-predicted SHG marginal (``marginal_correct``).
+    marginal_crystal : PhaseMatching or None
+        The crystal the marginal correction predicted through, or ``None`` (a
+        thin medium, or no correction). A retrieval of a corrected trace must use
+        the same medium: a thin-medium correction divides out the crystal's
+        phase-matching response, which a crystal model would apply again, and a
+        crystal correction puts it in, which a thin model cannot reproduce
+        (:func:`croak.pipeline.retrieve_from_tracedata`).
     """
 
     interaction: str
@@ -1513,6 +1528,7 @@ class TraceData:
     scalecurve: NDArray[np.float64]
     taper_loss: float = 0.0
     marginal_corrected: bool = False
+    marginal_crystal: PhaseMatching | None = None
 
     @property
     def omega(self) -> NDArray[np.float64]:
@@ -1552,6 +1568,7 @@ def load_and_clean(
     threshold: float | None = None,
     roll_bins: int = 3,
     marginal_correct: bool = False,
+    marginal_crystal: PhaseMatching | None = None,
     prefilter: bool = True,
     taper_warn_level: float = 0.01,
     lam_spec: ArrayLike | None = None,
@@ -1672,6 +1689,13 @@ def load_and_clean(
         Rescale the trace so its frequency marginal matches the one predicted
         from the independent spectrum (SHG only; see
         :mod:`croak.marginal_checks`). Default ``False``.
+    marginal_crystal : PhaseMatching, optional
+        With ``marginal_correct``, the SHG crystal the trace was measured through:
+        the correction then targets the crystal model's marginal
+        (:func:`croak.crystals.shg_marginal`), so it removes the instrument's
+        spectral response but keeps the crystal's phase matching for the
+        retrieval's crystal model to describe. ``None`` (default) for a thin
+        medium. Recorded as :attr:`TraceData.marginal_crystal`.
     prefilter : bool, optional
         Apply the **anti-alias low-pass** before downsampling in
         :func:`regrid`. Default ``True``, and it should normally stay on:
@@ -1764,6 +1788,7 @@ def load_and_clean(
         trange=trange,
         resample_t=resample_t,
         marginal_correct=marginal_correct,
+        marginal_crystal=marginal_crystal,
         prefilter=prefilter,
         taper_warn_level=taper_warn_level,
     )
@@ -1806,4 +1831,5 @@ def load_and_clean(
         scalecurve=sc,
         taper_loss=taper_loss,
         marginal_corrected=marginal_correct,
+        marginal_crystal=marginal_crystal,
     )

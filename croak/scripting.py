@@ -43,11 +43,14 @@ OUTPUT = {output!r}
 #: ``data`` and ``tracedata`` are built. Everything after it is shared.
 _LOAD_STEPS: dict[str, str] = {
     "experimental": (
-        "data = assemble_load_data(load)\ntracedata = build_tracedata(preproc, data)"
+        "data = assemble_load_data(load)\n"
+        "crystal = correction_crystal(preproc, retrieve, data['interaction'])\n"
+        "tracedata = build_tracedata(preproc, data, crystal=crystal)"
     ),
     "simulated": (
         "data = assemble_simulated_load_data(simulated)\n"
-        "tracedata = build_tracedata(preproc, data)"
+        "crystal = correction_crystal(preproc, retrieve, data['interaction'])\n"
+        "tracedata = build_tracedata(preproc, data, crystal=crystal)"
     ),
     # Keep the lightweight display/truth bundle alongside the native-grid trace:
     # ``data['truth']`` carries the complex ModelPNPS seed when requested.
@@ -59,10 +62,13 @@ _LOAD_STEPS: dict[str, str] = {
 
 #: Extra names each variant needs from ``croak.session.params`` / ``.pipeline``.
 _LOAD_IMPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    "experimental": (("LoadParams",), ("assemble_load_data", "build_tracedata")),
+    "experimental": (
+        ("LoadParams",),
+        ("assemble_load_data", "build_tracedata", "correction_crystal"),
+    ),
     "simulated": (
         ("SimulatedLoadParams",),
-        ("assemble_simulated_load_data", "build_tracedata"),
+        ("assemble_simulated_load_data", "build_tracedata", "correction_crystal"),
     ),
     "simulated-raw": (
         ("SimulatedLoadParams",),

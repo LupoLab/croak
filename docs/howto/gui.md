@@ -284,6 +284,29 @@ The trace preview uses the same colour scheme as Prepare (white→viridis for
 positive, white→red for negative), with the display scaled to the in-trust-band
 signal so an aggressive efficiency tilt cannot wash the image out.
 
+(the-shg-crystal-and-the-beams)=
+#### The SHG crystal and the beams
+
+For an SHG trace the measured and synthetic loaders show two more sections,
+*Nonlinear crystal* and *Beam geometry*. They describe the apparatus, so they
+are set with the data: [Check](#check) predicts the marginal through them, the
+marginal correction corrects onto that prediction, a synthetic trace is
+generated through them, and [Retrieve](#retrieve) models them. **Model the
+crystal** switches the crystal on (with it off, SHG is the thin-medium model);
+then come the crystal, its **thickness**, **cut angle**, the **phase-matched
+wavelength** or **external tilt** that sets its angle, the fundamental's
+**polarisation** relative to the plane in which the beams cross, and the
+**delayed beam**'s side of the optic axis. *Beam geometry* holds the **beam
+separation** and **focal length** that set the crossing angle and the beams'
+**diameter**, which sets their delay smearing. Read-outs give the internal
+angle, the tilt, the path and the crossing angle, and the smearing width,
+evaluated at the prepared trace's carrier once there is one, before that at the
+centre of the Prepare band, and before any data at the phase-matched
+wavelength; the depth nodes follow once the trace is prepared
+([SHG with a thick crystal](shg_crystal.md)). The settings are the session's
+retrieval settings, saved with it, so the thickness and focal length are the
+same values as Retrieve's slab thickness and focal mixture.
+
 #### Load the scan (simulated)
 
 Load a numerically simulated `scansave` scan and preview it live. A
@@ -297,7 +320,9 @@ straight to Retrieve. See
 #### Generate the trace (synthetic)
 
 Build a test trace (pulse shape, interaction, delays, optional dispersive slab,
-for SHG optionally the nonlinear crystal the Retrieve stage describes, and noise) using {func}`~croak.forward.maketrace`, previewed live. Useful for
+for SHG optionally through the [crystal and beams](#the-shg-crystal-and-the-beams)
+set on the same page, and noise) using {func}`~croak.forward.maketrace`,
+previewed live. Useful for
 trying the workflow without data. The **duration** is the intensity (power) FWHM
 of the temporal envelope — both Gaussian and sech² honour this convention
 ({func}`~croak.pulses.gaussian_pulse`, {func}`~croak.pulses.sech_pulse`). The
@@ -316,7 +341,12 @@ the retrieved pulse, and saved with the result.
 Compare the trace's frequency marginal with the marginal **predicted** from the
 independent spectrum ({mod}`croak.marginal_checks`): exact for SHG (the spectral
 autoconvolution) and transform-limited for PG/TG/SD, within the thin local
-model; the [marginal guide](marginal_checks.md) states its assumptions. The page
+model; the [marginal guide](marginal_checks.md) states its assumptions. When the
+crystal is modelled on the [Data stage](#the-shg-crystal-and-the-beams), the
+SHG prediction is the crystal model's marginal through it instead, taken at the
+carrier of the Prepare band; the legend and the summary say which one is shown
+("thin medium" or "through the crystal, L µm"), and settings that give no valid
+crystal fall back to the thin-medium prediction with a warning. The page
 overlays the predicted marginal, marks the predicted vs measured **centroid**,
 reports the **width-bracket** check, and exposes the spectral **trust region**
 (defaults to 190–1000 nm for a measured trace, or the full loaded range for the
@@ -326,10 +356,15 @@ and the **3rd-order** `(λ/µm)^exp` efficiency correction. Its **Auto** button
 picks the exponent whose corrected-marginal centroid matches the prediction
 ({func}`~croak.marginal_checks.auto_third_order_exponent`). The **SHG marginal
 correction** is available here: it scales the trace's frequency rows onto the
-predicted SHG autoconvolution
+predicted SHG marginal
 ({func}`~croak.marginal_checks.apply_marginal_correction`), is enabled only for
 an SHG trace with an independent spectrum, and previews the snap onto the
-prediction live (the correction itself is applied in Prepare). All three kinds
+prediction live (the correction itself is applied in Prepare, through the same
+crystal). With the crystal modelled it corrects onto the crystal's marginal: it
+removes the instrument's spectral response but keeps the phase matching, which
+the retrieval then models with the same crystal. The prediction is redrawn each
+time the page is entered, so a crystal changed on the Data stage shows at once.
+All three kinds
 of session pass through this stage, except a raw simulated scan; see
 [Marginal consistency checks](marginal_checks.md).
 
@@ -446,12 +481,11 @@ shows `ε(Iₜ)` alone rather than a number derived from something else.
 
 *Dispersive propagation* models a slab (material, thickness, Δz/Npoints — see
 [The forward model](../explanation/forward_model.md)). For SHG data it is
-replaced by *Nonlinear crystal* (the crystal, its thickness, cut angle,
-phase-matched wavelength or external tilt, the polarisation relative to the
-crossing plane and the delayed beam's side) and *Beam geometry* (the beam
-separation and focal length that set the crossing angle, and the beams' diameter
-and the switch for the two beams' delay smearing), with read-outs of the
-internal angle, the tilt, the path, the depth nodes and the smearing width
+replaced by *Crystal and beams (SHG)*: a read-only summary of the crystal and
+the beams set on the [Data stage](#the-shg-crystal-and-the-beams) (the crystal,
+its thickness and cut, the internal angle, the tilt, the path and the depth
+nodes, the beams and their smearing width), and the switch **Model the delay
+smearing**, which is a retrieval choice and stays here
 ([SHG with a thick crystal](shg_crystal.md)). *Geometrical smearing*
 models the tilted-pulse-front temporal blur of a non-collinear BOXCARS setup
 from the mask hole diameter and edge-to-edge spacing, with the resulting delay

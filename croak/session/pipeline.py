@@ -29,6 +29,7 @@ from ..crystals import (
     CrystalApproximationWarning,
     CrystalSetup,
     DelayedBeam,
+    PhaseMatching,
     Polarization,
     builtin_crystal,
     depth_points,
@@ -39,6 +40,7 @@ from ..forward import quadrature_nodes_weights
 from ..geometry import TwoBeamGeometry
 from ..grid import Grid
 from ..interactions import get_interaction
+from ..maths import wlfreq
 from ..pipeline import retrieve_from_tracedata
 from ..preprocess import TraceData
 from ..processing import (
@@ -696,12 +698,21 @@ _FAST_BASELINE_SKIP_BELOW = 0.01
 
 
 def build_tracedata(
-    p: PreprocParams, data: dict, *, fast_baseline: bool = False
+    p: PreprocParams,
+    data: dict,
+    *,
+    crystal: PhaseMatching | None = None,
+    fast_baseline: bool = False,
 ) -> TraceData:
     """Clean and regrid a loaded trace into a :class:`~croak.preprocess.TraceData`.
 
     Maps the (nm/fs) preprocess parameters onto
     :func:`croak.preprocess.load_and_clean` SI arguments.
+
+    ``crystal`` is the SHG crystal the trace was measured through
+    (:func:`marginal_crystal`); the marginal correction, when ``p.marginal_correct``
+    asks for it, then targets the crystal model's marginal. It is not used
+    otherwise.
 
     ``fast_baseline`` (off by default) solves the arPLS baseline on a coarse delay
     grid and skips near-zero rows — a ~3× speedup at ~1 % baseline difference,
@@ -741,6 +752,7 @@ def build_tracedata(
         subsample=p.subsample_tau if p.use_subsample else None,
         threshold=p.threshold if p.use_threshold else None,
         marginal_correct=p.marginal_correct,
+        marginal_crystal=crystal if p.marginal_correct else None,
         prefilter=p.prefilter,
         lam_spec=data["lam_spec"],
         Ilam_spec=data["Ilam_spec"],
@@ -928,6 +940,44 @@ def crystal_setup(p: RetrieveParams) -> CrystalSetup:
         ),
         **angle,
     )
+
+
+def marginal_crystal(p: RetrieveParams, interaction: str) -> PhaseMatching | None:
+    """Return the crystal an SHG trace's marginal is predicted through, if any.
+
+    The retrieval's crystal and thickness (:func:`crystal_setup`) for an SHG trace
+    with ``dispersive`` set, so that the marginal correction and the retrieval
+    always describe the same medium; ``None`` otherwise.
+    """
+    if not p.dispersive or get_interaction(interaction).name != "shg":
+        return None
+    return PhaseMatching(crystal_setup(p), p.thickness_um * 1e-6)
+
+
+def correction_crystal(
+    preproc: PreprocParams, retrieve: RetrieveParams, interaction: str
+) -> PhaseMatching | None:
+    """Return the crystal :func:`build_tracedata` corrects the marginal through.
+
+    :func:`marginal_crystal` when ``preproc.marginal_correct`` asks for a
+    correction, ``None`` otherwise (so crystal settings that do not describe a
+    valid crystal fail only when they are used).
+    """
+    if not preproc.marginal_correct:
+        return None
+    return marginal_crystal(retrieve, interaction)
+
+
+def pulse_carrier(p: PreprocParams) -> float:
+    """Return the pulse carrier (rad/s) the regridded retrieval grid will have.
+
+    The middle of the retrieval band in angular frequency, as
+    :func:`croak.grid.gridparams_lambda` places it; the crystal's angle and path
+    are taken there, so a prediction made before preprocessing matches the one
+    the correction makes. The simulated loader's ``raw_direct`` path keeps the
+    simulation's own carrier instead (and applies no correction).
+    """
+    return 0.5 * float(wlfreq(p.lam_min_nm * 1e-9) + wlfreq(p.lam_max_nm * 1e-9))
 
 
 def retrieval_medium(p: RetrieveParams, td: TraceData) -> str | CrystalSetup | None:
@@ -1492,6 +1542,14 @@ def run_uncertainty(
             raise ValueError(
                 "the thickness uncertainty needs dispersive propagation: switch on "
                 "the slab, or for SHG the crystal, whose thickness is uncertain"
+            )
+        if td.marginal_crystal is not None:
+            # each draw would retrieve at another thickness a trace whose marginal
+            # was put onto the central thickness's prediction
+            raise ValueError(
+                "the thickness uncertainty cannot use a trace marginal-corrected "
+                "through the crystal: the correction fixes its marginal to the "
+                "central thickness. Switch off the marginal correction for it"
             )
         # Central thickness from the retrieval settings; 1σ from the uncertainty
         # stage. The dispersive pair is injected per draw, so drop it from kw to

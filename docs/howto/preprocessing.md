@@ -102,7 +102,8 @@ A few `load_and_clean` keywords do most of the work:
 - **`lam_spec`, `Ilam_spec`** — an independently measured fundamental spectrum;
   when supplied it is resampled onto the grid as `td.Iomega` and can seed the
   guess, drive the [spectral-match penalty](regularisation.md), or enable SHG
-  marginal correction (`marginal_correct=True`).
+  marginal correction (`marginal_correct=True`; through a crystal, also
+  `marginal_crystal`, see [Marginal consistency checks](marginal_checks.md#through-an-shg-crystal)).
 
 ## De-fringing: notch vs. Takeda low-pass
 

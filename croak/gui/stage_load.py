@@ -28,6 +28,7 @@ from ..plotting.screen import raw_trace_map
 from ..session.pipeline import assemble_load_data
 from .base import Stage
 from .controls import check, combo, group
+from .crystal_panel import CRYSTAL_HELP, CrystalPanel
 from .state import PreprocParams
 from .view_panel import ViewPanel
 from .widgets import SciSpinBox
@@ -309,6 +310,7 @@ class StageLoad(Stage):
                 ),
             ],
         ),
+        *CRYSTAL_HELP,
     ]
 
     def __init__(self, state):
@@ -365,15 +367,17 @@ class StageLoad(Stage):
             0.0, 1e6, p.energy_j, lambda v: setattr(p, "energy_j", v), sigfigs=3
         )
         form.addRow("pulse energy (J)", self.energy_spin)
-        form.addRow(
-            "interaction",
-            combo(
-                ["shg", "sd", "pg"],
-                p.interaction,
-                lambda v: setattr(p, "interaction", v),
-            ),
+        self.interaction_combo = combo(
+            ["shg", "sd", "pg"], p.interaction, self._on_interaction
         )
+        form.addRow("interaction", self.interaction_combo)
         self.controls.addWidget(box)
+
+        # The SHG crystal and its beams are part of the apparatus (shown for SHG).
+        self.crystal_panel = CrystalPanel(state)
+        self.crystal_panel.set_shg(p.interaction == "shg")
+        self.crystal_panel.edited.connect(self._on_crystal_edited)
+        self.controls.addWidget(self.crystal_panel)
 
         # FROG bg/calib (the (λ/µm)^exp third-order correction is tuned on the
         # marginal-check stage, where its effect on the marginal is visible).
@@ -472,6 +476,8 @@ class StageLoad(Stage):
         the saved dataset names so the selection is visible and editable.
         """
         p = self.state.load
+        # the crystal settings are shared with Retrieve, which may have changed them
+        self.crystal_panel.set_shg(p.interaction == "shg")
         if p.frog_path:
             self.path_edit.setText(p.frog_path)
             if self._frog_fd is None:
@@ -480,6 +486,16 @@ class StageLoad(Stage):
             self._seed_spec_combos_from_params()
         if self._bg_fd is None:
             self._seed_bg_combos_from_params()
+
+    def _on_crystal_edited(self) -> None:
+        # With the marginal correction on, the prepared trace was corrected
+        # through the crystal as it was; Prepare redoes it with the new one.
+        if self.state.preproc.marginal_correct:
+            self.state.invalidate_tracedata()
+
+    def _on_interaction(self, value: str) -> None:
+        self.state.load.interaction = value
+        self.crystal_panel.set_shg(value == "shg")
 
     # -- small layout helpers ----------------------------------------------
     def _row(self, *widgets):

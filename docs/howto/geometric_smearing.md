@@ -300,9 +300,10 @@ result when durations are rms widths and diameters 1/e² ones.
 
 ## In the GUI
 
-For SHG data the smearing is in the Retrieve stage's **Beam geometry** group: the
-beams' separation, focal length and diameter, *Model the delay smearing*, and a
-read-out of the width in rms and FWHM. For PG and SD, the Retrieve stage has a
+For SHG data the beams' separation, focal length and diameter are set in the
+**Beam geometry** group on the Data stage, which reads out the width in rms and
+FWHM; the Retrieve stage has *Model the delay smearing*, enabled when the chosen
+solver supports it, and a summary of the beams. For PG and SD, the Retrieve stage has a
 **Geometrical smearing** group, greyed out unless the chosen solver supports it:
 
 - *Enable geometrical smearing*

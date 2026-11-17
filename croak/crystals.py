@@ -115,6 +115,7 @@ __all__ = [
     "TILT_ERROR_WARN",
     "CrystalSetup",
     "CrystalApproximationWarning",
+    "PhaseMatching",
     "Propagation",
     "UniaxialCrystal",
     "builtin_crystal",
@@ -124,6 +125,7 @@ __all__ = [
     "extraordinary_index",
     "phase_matching_angle",
     "propagation",
+    "shg_marginal",
     "tilt_field_error",
 ]
 
@@ -887,6 +889,133 @@ def _depth_points(
         return 1
     phi = float(np.max(np.abs(dk))) * setup._path(thickness, carrier) / 2.0
     return math.ceil(phi) + 3
+
+
+@dataclass(frozen=True)
+class PhaseMatching:
+    """A crystal of given thickness, as an SHG trace's frequency marginal sees it.
+
+    Attributes
+    ----------
+    setup : CrystalSetup
+        The crystal, its angle and the beam geometry.
+    thickness : float
+        Plate thickness (m) along the face normal, ``>= 0``.
+    """
+
+    setup: CrystalSetup
+    thickness: float
+
+    def __post_init__(self) -> None:
+        """Validate the thickness."""
+        if not (math.isfinite(self.thickness) and self.thickness >= 0.0):
+            raise ValueError(
+                f"the crystal thickness must be finite and >= 0, got {self.thickness!r}"
+            )
+
+
+def shg_marginal(
+    omega: ArrayLike,
+    spectrum: ArrayLike,
+    phase_matching: PhaseMatching,
+    omega0: float,
+) -> NDArray[np.float64]:
+    r"""Frequency marginal of a crystal SHG trace, from the fundamental spectrum.
+
+    Summed over a delay range that holds the whole trace, the crystal model's SHG
+    trace (:class:`croak.forward.ForwardModel` with a :class:`CrystalSetup`) has the
+    phase-independent frequency marginal
+
+    .. math:: M(\omega_s) \propto a_s(\omega_s)^2 \sum_{\omega_1+\omega_2=\omega_s}
+       S(\omega_1)\,S(\omega_2)\,P^2\operatorname{sinc}^2\!\big(\Delta k\,P/2\big),
+
+    Parseval's theorem over delay turning the delay sum of :math:`|\psi|^2` into a
+    sum over component pairs. :math:`a_s` is the generation prefactor and :math:`P`
+    the path (:func:`propagation`); :math:`\Delta k = k_s(\omega_1+\omega_2) -
+    k_z(\omega_1) - k_z(\omega_2) - \kappa(\omega_1-\omega_2)` is the pair's
+    mismatch, with the arms' delay drift :math:`\kappa`
+    (:meth:`CrystalSetup.arm_shift`), and :math:`P^2\operatorname{sinc}^2` the
+    modulus squared of its depth integral, done analytically. The drift's sign does
+    not matter: the pairs :math:`(\omega_1,\omega_2)` and :math:`(\omega_2,\omega_1)`
+    enter with the same weight. Smearing along delay leaves the marginal unchanged.
+    At zero thickness the model has no depth integral, and this is :math:`a_s^2\,(S*S)`,
+    the thin-medium marginal times the prefactor.
+
+    It is the linear convolution: on a retrieval grid it differs from the model's
+    trace by the pairs that alias round the grid, which carry nothing when the grid
+    holds the trace.
+
+    Parameters
+    ----------
+    omega : array_like
+        Absolute angular frequencies (rad/s) of ``spectrum``, uniform and ascending.
+    spectrum : array_like
+        Fundamental spectral intensity :math:`S(\omega)` per unit frequency
+        (``>= 0``).
+    phase_matching : PhaseMatching
+        The crystal and its thickness.
+    omega0 : float
+        Pulse carrier (rad/s), as the retrieval uses it: it refracts an explicit
+        tilt, and the path and the delay drift are taken there.
+
+    Returns
+    -------
+    numpy.ndarray
+        The marginal, unnormalised, on the ``2N - 1`` frequencies
+        ``2 * omega[0] + k * (omega[1] - omega[0])``.
+
+    Raises
+    ------
+    ValueError
+        If ``omega`` is not a uniform ascending axis of at least two points,
+        ``spectrum`` has another shape, or either holds a non-finite value.
+    """
+    omega = np.asarray(omega, dtype=float)
+    spectrum = np.asarray(spectrum, dtype=float)
+    if omega.ndim != 1 or omega.size < 2:
+        raise ValueError("omega must be a 1-D axis with at least 2 samples")
+    if spectrum.shape != omega.shape:
+        raise ValueError("spectrum and omega must have the same shape")
+    if not (np.all(np.isfinite(omega)) and np.all(np.isfinite(spectrum))):
+        raise ValueError("omega and spectrum must be finite")
+    spectrum = np.clip(spectrum, 0.0, None)
+    step = np.diff(omega)
+    if not (step[0] > 0.0 and np.allclose(step, step[0], rtol=1e-6, atol=0.0)):
+        raise ValueError("omega must be uniform and ascending")
+    domega = float(step[0])
+    n = omega.size
+    signal = 2.0 * omega[0] + domega * np.arange(2 * n - 1)
+    setup, thickness = phase_matching.setup, phase_matching.thickness
+    # The same propagation constants as the forward model, in its frame (the
+    # group-delay term beta_1 * Omega cancels in the mismatch, since the signal
+    # offset is the sum of the pair's offsets).
+    fundamental = propagation(setup, omega - omega0, omega0, thickness)
+    generated = propagation(setup, signal - 2.0 * omega0, omega0, thickness)
+    path = fundamental.path_length
+    kappa = fundamental.arm_shift
+    beta_in = fundamental.beta_in
+    offset = omega - omega0
+    out = np.zeros(signal.size)
+    for k in range(signal.size):
+        # pairs (j, k - j) with both members on the fundamental axis
+        j = np.arange(max(0, k - n + 1), min(k, n - 1) + 1)
+        m = k - j
+        weight = spectrum[j] * spectrum[m]
+        if not weight.any():
+            continue
+        mismatch = (
+            beta_in[j]
+            + beta_in[m]
+            - generated.beta_sig[k]
+            - kappa * (offset[j] - offset[m])
+        )
+        # np.sinc(x) = sin(pi x) / (pi x). At zero thickness the model takes one
+        # node of unit weight (forward.quadrature_nodes_weights), not a zero path.
+        response = (
+            (path * np.sinc(mismatch * path / (2.0 * np.pi))) ** 2 if path > 0 else 1.0
+        )
+        out[k] = generated.sig_amp[k] ** 2 * float(np.sum(weight * response))
+    return out
 
 
 def check_medium(

@@ -54,6 +54,7 @@ import scipy.fft
 import scipy.optimize
 from numpy.typing import ArrayLike, NDArray
 
+from .crystals import PhaseMatching, shg_marginal
 from .grid import Grid
 from .interactions import get_interaction
 from .maths import moment, wlfreq
@@ -170,7 +171,12 @@ def spectral_autoconvolution(
 
 
 def apply_marginal_correction(
-    trace: ArrayLike, Iomega: ArrayLike
+    trace: ArrayLike,
+    Iomega: ArrayLike,
+    *,
+    crystal: PhaseMatching | None = None,
+    omega: ArrayLike | None = None,
+    omega0: float | None = None,
 ) -> NDArray[np.float64]:
     """Rescale a SHG trace's frequency rows onto the spectrum-predicted marginal.
 
@@ -180,6 +186,14 @@ def apply_marginal_correction(
     its delay-integrated marginal matches that prediction (rows with no marginal power
     are zeroed), which corrects a measured/efficiency tilt along the spectral axis
     without touching the delay structure.
+
+    With a ``crystal`` the prediction is the crystal model's marginal
+    (:func:`croak.crystals.shg_marginal`): the autoconvolution filtered by the
+    crystal's phase matching and weighted by its generation prefactor. The
+    correction then removes only what the model leaves out (the spectrometer's and
+    detector's response, the nonlinear coefficient's dispersion, the beams'
+    overlap), and a retrieval with the same crystal sees a trace whose marginal its
+    model can reproduce.
 
     Shared by :func:`croak.preprocess.load_and_clean` (the ``marginal_correct``
     option) and the marginal-check stage's live preview, so the correction is
@@ -191,14 +205,31 @@ def apply_marginal_correction(
         SHG trace ``(Nomega, Ndelay)`` on the centred frequency grid.
     Iomega : array_like
         Independent fundamental spectral intensity on the same grid (centred).
+    crystal : PhaseMatching, optional
+        The crystal the trace was measured through; ``None`` (default) for a thin
+        medium.
+    omega : array_like, optional
+        The centred frequency grid (rad/s) of ``trace`` and ``Iomega``; needed with
+        ``crystal``.
+    omega0 : float, optional
+        Pulse carrier (rad/s), as the retrieval uses it; needed with ``crystal``.
 
     Returns
     -------
     numpy.ndarray
         A new corrected trace ``(Nomega, Ndelay)``; the input is not mutated.
+
+    Raises
+    ------
+    ValueError
+        If ``crystal`` is given without ``omega`` and ``omega0``, or ``omega`` is
+        not the trace's centred frequency grid.
     """
     trace = np.asarray(trace, dtype=float)
-    IwSHG = spectral_autoconvolution(Iomega, circular=True)
+    if crystal is None:
+        IwSHG = spectral_autoconvolution(Iomega, circular=True)
+    else:
+        IwSHG = _crystal_trace_marginal(trace, Iomega, crystal, omega, omega0)
     peak = np.max(IwSHG)
     if peak > 0:
         IwSHG = IwSHG / peak
@@ -211,6 +242,37 @@ def apply_marginal_correction(
         nonzero = marg > 0
         out[nonzero] = trace[nonzero] * (IwSHG[nonzero] / marg[nonzero])[:, None]
     return out
+
+
+def _crystal_trace_marginal(
+    trace: NDArray[np.float64],
+    Iomega: ArrayLike,
+    crystal: PhaseMatching,
+    omega: ArrayLike | None,
+    omega0: float | None,
+) -> NDArray[np.float64]:
+    """Return the crystal model's SHG marginal on the trace's own centred grid."""
+    if omega is None or omega0 is None:
+        raise ValueError(
+            "a crystal marginal correction needs the grid omega and omega0"
+        )
+    omega = np.asarray(omega, dtype=float)
+    if omega.shape != (trace.shape[0],):
+        raise ValueError(
+            f"omega has shape {omega.shape}, the trace {trace.shape[0]} frequency rows"
+        )
+    # The linear marginal starts at twice the grid's first offset; the trace's row k
+    # sits at offset omega[k] around the signal carrier 2 * omega0. That holds on a
+    # centred grid (croak.grid.Grid.omega), which has zero offset on a sample.
+    domega = float(omega[1] - omega[0])
+    start = round(-float(omega[0]) / domega)
+    if not (0 <= start < omega.size and abs(omega[start]) < 1e-6 * abs(domega)):
+        raise ValueError(
+            "omega must be the trace's centred grid (offsets from the carrier, with "
+            "a sample at zero), not absolute frequencies"
+        )
+    marginal = shg_marginal(omega + omega0, Iomega, crystal, omega0)
+    return marginal[start : start + omega.size]
 
 
 def _transform_limited_intensity_factors(
@@ -246,7 +308,12 @@ def _transform_limited_intensity_factors(
 # Predictions
 # ---------------------------------------------------------------------------
 def predicted_centroid(
-    omega: ArrayLike, spectrum: ArrayLike, interaction: str
+    omega: ArrayLike,
+    spectrum: ArrayLike,
+    interaction: str,
+    *,
+    crystal: PhaseMatching | None = None,
+    omega0: float | None = None,
 ) -> float:
     r"""Predicted marginal centroid (rad/s) from the fundamental spectrum.
 
@@ -254,6 +321,8 @@ def predicted_centroid(
     axis) and :math:`\bar\omega_S` for PG/TG/SD (the marginal sits at the
     fundamental). For SHG and PG/TG this is a hard, phase-independent check; for
     SD it holds only for a transform-limited or temporally symmetric pulse.
+    Through a ``crystal`` (SHG only) it is the centroid of the crystal model's
+    marginal (:func:`croak.crystals.shg_marginal`), still phase-independent.
 
     Parameters
     ----------
@@ -263,10 +332,23 @@ def predicted_centroid(
         Fundamental spectral intensity :math:`S(\omega)` (``>= 0``).
     interaction : str
         ``"shg"``, ``"sd"``, ``"pg"`` or ``"tg"`` (case-insensitive).
+    crystal : PhaseMatching, optional
+        The SHG crystal; ``None`` (default) for a thin medium.
+    omega0 : float, optional
+        Pulse carrier (rad/s) as the retrieval uses it; needed with ``crystal``.
+
+    Raises
+    ------
+    ValueError
+        If ``crystal`` is given for an interaction other than SHG, or without
+        ``omega0``.
     """
     name = _normalise_interaction(interaction)
     omega = np.asarray(omega, dtype=float)
     spectrum = np.asarray(spectrum, dtype=float)
+    if crystal is not None:
+        axis, shape = _crystal_shape(omega, spectrum, name, crystal, omega0)
+        return moment(axis, shape, 1)
     c_s = moment(omega, spectrum, 1)
     return 2.0 * c_s if name == "shg" else c_s
 
@@ -316,7 +398,12 @@ class MarginalPrediction:
 
 
 def predicted_marginal(
-    omega: ArrayLike, spectrum: ArrayLike, interaction: str
+    omega: ArrayLike,
+    spectrum: ArrayLike,
+    interaction: str,
+    *,
+    crystal: PhaseMatching | None = None,
+    omega0: float | None = None,
 ) -> MarginalPrediction:
     r"""Predict the FROG marginal and its checks from the fundamental spectrum.
 
@@ -337,6 +424,13 @@ def predicted_marginal(
     interaction : str
         ``"shg"``, ``"sd"``, ``"pg"`` or ``"tg"`` (case-insensitive); ``"tg"``
         is identical to ``"pg"`` (the transient-grating gate is :math:`|E|^2`).
+    crystal : PhaseMatching, optional
+        The SHG crystal. The prediction is then the crystal model's marginal
+        (:func:`croak.crystals.shg_marginal`): exact for that model, so its
+        centroid and width stay hard checks, but no longer :math:`2\bar\omega_S`
+        and :math:`\sqrt2\sigma_S`. ``None`` (default) for a thin medium.
+    omega0 : float, optional
+        Pulse carrier (rad/s) as the retrieval uses it; needed with ``crystal``.
 
     Returns
     -------
@@ -347,7 +441,9 @@ def predicted_marginal(
     Raises
     ------
     ValueError
-        If ``interaction`` is unknown or ``omega``/``spectrum`` are degenerate.
+        If ``interaction`` is unknown or ``omega``/``spectrum`` are degenerate, or
+        ``crystal`` is given for an interaction other than SHG or without
+        ``omega0``, or the spectrum generates no SHG through it.
     """
     name = _normalise_interaction(interaction)
     omega = np.asarray(omega, dtype=float)
@@ -358,9 +454,22 @@ def predicted_marginal(
         raise ValueError("spectrum and omega must have the same shape")
     domega = float(omega[1] - omega[0])
 
+    if crystal is not None:
+        axis, shape = _crystal_shape(omega, spectrum, name, crystal, omega0)
+        return MarginalPrediction(
+            interaction=name,
+            omega=axis,
+            marginal=shape / shape.max(),
+            centroid=moment(axis, shape, 1),
+            rms_width=rms_width(axis, shape),
+            width_bracket=None,
+            centroid_is_hard=True,
+            width_is_hard=True,
+            sigma_spectrum=rms_width(omega, spectrum),
+        )
+
     c_s = moment(omega, spectrum, 1)
     sigma_s = rms_width(omega, spectrum)
-
     if name == "shg":
         shape = spectral_autoconvolution(spectrum)
         rms = np.sqrt(2.0) * sigma_s
@@ -399,6 +508,25 @@ def predicted_marginal(
         width_is_hard=width_is_hard,
         sigma_spectrum=sigma_s,
     )
+
+
+def _crystal_shape(
+    omega: NDArray[np.float64],
+    spectrum: NDArray[np.float64],
+    name: str,
+    crystal: PhaseMatching,
+    omega0: float | None,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Return the crystal model's SHG marginal and its absolute axis (rad/s)."""
+    if name != "shg":
+        raise ValueError(f"a crystal marginal is for SHG, not {name!r}")
+    if omega0 is None:
+        raise ValueError("a crystal marginal needs the pulse carrier omega0")
+    shape = shg_marginal(omega, spectrum, crystal, omega0)
+    if not shape.any():
+        raise ValueError("the spectrum generates no SHG through the crystal")
+    axis = 2.0 * omega[0] + float(omega[1] - omega[0]) * np.arange(shape.size)
+    return axis, shape
 
 
 def _width_of_shape(shape: NDArray[np.float64], domega: float) -> float:

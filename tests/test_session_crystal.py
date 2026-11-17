@@ -34,6 +34,7 @@ def _td(interaction="shg"):
         grid=Grid(64, dt=3e-15),
         omega0_pulse=W0,
         Iomega=None,
+        marginal_crystal=None,
     )
 
 
@@ -355,3 +356,79 @@ def test_collinear_shg_with_a_smearing_fit_does_not_fit_a_missing_kernel(monkeyp
     assert captured["fit_smearing"] is False and captured["fit_smearing_split"] is False
     for kwargs in (bootstrap_solver_kwargs(p, td), covariance_kwargs(p, td)):
         assert kwargs["fit_smearing"] is False
+
+
+@pytest.mark.parametrize(
+    ("dispersive", "interaction"), [(False, "shg"), (True, "pg"), (True, "sd")]
+)
+def test_marginal_crystal_is_none_without_an_shg_crystal(dispersive, interaction):
+    p = RetrieveParams(dispersive=dispersive)
+    assert session_pipeline.marginal_crystal(p, interaction) is None
+
+
+def test_marginal_crystal_is_the_retrievals_crystal_and_thickness():
+    p = RetrieveParams(dispersive=True, thickness_um=40.0)
+    pm = session_pipeline.marginal_crystal(p, "SHG")
+    assert pm is not None
+    assert pm.setup == crystal_setup(p)
+    assert pm.thickness == pytest.approx(40e-6, rel=1e-12)
+
+
+@pytest.mark.parametrize("correct", [False, True])
+def test_build_tracedata_hands_the_crystal_to_the_correction_only(monkeypatch, correct):
+    seen = {}
+    monkeypatch.setattr(
+        session_pipeline.preprocess, "load_and_clean", lambda *a, **kw: seen.update(kw)
+    )
+    data = dict.fromkeys(
+        ("trace", "lam", "scanaxis", "interaction", "input_unit", "lam_spec"), None
+    ) | {"Ilam_spec": None}
+    pm = crystals.PhaseMatching(crystal_setup(RetrieveParams()), 10e-6)
+    preproc = SessionOptions().preproc
+    preproc.marginal_correct = correct
+    session_pipeline.build_tracedata(preproc, data, crystal=pm)
+    assert seen["marginal_correct"] is correct
+    assert seen["marginal_crystal"] is (pm if correct else None)
+
+
+@pytest.mark.parametrize("correct", [False, True])
+def test_the_session_corrects_through_the_retrievals_crystal(monkeypatch, correct):
+    from croak.session import engine
+
+    seen = {}
+    monkeypatch.setattr(
+        engine.pipeline,
+        "build_tracedata",
+        lambda p, data, *, crystal: seen.setdefault("crystal", crystal),
+    )
+    options = SessionOptions()
+    options.retrieve.dispersive = True
+    options.retrieve.thickness_um = 25.0
+    options.preproc.marginal_correct = correct
+    engine._preproc_stage(options, {"interaction": "shg"})
+    if not correct:
+        assert seen["crystal"] is None
+        return
+    assert seen["crystal"].setup == crystal_setup(options.retrieve)
+    assert seen["crystal"].thickness == pytest.approx(25e-6, rel=1e-12)
+
+
+def test_pulse_carrier_is_the_retrieval_grids_carrier():
+    from croak.grid import gridparams_lambda
+
+    preproc = SessionOptions().preproc
+    preproc.lam_min_nm, preproc.lam_max_nm = 600.0, 1100.0
+    _, _, omega0 = gridparams_lambda(100e-15, lambda_min=600e-9, lambda_max=1100e-9)
+    assert session_pipeline.pulse_carrier(preproc) == pytest.approx(omega0, rel=1e-12)
+
+
+def test_the_thickness_uncertainty_refuses_a_crystal_corrected_trace():
+    # each draw would retrieve at another thickness a trace whose marginal the
+    # correction fixed to the central thickness's
+    rp = RetrieveParams(solver="lbfgs-ad", dispersive=True)
+    up = session_pipeline.UncertaintyParams(method="thickness")
+    td = _td()
+    td.trace = np.ones((4, 3))
+    td.marginal_crystal = crystals.PhaseMatching(crystal_setup(rp), 10e-6)
+    with pytest.raises(ValueError, match="marginal-corrected through the crystal"):
+        session_pipeline.run_uncertainty(up, rp, SimpleNamespace(omega0=W0), td)

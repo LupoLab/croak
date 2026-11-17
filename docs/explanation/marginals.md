@@ -108,6 +108,98 @@ The three identities are:
 Place the prediction on the second-harmonic frequency axis and compare to the
 measured marginal after consistent wavelength calibration.
 
+### Through a nonlinear crystal
+
+In croak's crystal model ({doc}`forward_model`) the second harmonic is generated
+throughout the crystal and each component pair carries its own phase matching. The
+marginal is still phase-independent, and it follows from the model's signal in
+four steps. Frequencies here are offsets from the carriers, $\Omega$ from
+$\omega_0$ for a fundamental and from $2\omega_0$ for the signal, and $\tilde E$ is
+the fundamental's spectrum, with $S = \lvert\tilde E\rvert^2$.
+
+**1. The signal of one pair.** The model propagates both arms to depth $z$
+($e^{i\beta_\mathrm{in}z}$), multiplies them, and carries what is generated there to
+the exit face ($a(\Omega)\,e^{i\beta_\mathrm{sig}(P-z)}$), integrating over the path
+$P$. The gate arm carries the delay as $e^{i\Omega\tau}$. Crossing in the principal
+plane, the arms also drift apart in delay with depth, at the rate $\kappa$
+({meth}`~croak.crystals.CrystalSetup.arm_shift`): the test arm carries
+$e^{i\kappa\Omega(P/2-z)}$ and the gate its inverse ($\kappa = 0$ otherwise).
+A product in time is a convolution in frequency, so with $\Omega_1$ the test
+component and $\Omega_2 = \Omega-\Omega_1$ the gate component, up to the
+transforms' constant factors,
+
+```{math}
+\psi(\Omega,\tau) = a(\Omega)\,e^{i\beta_\mathrm{sig}(\Omega)P}\int
+\tilde E(\Omega_1)\,\tilde E(\Omega_2)\,e^{i\Omega_2\tau}\,
+e^{i\kappa(\Omega_1-\Omega_2)P/2}
+\int_0^P e^{i q z}\,\mathrm dz\;\mathrm d\Omega_1 ,
+```
+
+with every depth-dependent phase collected in
+
+```{math}
+q(\Omega_1,\Omega_2) = \beta_\mathrm{in}(\Omega_1) + \beta_\mathrm{in}(\Omega_2)
+- \beta_\mathrm{sig}(\Omega_1+\Omega_2) - \kappa(\Omega_1-\Omega_2).
+```
+
+**2. The frame drops out.** Both propagation constants are written in the frame
+moving at the fundamental's group velocity, $\beta_\mathrm{in}(\Omega) =
+k_z(\omega_0+\Omega) - \beta_1\Omega$ and $\beta_\mathrm{sig}(\Omega) =
+k_s(2\omega_0+\Omega) - \beta_1\Omega$. In $q$ the $\beta_1$ terms are
+$-\beta_1(\Omega_1+\Omega_2-\Omega)=0$, so $q = -\Delta k - \kappa(\Omega_1-\Omega_2)$
+with the pair's true wavevector mismatch
+
+```{math}
+\Delta k = k_s(\omega_1+\omega_2) - k_z(\omega_1) - k_z(\omega_2), \qquad
+\omega_{1,2} = \omega_0+\Omega_{1,2}.
+```
+
+**3. The depth integral.** $\int_0^P e^{iqz}\,\mathrm dz = P\,e^{iqP/2}\operatorname{sinc}(qP/2)$,
+with $\operatorname{sinc}x = \sin x/x$. Its phase, like $e^{i\beta_\mathrm{sig}P}$ and
+the drift's reference phase, does not depend on $\tau$.
+
+**4. Parseval over delay.** For fixed $\Omega$, step 1 is a Fourier integral over
+$\Omega_2$ with conjugate variable $\tau$, so integrating $\lvert\psi\rvert^2$ over
+every delay gives $2\pi$ times the integral of the modulus squared of its integrand.
+Every phase factor has unit modulus and drops out:
+
+```{math}
+M(\Omega) = \int\lvert\psi(\Omega,\tau)\rvert^2\,\mathrm d\tau
+= 2\pi\,a(\Omega)^2\int S(\Omega_1)\,S(\Omega-\Omega_1)\,
+P^2\operatorname{sinc}^2\!\bigl(q\,P/2\bigr)\,\mathrm d\Omega_1 .
+```
+
+On croak's grid the same steps hold for a sum over the $N$ delays of one period of
+the time axis, which gives $N$ times the sum over pairs; the model does the depth
+integral by quadrature, accurate to the tolerance of
+{func}`~croak.crystals.depth_points`. {func}`croak.crystals.shg_marginal` evaluates
+the pair sum with the analytic depth integral, and it matches the model's
+delay-summed trace to about $10^{-6}$ of the peak (`tests/test_marginal_crystal.py`).
+
+What the result says:
+
+- It is still **phase-independent** and computable from $S$, so it remains an
+  exact check, but of the model: the centroid and width are those of this $M$, no
+  longer $2\bar\omega_S$ and $\sqrt2\,\sigma_S$.
+- **The drift enters at second order.** The pair $(\Omega_1,\Omega_2)$ and the
+  swapped pair $(\Omega_2,\Omega_1)$ have the same weight $S(\Omega_1)S(\Omega_2)$
+  and the same $\Delta k$, but opposite drift terms. Their sum,
+  $\operatorname{sinc}^2[(\Delta k + \kappa\delta)P/2] +
+  \operatorname{sinc}^2[(\Delta k - \kappa\delta)P/2]$ with $\delta = \Omega_1-\Omega_2$,
+  is even in $\kappa$, so the sign of $\kappa$ does not matter.
+- **Smearing leaves it unchanged:** it convolves the trace along delay with a kernel
+  of unit area, which does not change the delay integral.
+- **Zero thickness:** the model then has no depth integral (one node of unit
+  weight), and $M = a^2\,(S*S)$, the thin-medium marginal times the prefactor.
+- **The assumptions are the thin case's:** the delay scan holds the whole trace,
+  which in a crystal includes the walk-off's tails, and the whole beam is
+  collected, as the model assumes.
+
+The same $M$ is the target of the marginal correction for a crystal trace
+({func}`croak.marginal_checks.apply_marginal_correction` with a crystal): the
+correction then takes out the spectral response the model does not describe and
+keeps the phase matching, which the retrieval's crystal model supplies.
+
 ## PG (and TG) — three checks
 
 ```{math}

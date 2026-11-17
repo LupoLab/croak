@@ -470,8 +470,9 @@ def test_retrieve_form_finds_a_setting_by_name_or_help(qtbot):
 
 
 # -- the SHG crystal and the beam geometry ----------------------------------------
+# Set on the Data stage (croak.gui.crystal_panel); Retrieve summarises them.
 def _shg_trace(stage):
-    """A stand-in SHG trace: what the crystal controls read from the data."""
+    """A stand-in SHG trace: what the crystal summary reads from the data."""
     from croak.grid import Grid
 
     stage.state.tracedata = SimpleNamespace(
@@ -485,84 +486,72 @@ def test_stage_retrieve_shows_the_crystal_for_shg_and_the_slab_otherwise(stage):
     stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
     stage.on_enter()
     assert not stage.disp_box.isHidden()
-    assert stage.crystal_box.isHidden() and stage.geometry_box.isHidden()
+    assert stage.shg_box.isHidden()
     _shg_trace(stage)
     assert stage.disp_box.isHidden()
-    assert not stage.crystal_box.isHidden() and not stage.geometry_box.isHidden()
+    assert not stage.shg_box.isHidden()
 
 
-def test_stage_retrieve_crystal_switch_and_thickness_drive_the_slab_settings(stage):
+def test_stage_retrieve_without_a_trace_shows_the_slab_only(qtbot):
+    fresh = StageRetrieve(WizardState())
+    qtbot.addWidget(fresh)
+    assert not fresh.disp_box.isHidden()
+    assert fresh.shg_box.isHidden()
+
+
+def test_stage_retrieve_summarises_the_crystal_set_on_the_data_stage(stage):
+    p = stage.state.retrieve
+    p.dispersive, p.thickness_um = True, 100.0
+    p.beam_separation_mm, p.focal_f_mm = 5.0, 100.0
     _shg_trace(stage)
-    stage.crystal_check.setChecked(True)
-    assert stage.state.retrieve.dispersive is True
-    assert stage.dispersive_check.isChecked()
-    stage.crystal_thickness_spin.setValue(55.0)
-    assert stage.state.retrieve.thickness_um == 55.0
-    assert stage.thickness_spin.value() == 55.0
-    stage.dispersive_check.setChecked(False)
-    assert not stage.crystal_check.isChecked()
+    text = stage.shg_summary.text()
+    assert text.startswith("BBO, 100 µm, cut 29.2°\nθ inside")
+    assert "path =" in text and "depth nodes =" in text
+    # d = 5 mm, D = 3 mm, f = 100 mm at 800 nm: sigma = lambda d / (sqrt2 pi D c)
+    assert text.endswith(
+        "Beams 5 mm apart, f = 100 mm, ⌀ 3 mm\n"
+        "Crossing half-angle α = 1.432°\n"
+        "Delay smearing σ = 1.00 fs rms (2.36 fs FWHM)"
+    )
 
 
-def test_stage_retrieve_crystal_controls_store_their_settings(qtbot, stage):
+def test_stage_retrieve_summary_of_a_thin_medium_and_collinear_beams(stage):
+    p = stage.state.retrieve
+    p.dispersive, p.beam_separation_mm = False, 0.0
+    _shg_trace(stage)
+    assert stage.shg_summary.text() == (
+        "Crystal not modelled: thin-medium SHG.\nCollinear beams: no delay smearing"
+    )
+
+
+def test_stage_retrieve_unknown_stored_crystal_setting_is_explained(stage):
+    stage.state.retrieve = RetrieveParams(dispersive=True, angle_mode="bogus")
+    stage._seed_widgets()
+    _shg_trace(stage)
+    assert "No valid crystal: angle_mode" in stage.shg_summary.text()
+
+
+def test_stage_retrieve_shows_shared_settings_changed_on_the_data_stage(stage):
+    # the switch, thickness and focal length are shared with the Data stage's
+    # crystal panel: entering Retrieve shows their current values
     _shg_trace(stage)
     p = stage.state.retrieve
-    stage.crystal_combo.setCurrentText("BBO")
-    stage.cut_angle_spin.setValue(33.4)
-    stage.angle_mode_combo.setCurrentText("External tilt")
-    stage.tilt_spin.setValue(-1.5)
-    stage.polarization_combo.setCurrentText("Perpendicular to the crossing plane")
-    stage.delayed_beam_combo.setCurrentText("Away from the optic axis")
-    stage.separation_spin.setValue(8.0)
-    stage.geometry_f_spin.setValue(250.0)
-    assert (p.crystal, p.cut_angle_deg, p.angle_mode, p.tilt_deg) == (
-        "BBO",
-        33.4,
-        "tilt",
-        -1.5,
-    )
-    assert (p.polarization, p.delayed_beam) == ("perpendicular", "away_from_axis")
-    assert (p.beam_separation_mm, p.focal_f_mm) == (8.0, 250.0)
-    assert stage.focal_f_spin.value() == 250.0  # one focal length for both groups
-    assert stage.tilt_spin.isEnabled() and not stage.phase_match_spin.isEnabled()
-    stage.angle_mode_combo.setCurrentText("Phase-matched wavelength")
-    stage.phase_match_spin.setValue(780.0)
-    assert (p.angle_mode, p.phase_match_nm) == ("phase-match", 780.0)
-    assert not stage.tilt_spin.isEnabled()
+    p.dispersive, p.thickness_um, p.focal_f_mm, p.smearing = True, 77.0, 333.0, True
+    stage.on_enter()
+    assert stage.dispersive_check.isChecked()
+    assert stage.thickness_spin.value() == 77.0
+    assert stage.focal_f_spin.value() == 333.0
+    assert stage.shg_smearing_check.isChecked() and stage.smearing_check.isChecked()
+    # and the focal mixture's focal length is the beams' one
+    stage.focal_f_spin.setValue(150.0)
+    assert p.focal_f_mm == 150.0
 
 
-def test_stage_retrieve_delayed_beam_matters_only_in_the_principal_plane(stage):
-    _shg_trace(stage)
-    stage.polarization_combo.setCurrentText("In the crossing plane")
-    assert not stage.delayed_beam_combo.isEnabled()
-    stage.polarization_combo.setCurrentText("Perpendicular to the crossing plane")
-    assert stage.delayed_beam_combo.isEnabled()
-    stage.separation_spin.setValue(0.0)  # collinear: no crossing plane at all
-    assert not stage.polarization_combo.isEnabled()
-    assert not stage.delayed_beam_combo.isEnabled()
-    assert stage.geometry_readout.text() == "Collinear beams: no delay smearing"
-    assert not stage.shg_smearing_check.isEnabled()
-
-
-def test_stage_retrieve_crystal_readout_describes_the_crystal(stage):
-    _shg_trace(stage)
-    stage.separation_spin.setValue(5.0)
-    stage.geometry_f_spin.setValue(100.0)
-    # d = 5 mm, D = 3 mm, f = 100 mm at 800 nm: sigma = lambda d / (sqrt2 pi D c)
-    assert stage.geometry_readout.text() == (
-        "Crossing half-angle α = 1.432°\nDelay smearing σ = 1.00 fs rms (2.36 fs FWHM)"
-    )
-    stage.crystal_thickness_spin.setValue(100.0)
-    text = stage.crystal_readout.text()
-    assert "θ inside" in text and "path =" in text and "depth nodes =" in text
-    # a cut the wavelength cannot phase-match at any tilt is explained, not raised
-    stage.cut_angle_spin.setValue(80.0)
-    assert stage.crystal_readout.text().startswith("No valid crystal:")
-
-
-def test_stage_retrieve_crystal_readout_without_a_trace(stage):
-    stage.state.tracedata = None
-    assert "depth nodes" not in stage._crystal_summary()
-    assert "θ inside" in stage._crystal_summary()
+def test_stage_retrieve_seeds_the_shared_settings(stage):
+    stage.state.retrieve = RetrieveParams(dispersive=True, thickness_um=12.0)
+    stage._seed_widgets()
+    assert stage.dispersive_check.isChecked()
+    assert stage.thickness_spin.value() == 12.0
 
 
 def test_stage_retrieve_thickness_fit_is_off_for_a_crystal(stage):
@@ -572,75 +561,16 @@ def test_stage_retrieve_thickness_fit_is_off_for_a_crystal(stage):
     assert not stage.fit_thickness_check.isEnabled()
 
 
-def test_stage_retrieve_seeds_the_crystal_widgets_from_the_settings(stage):
-    stage.state.retrieve = RetrieveParams(
-        dispersive=True,
-        cut_angle_deg=31.0,
-        angle_mode="tilt",
-        tilt_deg=2.0,
-        polarization="perpendicular",
-        delayed_beam="away_from_axis",
-        beam_separation_mm=6.0,
-    )
-    stage._seed_widgets()
-    assert stage.crystal_check.isChecked()
-    assert stage.cut_angle_spin.value() == 31.0
-    assert stage.angle_mode_combo.currentText() == "External tilt"
-    assert stage.tilt_spin.value() == 2.0
-    assert stage.polarization_combo.currentText() == (
-        "Perpendicular to the crossing plane"
-    )
-    assert stage.delayed_beam_combo.currentText() == "Away from the optic axis"
-    assert stage.separation_spin.value() == 6.0
-
-
-def test_stage_retrieve_without_a_trace_shows_the_slab_only(qtbot):
-    fresh = StageRetrieve(WizardState())
-    qtbot.addWidget(fresh)
-    assert not fresh.disp_box.isHidden()
-    assert fresh.crystal_box.isHidden() and fresh.geometry_box.isHidden()
-
-
-def test_stage_retrieve_crystal_shows_settings_changed_through_the_slab(stage):
-    # thickness, focal length and the switch are shared; changing them on a PG
-    # trace must show when SHG data arrives
-    stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
-    stage.on_enter()
-    stage.thickness_spin.setValue(77.0)
-    stage.focal_f_spin.setValue(333.0)
-    stage.dispersive_check.setChecked(True)
-    _shg_trace(stage)
-    assert stage.crystal_thickness_spin.value() == 77.0
-    assert stage.geometry_f_spin.value() == 333.0
-    assert stage.crystal_check.isChecked()
-
-
-def test_stage_retrieve_focal_length_is_one_setting_for_both_groups(stage):
-    _shg_trace(stage)
-    stage.separation_spin.setValue(5.0)
-    stage.focal_f_spin.setValue(200.0)
-    assert stage.geometry_f_spin.value() == 200.0
-    assert stage.geometry_readout.text().startswith("Crossing half-angle α = 0.716°")
-
-
-def test_stage_retrieve_unknown_stored_crystal_setting_is_explained(stage):
-    stage.state.retrieve = RetrieveParams(dispersive=True, angle_mode="bogus")
-    stage._seed_widgets()
-    _shg_trace(stage)
-    assert stage.crystal_readout.text().startswith("No valid crystal: angle_mode")
-
-
-def test_stage_retrieve_shg_smearing_lives_in_beam_geometry(stage):
+def test_stage_retrieve_shg_smearing_lives_in_the_shg_group(stage):
+    stage.state.retrieve.beam_separation_mm = 5.0
+    stage.state.retrieve.beam_diameter_mm = 1.5
     _shg_trace(stage)
     assert stage.smear_box.isHidden()  # the mask geometry is PG/SD's
-    stage.separation_spin.setValue(5.0)
     stage.shg_smearing_check.setChecked(True)
     assert stage.state.retrieve.smearing is True
     assert stage.smearing_check.isChecked()  # one switch for both groups
-    stage.beam_diameter_spin.setValue(1.5)
-    assert stage.state.retrieve.beam_diameter_mm == 1.5
     # half the diameter, twice the focal spot and the blur
-    assert "σ = 2.00 fs rms" in stage.geometry_readout.text()
+    assert "σ = 2.00 fs rms" in stage.shg_summary.text()
     stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
     stage.on_enter()
     assert not stage.smear_box.isHidden()
@@ -650,22 +580,21 @@ def test_stage_retrieve_smearing_switch_follows_the_mask_group(stage):
     stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
     stage.on_enter()
     stage.smearing_check.setChecked(True)
-    stage.state.retrieve.beam_diameter_mm = 4.0
     _shg_trace(stage)
     assert stage.shg_smearing_check.isChecked()
-    assert stage.beam_diameter_spin.value() == 4.0
 
 
 def test_stage_retrieve_shg_smearing_needs_a_capable_solver_and_crossing_beams(stage):
+    stage.state.retrieve.beam_separation_mm = 5.0
     _shg_trace(stage)
-    stage.separation_spin.setValue(5.0)
     stage.solver_combo.setCurrentText("copra")
     assert not stage.shg_smearing_check.isEnabled()
     stage.solver_combo.setCurrentText("lbfgs-ad")
     assert stage.shg_smearing_check.isEnabled()
     stage.shg_smearing_check.setChecked(True)
     assert stage.fit_smearing_check.isEnabled()
-    stage.separation_spin.setValue(0.0)  # collinear: no kernel to fit
+    stage.state.retrieve.beam_separation_mm = 0.0  # collinear: no kernel to fit
+    stage.on_enter()
     assert not stage.shg_smearing_check.isEnabled()
     assert not stage.fit_smearing_check.isEnabled()
 

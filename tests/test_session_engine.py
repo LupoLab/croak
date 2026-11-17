@@ -32,8 +32,8 @@ def stub_stages(monkeypatch):
 
         monkeypatch.setattr(engine.pipeline, name, fn)
 
-    stub("assemble_load_data", {"truth": "truth"})
-    stub("assemble_simulated_load_data", {"truth": None})
+    stub("assemble_load_data", {"truth": "truth", "interaction": "shg"})
+    stub("assemble_simulated_load_data", {"truth": None, "interaction": "shg"})
     stub("build_tracedata", "td")
     stub("assemble_simulated_tracedata", "td-raw")
     stub("run_retrieval", "raw-result")
@@ -94,7 +94,8 @@ def test_run_session_orders_stages_and_chains_results(stub_stages):
     assert process_args == ("dispersed", "td") and process_kw == {"energy": 2e-6}
     # the bootstrap works on the pre-dispersion result
     assert stub_stages[6][1][2] == "result"
-    assert (out.data, out.tracedata, out.result) == ({"truth": "truth"}, "td", "result")
+    assert out.data == {"truth": "truth", "interaction": "shg"}
+    assert (out.tracedata, out.result) == ("td", "result")
     assert (out.dispersed, out.processed, out.uncertainty) == (
         "dispersed",
         "processed",

@@ -4,8 +4,9 @@ Sits between the data loaders (experimental, simulated, synthetic) and the
 preprocess stage. It compares the measured trace's wavelength marginal with the
 marginal **predicted** from the independent fundamental spectrum
 (:func:`croak.marginal_checks.predicted_marginal`): exact for SHG (the spectral
-autoconvolution), transform-limited for PG/TG/SD. It overlays the predicted
-marginal, marks the predicted vs measured centroid, reports the width
+autoconvolution, or, with the crystal modelled on the Data stage, the crystal
+model's marginal through it), transform-limited for PG/TG/SD. It overlays the
+predicted marginal, marks the predicted vs measured centroid, reports the width
 (bracket) check, and lets the user tune the ``(λ/µm)^exp`` third-order
 efficiency correction — with an ``Auto`` that matches the marginal centroid onto
 the prediction.
@@ -31,7 +32,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSplitter, QWidget
 
 from .. import io
+from ..crystals import PhaseMatching
 from ..marginal_checks import (
+    MarginalPrediction,
     auto_third_order_exponent,
     centroid,
     predicted_marginal,
@@ -44,7 +47,12 @@ from ..preprocess import (
     resample_spectrum,
     third_order_scale,
 )
-from ..session.pipeline import assemble_load_data, assemble_simulated_load_data
+from ..session.pipeline import (
+    assemble_load_data,
+    assemble_simulated_load_data,
+    marginal_crystal,
+    pulse_carrier,
+)
 from .base import Stage
 from .controls import add_wide_row, check, combo, dspin, group
 from .display import current as current_display
@@ -72,7 +80,9 @@ class StageMarginalCheck(Stage):
         "Quality-control the trace before retrieval using its frequency "
         "marginal (the trace integrated over delay). The marginal predicted "
         "from the independent fundamental spectrum is exact for SHG (the "
-        "spectral autoconvolution) and transform-limited for PG/TG/SD; comparing "
+        "spectral autoconvolution, or the marginal through the crystal when the "
+        "crystal is modelled on the Data stage) and transform-limited for "
+        "PG/TG/SD; comparing "
         "shape, centroid and width flags calibration, spectral-response, scatter "
         "and detector-nonlinearity problems. Tune the (λ/µm)^exp third-order "
         "efficiency correction here; 'Auto' matches the marginal centroid to the "
@@ -134,9 +144,13 @@ class StageMarginalCheck(Stage):
                 (
                     "Marginal correct (SHG)",
                     "Scale the trace's frequency rows onto the SHG marginal "
-                    "predicted from the independent spectrum (the spectral "
-                    "autoconvolution). The correction is applied during preprocess; "
-                    "here a dashed trace-colour curve previews it snapping onto the "
+                    "predicted from the independent spectrum: the spectral "
+                    "autoconvolution, or, with the crystal modelled on the Data "
+                    "stage, the crystal's marginal. Through the crystal it removes "
+                    "the instrument's spectral response but keeps the phase "
+                    "matching, which the retrieval then models with the same "
+                    "crystal. The correction is applied during preprocess; here a "
+                    "dashed trace-colour curve previews it snapping onto the "
                     "prediction. Available for an SHG trace with an independent "
                     "spectrum (all workflows).",
                 ),
@@ -195,12 +209,6 @@ class StageMarginalCheck(Stage):
             self.state.preproc.marginal_correct,
             self._on_marginal_correct,
         )
-        self.marginal_correct_check.setToolTip(
-            "Scale the trace's frequency rows onto the spectrum-predicted SHG "
-            "marginal (the spectral autoconvolution). Applied during preprocess; "
-            "the dashed curve here previews the snap onto the prediction. SHG only "
-            "and needs an independent spectrum."
-        )
         form.addRow(self.marginal_correct_check)
         self.controls.addWidget(box)
 
@@ -221,6 +229,31 @@ class StageMarginalCheck(Stage):
         display_hub().changed.connect(self._draw)
 
         self.apply_help()
+
+    # -- the SHG crystal ----------------------------------------------------
+    def _prediction_crystal(self, interaction: str) -> tuple[PhaseMatching | None, str]:
+        """The crystal the marginal is predicted through, and a note on it.
+
+        The crystal set on the Data stage for an SHG trace when it is modelled
+        (:func:`croak.session.pipeline.marginal_crystal`), so the prediction, the
+        correction and the retrieval describe one medium. Settings that give no
+        valid crystal fall back to the thin-medium prediction, and the note says
+        so; it is ``""`` otherwise.
+        """
+        try:
+            crystal = marginal_crystal(self.state.retrieve, interaction)
+        except ValueError as exc:
+            return None, (
+                f"⚠ the crystal set on the Data stage is not valid ({exc}): "
+                "showing the thin-medium prediction"
+            )
+        return crystal, ""
+
+    def _medium_label(self, crystal: PhaseMatching | None, interaction: str) -> str:
+        """Name the prediction: through the crystal, thin-medium SHG, or none."""
+        if crystal is not None:
+            return f"through the crystal, {crystal.thickness / 1e-6:g} µm"
+        return "thin medium" if interaction == "shg" else ""
 
     # -- loader coupling ----------------------------------------------------
     def _loader_params(self):
@@ -284,6 +317,7 @@ class StageMarginalCheck(Stage):
         # Auto needs an independent spectrum.
         self.auto_btn.setEnabled(enabled and data.get("Ilam_spec") is not None)
         self._seed_marginal_correct(data)
+        # the prediction reads the crystal set on the Data stage afresh
         self._draw()
 
     def _marginal_correct_available(self, data) -> bool:
@@ -302,6 +336,7 @@ class StageMarginalCheck(Stage):
         """
         available = self._marginal_correct_available(data)
         self.marginal_correct_check.setEnabled(available)
+        self.marginal_correct_check.setToolTip(self._marginal_correct_tip(data))
         if not available and self.state.preproc.marginal_correct:
             self.state.preproc.marginal_correct = False
         self.marginal_correct_check.blockSignals(True)
@@ -309,6 +344,25 @@ class StageMarginalCheck(Stage):
             available and self.state.preproc.marginal_correct
         )
         self.marginal_correct_check.blockSignals(False)
+
+    def _marginal_correct_tip(self, data) -> str:
+        """Say what the correction targets: the crystal's marginal or the thin one."""
+        crystal, _ = self._prediction_crystal(data.get("interaction", ""))
+        if crystal is None:
+            return (
+                "Scale the trace's frequency rows onto the spectrum-predicted SHG "
+                "marginal (the spectral autoconvolution of a thin medium). Applied "
+                "during preprocess; the dashed curve here previews the snap onto "
+                "the prediction. SHG only and needs an independent spectrum."
+            )
+        return (
+            "Scale the trace's frequency rows onto the SHG marginal predicted "
+            f"{self._medium_label(crystal, 'shg')}, as set on the Data stage. This "
+            "removes the instrument's spectral response but keeps the crystal's "
+            "phase matching, which the retrieval models with the same crystal. "
+            "Applied during preprocess; the dashed curve here previews the snap "
+            "onto the prediction. SHG only and needs an independent spectrum."
+        )
 
     # -- control callbacks --------------------------------------------------
     def _on_trust(self, lo: float, hi: float) -> None:
@@ -322,6 +376,8 @@ class StageMarginalCheck(Stage):
         # The flag drives the preprocess regrid (croak.preprocess.load_and_clean);
         # here we only redraw to preview the marginal snapping onto the prediction.
         self.state.preproc.marginal_correct = bool(checked)
+        # a trace prepared with the other setting is stale: Prepare redoes it
+        self.state.invalidate_tracedata()
         self._draw()
 
     def _on_third_order_toggled(self, value: bool) -> None:
@@ -492,7 +548,9 @@ class StageMarginalCheck(Stage):
                     x_pr, y_pr = pred["lam_nm"], pred["marg_lam"]
                     pb = (x_pr >= lo) & (x_pr <= hi)
                 predicted = _peak_norm(y_pr, pb)
-                curves.append(CurveView(x_pr, predicted, "predicted", "predicted"))
+                medium = pred["medium"]
+                name = f"predicted ({medium})" if medium else "predicted"
+                curves.append(CurveView(x_pr, predicted, "predicted", name))
                 if correcting:
                     curves.append(
                         CurveView(
@@ -574,7 +632,7 @@ class StageMarginalCheck(Stage):
         omega = np.linspace(wlfreq(lam_hi), wlfreq(lam_lo), _PRED_GRID)
         try:
             s_omega = resample_spectrum(lam_s, Il, omega)
-            pred = predicted_marginal(omega, s_omega, interaction)
+            pred, crystal, note = self._predict_through(omega, s_omega, interaction)
         except ValueError, ZeroDivisionError:
             return None
         lam_pred = wlfreq(pred.omega)
@@ -599,7 +657,40 @@ class StageMarginalCheck(Stage):
             "centroid_is_hard": pred.centroid_is_hard,
             "width_is_hard": pred.width_is_hard,
             "centroid_omega": pred.centroid,
+            # what the prediction is through, and why not the crystal if not
+            "medium": self._medium_label(crystal, interaction),
+            "note": note,
         }
+
+    def _predict_through(
+        self, omega: np.ndarray, s_omega: np.ndarray, interaction: str
+    ) -> tuple[MarginalPrediction, PhaseMatching | None, str]:
+        """Predict the marginal through the Data stage's crystal, else thin.
+
+        Returns the prediction, the crystal it went through (``None`` for the
+        thin medium) and a note on why the crystal was not used (``""`` if it
+        was, or none was asked for). Raises what the thin prediction raises.
+        """
+        crystal, note = self._prediction_crystal(interaction)
+        if crystal is not None:
+            try:
+                # The crystal's angle and path are taken at the carrier the
+                # retrieval grid will have, as the correction at preprocess does.
+                pred = predicted_marginal(
+                    omega,
+                    s_omega,
+                    interaction,
+                    crystal=crystal,
+                    omega0=pulse_carrier(self.state.preproc),
+                )
+            except ValueError as exc:
+                note = (
+                    f"⚠ no marginal through the crystal ({exc}): showing the "
+                    "thin-medium prediction"
+                )
+            else:
+                return pred, crystal, note
+        return predicted_marginal(omega, s_omega, interaction), None, note
 
     def _measured_moments(self, lam, marg, in_band):
         """Measured marginal centroid (nm) and RMS width (rad/s) in the trust band."""
@@ -618,8 +709,9 @@ class StageMarginalCheck(Stage):
             return
         d_centroid = c_meas_nm - pred["centroid_nm"]
         hardness = "hard" if pred["centroid_is_hard"] else "TL/soft"
+        medium = f" ({pred['medium']})" if pred["medium"] else ""
         lines = [
-            f"{interaction.upper()} marginal check",
+            f"{interaction.upper()} marginal check{medium}",
             f"centroid: meas {c_meas_nm:.1f} nm vs pred {pred['centroid_nm']:.1f} nm "
             f"(Δ {d_centroid:+.1f} nm, {hardness})",
         ]
@@ -655,7 +747,9 @@ class StageMarginalCheck(Stage):
                 f"width RMS: meas {w_meas:.1f} nm | predicted min {w_min:.1f} nm "
                 f"(σ_S) {'✓' if ok else '⚠ below σ_S'}"
             )
-        self.set_status("  •  ".join(lines))
+        if pred["note"]:
+            lines.append(pred["note"])
+        self.set_status("  •  ".join(lines), "warn" if pred["note"] else "ok")
 
 
 def _peak_norm(y: np.ndarray, mask: np.ndarray) -> np.ndarray:

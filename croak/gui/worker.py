@@ -35,7 +35,9 @@ class PreprocessWorker(QThread):
     filtering/regridding in a thread and hands the result back via a signal; the
     (main-thread) caller does the plotting. ``params`` is a snapshot the caller
     takes (so later slider changes can't mutate an in-flight run) and ``data``
-    holds read-only arrays. ``request_id`` lets the caller ignore superseded
+    holds read-only arrays. ``crystal`` is the SHG crystal the marginal correction
+    targets (:func:`croak.session.pipeline.correction_crystal`), resolved by the
+    caller with the snapshot. ``request_id`` lets the caller ignore superseded
     results. ``fast`` selects the coarse, interactive-preview baseline (the caller
     then refines to the exact baseline once the user settles).
 
@@ -51,17 +53,23 @@ class PreprocessWorker(QThread):
     finished_ok = Signal(object, int, bool)
     failed = Signal(str, int)
 
-    def __init__(self, params, data, request_id, parent=None, *, fast=False):
+    def __init__(
+        self, params, data, request_id, parent=None, *, crystal=None, fast=False
+    ):
         super().__init__(parent)
         self._params = params
         self._data = data
+        self._crystal = crystal
         self._id = int(request_id)
         self._fast = bool(fast)
 
     def run(self) -> None:  # noqa: D401 - QThread entry point
         try:
             td = pipeline.build_tracedata(
-                self._params, self._data, fast_baseline=self._fast
+                self._params,
+                self._data,
+                crystal=self._crystal,
+                fast_baseline=self._fast,
             )
         except Exception as exc:
             self.failed.emit(str(exc), self._id)

@@ -224,7 +224,7 @@ class StagePreprocess(Stage):
         # bottleneck, but both used to block the UI thread on every change.
         self._req_id = 0  # bumped per recompute; stale worker results are ignored
         self._workers: list[PreprocessWorker] = []
-        self._pending: tuple | None = None  # (params, data) for the exact refine
+        self._pending: tuple | None = None  # (params, data, crystal) to refine
         # Debounce: coalesce rapid slider/spin changes into one recompute.
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -666,20 +666,36 @@ class StagePreprocess(Stage):
         # Bump first: this invalidates any async worker still in flight, so its
         # (now stale) result is ignored whether we run inline or dispatch.
         self._req_id += 1
+        # The crystal the marginal correction targets is resolved now too, from
+        # the Data stage's crystal settings, so the snapshot is complete.
+        try:
+            crystal = pipeline.correction_crystal(
+                params, self.state.retrieve, data["interaction"]
+            )
+        except ValueError as exc:
+            self.set_status(
+                f"Preprocess failed: the crystal set on the Data stage is not valid "
+                f"for the marginal correction ({exc}).",
+                "error",
+            )
+            return
         if block:
             try:
-                td = pipeline.build_tracedata(params, data)  # exact, full-resolution
+                # exact, full-resolution
+                td = pipeline.build_tracedata(params, data, crystal=crystal)
             except Exception as exc:
                 self.set_status(f"Preprocess failed: {exc}", "error")
                 return
             self._show_tracedata(td)
             return
-        self._dispatch(params, data, self._req_id, fast=True)
+        self._dispatch(params, data, crystal, self._req_id, fast=True)
 
-    def _dispatch(self, params, data, rid, *, fast):
+    def _dispatch(self, params, data, crystal, rid, *, fast):
         """Launch an off-thread preprocess (``fast`` ⇒ coarse baseline preview)."""
-        self._pending = (params, data)
-        worker = PreprocessWorker(params, data, rid, parent=self, fast=fast)
+        self._pending = (params, data, crystal)
+        worker = PreprocessWorker(
+            params, data, rid, parent=self, crystal=crystal, fast=fast
+        )
         worker.finished_ok.connect(self._on_preprocess_done)
         worker.failed.connect(self._on_preprocess_failed)
         worker.finished.connect(lambda w=worker: self._discard_worker(w))
@@ -751,8 +767,8 @@ class StagePreprocess(Stage):
             # Refine to the exact baseline, reusing the same request id so a later
             # parameter change supersedes it; the committed trace ends up exact.
             if self._pending is not None:
-                params, data = self._pending
-                self._dispatch(params, data, req_id, fast=False)
+                params, data, crystal = self._pending
+                self._dispatch(params, data, crystal, req_id, fast=False)
         else:
             # Exact refinement: replace the stored trace (used for retrieval/save)
             # without a redraw — visually identical to the preview already shown.
