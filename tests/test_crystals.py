@@ -278,8 +278,8 @@ def test_signal_pairs_ignore_the_last_bit_of_the_spacing():
     # the session had counted. Both copies must keep the same pairs.
     setup = _tuned()
     nudged = Grid(GRID.n, domega=float(np.nextafter(GRID.domega, np.inf)))
-    dk, *_ = crystals._pair_mismatch(setup, GRID.omega, W0)
-    dk_nudged, *_ = crystals._pair_mismatch(setup, nudged.omega, W0)
+    dk, *_ = crystals._pair_mismatch(setup, GRID.omega, W0, setup._carrier(W0))
+    dk_nudged, *_ = crystals._pair_mismatch(setup, nudged.omega, W0, setup._carrier(W0))
     assert dk_nudged.size == dk.size
     # the spacing differs by one ulp, so the mismatches agree to rounding
     np.testing.assert_allclose(dk_nudged, dk, rtol=1e-9, atol=0)
@@ -395,6 +395,83 @@ def test_check_medium_rejects_bad_crystal_inputs(thickness, quadrature, match):
         crystals.check_medium(
             get_interaction("shg"), _tuned(), thickness, 99, GRID.omega, W0, quadrature
         )
+
+
+@pytest.mark.parametrize(
+    "transparency", [(2e-6, 1e-6), (0.0, 1e-6), (-1e-6, 1e-6), (1e-7, math.inf)]
+)
+def test_crystal_rejects_an_invalid_transparency(transparency):
+    with pytest.raises(ValueError, match="0 < lo < hi"):
+        UniaxialCrystal("BBO-like", BBO.n_o, BBO.n_e, transparency)
+
+
+@pytest.mark.parametrize("wavelength", [0.0, -800e-9, math.nan, math.inf])
+def test_setup_rejects_an_invalid_phase_match_wavelength(wavelength):
+    with pytest.raises(ValueError, match="phase_match_wavelength must be"):
+        CrystalSetup(BBO, math.radians(29.2), phase_match_wavelength=wavelength)
+
+
+@pytest.mark.parametrize("thickness", [-100e-6, math.nan, math.inf])
+def test_depth_points_rejects_an_invalid_thickness(thickness):
+    with pytest.raises(ValueError, match="finite and >= 0"):
+        crystals.depth_points(_tuned(), GRID.omega, W0, thickness)
+
+
+@pytest.mark.parametrize("thickness", [0.0, 100e-6])
+def test_a_grid_the_crystal_is_opaque_over_is_refused(thickness):
+    # Every fundamental (about 560-1400 nm) lies outside 1.5-2 um. At zero thickness
+    # the model would otherwise return an all-zero trace without a word.
+    from croak.interactions import get_interaction
+
+    opaque = UniaxialCrystal("BBO-like", BBO.n_o, BBO.n_e, (1.5e-6, 2e-6))
+    setup = CrystalSetup(opaque, math.radians(29.2), phase_match_wavelength=800e-9)
+    with pytest.raises(ValueError, match="transparent over 1500-2000 nm"):
+        crystals.check_medium(
+            get_interaction("shg"), setup, thickness, 999, GRID.omega, W0
+        )
+    with pytest.raises(ValueError, match="no pair of grid frequencies"):
+        crystals.depth_points(setup, GRID.omega, W0, thickness)
+
+
+def test_a_crystal_without_a_transparency_range_names_the_grid_when_opaque():
+    # indices that are nowhere finite: no pair survives, and no range is quoted
+    dark = UniaxialCrystal(
+        "dark",
+        lambda lam: np.full_like(lam, np.nan),
+        lambda lam: np.full_like(lam, 1.5),
+    )
+    setup = CrystalSetup(dark, math.radians(29.2), tilt=0.0)
+    with pytest.raises(ValueError, match=r"in dark: the grid spans \d+-\d+ nm"):
+        crystals._pair_mismatch(setup, GRID.omega, W0, crystals._Carrier(0.5, 0.0, 0.0))
+
+
+def test_depth_points_include_the_arms_drift():
+    # Crossing in the principal plane, the mismatch the model integrates includes
+    # kappa (w1 - w2), which grows with the grid's span. 500 um at a 5.7 degree
+    # half-angle on a 1.5 fs grid: the review of PR #31 found the drift adds about
+    # 12 rad to phi there, more than the rule's margin of 3 nodes.
+    grid = Grid(256, dt=1.5e-15)
+    geometry = TwoBeamGeometry(beam_separation=20e-3, focal_length=0.1)  # 5.7 deg
+    toward = _tuned(
+        geometry=geometry, polarization="perpendicular", delayed_beam="toward_axis"
+    )
+    parallel = _tuned(geometry=geometry, polarization="parallel")
+    carrier = toward._carrier(W0)
+    dk, w1, w2 = crystals._pair_mismatch(toward, grid.omega, W0, carrier)
+    bisector = dk - toward.arm_shift(W0) * (w1 - w2)
+    path = toward.path_length(500e-6, W0)
+    phi = float(np.max(np.abs(dk))) * path / 2
+    phi_bisector = float(np.max(np.abs(bisector))) * path / 2
+    assert phi - phi_bisector > 5.0
+    assert crystals.depth_points(toward, grid.omega, W0, 500e-6) == math.ceil(phi) + 3
+    # out of the principal plane there is no drift to add
+    dk_par, *_ = crystals._pair_mismatch(
+        parallel, grid.omega, W0, parallel._carrier(W0)
+    )
+    assert crystals.depth_points(parallel, grid.omega, W0, 500e-6) == (
+        math.ceil(float(np.max(np.abs(dk_par))) * parallel.path_length(500e-6, W0) / 2)
+        + 3
+    )
 
 
 @pytest.mark.parametrize("tilt_deg", [90.0, -100.0])

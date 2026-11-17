@@ -158,12 +158,28 @@ class UniaxialCrystal:
         prefactor is zero) and component pairs do not count towards
         :func:`depth_points`; there a Sellmeier formula runs into its poles.
         ``None`` (default) trusts the indices wherever they are finite.
+
+    Raises
+    ------
+    ValueError
+        If ``transparency`` is not two finite wavelengths with ``0 < lo < hi``.
     """
 
     name: str
     n_o: Index
     n_e: Index
     transparency: tuple[float, float] | None = None
+
+    def __post_init__(self) -> None:
+        """Validate the transparency range."""
+        if self.transparency is None:
+            return
+        lo, hi = self.transparency
+        if not (math.isfinite(lo) and math.isfinite(hi) and 0.0 < lo < hi):
+            raise ValueError(
+                f"transparency must be two finite wavelengths (m) with 0 < lo < hi, "
+                f"got {self.transparency!r}"
+            )
 
     def transparent(self, omega: ArrayLike) -> NDArray[np.bool_]:
         """Return where angular frequencies ``omega`` (rad/s) lie in the range."""
@@ -283,6 +299,19 @@ def phase_matching_angle(
 
 
 @dataclass(frozen=True)
+class _Carrier:
+    """A crystal's angles at one pulse carrier, solved once and passed around.
+
+    Solving for a tuned crystal's angle is a root search; the forward models need
+    the angle, the tilt and the index slope several times over, so they solve once.
+    """
+
+    theta: float  # internal angle to the optic axis (rad)
+    tilt: float  # internal tilt, theta minus the cut angle (rad)
+    slope: float  # n_e'/n_s at theta and the signal carrier (1/rad)
+
+
+@dataclass(frozen=True)
 class CrystalSetup:
     r"""A Type I SHG crystal as mounted in the FROG.
 
@@ -323,8 +352,9 @@ class CrystalSetup:
     ------
     ValueError
         If not exactly one of ``tilt`` and ``phase_match_wavelength`` is given,
-        the cut angle is out of range, or ``polarization`` or ``delayed_beam`` is
-        missing or invalid.
+        the tilt or the cut angle is out of range, ``phase_match_wavelength`` is
+        not a finite positive wavelength, or ``polarization`` or ``delayed_beam``
+        is missing or invalid.
     """
 
     crystal: UniaxialCrystal
@@ -346,6 +376,14 @@ class CrystalSetup:
             raise ValueError(
                 f"the external tilt must lie strictly between -pi/2 and pi/2 rad, "
                 f"got {self.tilt!r}"
+            )
+        if self.phase_match_wavelength is not None and not (
+            math.isfinite(self.phase_match_wavelength)
+            and self.phase_match_wavelength > 0.0
+        ):
+            raise ValueError(
+                f"phase_match_wavelength must be a finite wavelength > 0 m, got "
+                f"{self.phase_match_wavelength!r}"
             )
         if not 0.0 <= self.cut_angle <= 0.5 * math.pi:
             raise ValueError(
@@ -449,14 +487,38 @@ class CrystalSetup:
         boundary-value solve to the mismatch's second order,
         ``tests/test_crystals.py``). Without a tilt it is ``thickness``.
         """
-        gamma = self.internal_tilt(omega0)
+        return self._path(thickness, self._carrier(omega0))
+
+    def _carrier(self, omega0: float) -> _Carrier:
+        """Solve the angles at the carrier once, for the methods that share them."""
         theta = self.internal_angle(omega0)
+        return _Carrier(theta, theta - self.cut_angle, self._slope(theta, omega0))
+
+    def _slope(self, theta: float, omega0: float) -> float:
+        r"""Return :math:`n_e'/n_s` at ``theta`` and the signal carrier.
+
+        The one evaluation shared by the effective path (:meth:`path_length`) and
+        the arms' drift (:meth:`arm_shift`), so the two cannot disagree on where
+        the extraordinary index's angular dispersion is taken.
+        """
         lam = np.array([float(wlfreq(2.0 * omega0))])
         n_o, n_e = self.crystal.n_o(lam), self.crystal.n_e(lam)
-        ratio = float(
+        return float(
             _dn_dtheta(n_o, n_e, theta)[0] / extraordinary_index(n_o, n_e, theta)[0]
         )
-        return thickness / (math.cos(gamma) + ratio * math.sin(gamma))
+
+    @staticmethod
+    def _path(thickness: float, carrier: _Carrier) -> float:
+        """Effective path (m) of :meth:`path_length` from solved carrier angles."""
+        gamma = carrier.tilt
+        return thickness / (math.cos(gamma) + carrier.slope * math.sin(gamma))
+
+    def _shift(self, carrier: _Carrier) -> float:
+        """Drift rate (s/m) of :meth:`arm_shift` from solved carrier angles."""
+        if not self.in_principal_plane:
+            return 0.0
+        sign = 1.0 if self.delayed_beam == "toward_axis" else -1.0
+        return sign * carrier.slope * math.sin(self.crossing_half_angle) / C
 
     def _refraction_wavelength(self, omega0: float) -> float:
         """Return the wavelength whose ordinary index refracts the tilt (m)."""
@@ -488,14 +550,7 @@ class CrystalSetup:
         """
         if not self.in_principal_plane:
             return 0.0
-        theta = self.internal_angle(omega0)
-        lam = np.array([float(wlfreq(2.0 * omega0))])
-        n_o, n_e = self.crystal.n_o(lam), self.crystal.n_e(lam)
-        ratio = float(
-            _dn_dtheta(n_o, n_e, theta)[0] / extraordinary_index(n_o, n_e, theta)[0]
-        )
-        sign = 1.0 if self.delayed_beam == "toward_axis" else -1.0
-        return sign * ratio * math.sin(self.crossing_half_angle) / C
+        return self._shift(self._carrier(omega0))
 
     def _n_refraction(self, omega0: float) -> float:
         """Return the ordinary index that refracts the tilt."""
@@ -589,7 +644,8 @@ def propagation(
         beta = materials.beta(material, omega, omega0)
         return Propagation(beta, beta, np.ones_like(omega), float(thickness))
     setup = material
-    theta = setup.internal_angle(omega0)
+    carrier = setup._carrier(omega0)
+    theta = carrier.theta
     sin_alpha = math.sin(setup.crossing_half_angle)
     crystal = setup.crystal
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -620,8 +676,8 @@ def propagation(
         beta_in,
         beta_sig,
         sig_amp,
-        setup.path_length(float(thickness), omega0),
-        setup.arm_shift(omega0),
+        setup._path(float(thickness), carrier),
+        setup._shift(carrier),
     )
 
 
@@ -635,13 +691,26 @@ def _group_delay(crystal: UniaxialCrystal, omega0: float, sin_alpha: float) -> f
 
 
 def _pair_mismatch(
-    setup: CrystalSetup, omega: NDArray[np.float64], omega0: float
-) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], float]:
-    """Mismatch over the grid's component pairs that land on the signal grid.
+    setup: CrystalSetup,
+    omega: NDArray[np.float64],
+    omega0: float,
+    carrier: _Carrier,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    r"""Mismatch over the grid's component pairs that land on the signal grid.
 
-    Returns ``(dk, w1, w2, theta)`` for every pair ``(w1, w2)`` of grid
-    frequencies (subsampled to :data:`_PAIR_GRID`) whose sum lies on the signal
-    grid; aliased pairs and frequencies without a finite index are dropped.
+    Returns ``(dk, w1, w2)`` for every pair ``(w1, w2)`` of grid frequencies
+    (subsampled to :data:`_PAIR_GRID`) whose sum lies on the signal grid; aliased
+    pairs and frequencies without a finite index or outside the transparency
+    range are dropped. ``dk`` is the mismatch the model integrates over depth:
+    the bisector's :math:`k_s - k_z(\omega_1) - k_z(\omega_2)` plus the arms'
+    drift :math:`\kappa(\omega_1-\omega_2)` (:meth:`CrystalSetup.arm_shift`),
+    which grows with the grid's span and so cannot be left to a fixed margin.
+
+    Raises
+    ------
+    ValueError
+        If no pair is left: the grid and the carrier lie outside the range the
+        crystal's indices cover, so there is no signal to model.
     """
     grid = (
         omega
@@ -659,14 +728,14 @@ def _pair_mismatch(
     keep = (total >= omega.min() - tolerance) & (total <= omega.max() + tolerance)
     w1 = o1[keep] + omega0
     w2 = o2[keep] + omega0
-    theta = setup.internal_angle(omega0)
     sin_alpha = math.sin(setup.crossing_half_angle)
     crystal = setup.crystal
     with np.errstate(divide="ignore", invalid="ignore"):
         dk = (
-            _k_signal(crystal, w1 + w2, theta)
+            _k_signal(crystal, w1 + w2, carrier.theta)
             - _k_fundamental(crystal, w1, sin_alpha)
             - _k_fundamental(crystal, w2, sin_alpha)
+            + setup._shift(carrier) * (w1 - w2)
         )
     ok = (
         np.isfinite(dk)
@@ -674,7 +743,22 @@ def _pair_mismatch(
         & crystal.transparent(w2)
         & crystal.transparent(w1 + w2)
     )
-    return dk[ok], w1[ok], w2[ok], theta
+    if not np.any(ok):
+        lam = wlfreq(omega0 + np.array([omega.max(), omega.min()]))
+        span = (
+            ""
+            if crystal.transparency is None
+            else (
+                f" (transparent over {crystal.transparency[0] * 1e9:.0f}-"
+                f"{crystal.transparency[1] * 1e9:.0f} nm)"
+            )
+        )
+        raise ValueError(
+            f"no pair of grid frequencies has a finite index in {crystal.name}"
+            f"{span}: the grid spans {lam[0] * 1e9:.0f}-{lam[1] * 1e9:.0f} nm "
+            f"around the carrier, so the crystal would generate no signal"
+        )
+    return dk[ok], w1[ok], w2[ok]
 
 
 def depth_points(
@@ -689,10 +773,11 @@ def depth_points(
     :math:`n \ge \lceil\varphi\rceil + 3` (checked for :math:`0.5 \le \varphi \le
     60` in ``tests/test_crystals.py``). :math:`\varphi` is the maximum over every
     pair of grid frequencies that lands on the signal grid, so the rule holds
-    wherever the retrieved field puts energy. It leaves out the arms' delay drift
-    (:meth:`CrystalSetup.arm_shift`), which adds :math:`\kappa(\omega_1-\omega_2)`
-    to the mismatch: at most about one rad of :math:`\varphi` even for 500 µm at
-    a 5.7° half-angle, inside the rule's margin.
+    wherever the retrieved field puts energy. Crossing in the principal plane,
+    :math:`\Delta k` includes the arms' delay drift
+    :math:`\kappa(\omega_1-\omega_2)` (:meth:`CrystalSetup.arm_shift`), which
+    grows with the grid's span: about 12 rad of :math:`\varphi` for 500 µm at a
+    5.7° half-angle on a 1.5 fs grid.
 
     Parameters
     ----------
@@ -709,11 +794,39 @@ def depth_points(
     -------
     int
         The number of nodes; ``1`` for a zero thickness.
+
+    Raises
+    ------
+    ValueError
+        If ``thickness`` is negative or not finite, or no pair of grid frequencies
+        lies within the crystal's transparency range.
     """
+    _check_thickness(thickness)
+    return _depth_points(
+        setup, np.asarray(omega, dtype=float), omega0, thickness, setup._carrier(omega0)
+    )
+
+
+def _check_thickness(thickness: float) -> None:
+    """Raise unless ``thickness`` is a finite, non-negative length (m)."""
+    if not (math.isfinite(thickness) and thickness >= 0.0):
+        raise ValueError(
+            f"the crystal thickness must be finite and >= 0 m, got {thickness!r}"
+        )
+
+
+def _depth_points(
+    setup: CrystalSetup,
+    omega: NDArray[np.float64],
+    omega0: float,
+    thickness: float,
+    carrier: _Carrier,
+) -> int:
+    """:func:`depth_points` with the thickness checked and the carrier solved."""
+    dk, *_ = _pair_mismatch(setup, omega, omega0, carrier)
     if thickness == 0.0:
         return 1
-    dk, *_ = _pair_mismatch(setup, np.asarray(omega, dtype=float), omega0)
-    phi = float(np.max(np.abs(dk))) * setup.path_length(thickness, omega0) / 2.0
+    phi = float(np.max(np.abs(dk))) * setup._path(thickness, carrier) / 2.0
     return math.ceil(phi) + 3
 
 
@@ -751,8 +864,10 @@ def check_medium(
     ValueError
         If an isotropic slab is given for SHG (its signal lies near
         :math:`2\omega_0`, outside a material's single propagation constant), a
-        crystal for an interaction other than SHG, or too few depth nodes for the
-        crystal's phase mismatch (see :func:`depth_points`).
+        crystal for an interaction other than SHG, a negative or non-finite
+        thickness, a grid outside the crystal's transparency range (even at zero
+        thickness, where the model would otherwise return a zero trace), or too few
+        depth nodes for the crystal's phase mismatch (see :func:`depth_points`).
 
     Notes
     -----
@@ -777,19 +892,17 @@ def check_medium(
         )
     if not is_crystal:
         return
-    material.internal_angle(omega0)  # the carrier, the angle and the tilt are valid
-    if not (math.isfinite(thickness) and thickness >= 0.0):
-        raise ValueError(
-            f"the crystal thickness must be finite and >= 0, got {thickness!r}"
-        )
-    if not thickness:
-        return
-    if quadrature != "gausslegendre":
+    carrier = material._carrier(omega0)  # the carrier, the angle and tilt are valid
+    _check_thickness(thickness)
+    if thickness and quadrature != "gausslegendre":
         raise ValueError(
             f"a crystal needs Gauss-Legendre depth quadrature (its node rule, "
             f"depth_points, is derived for it), got {quadrature!r}"
         )
-    needed = depth_points(material, omega, omega0, thickness)
+    # also at zero thickness: a grid the crystal is opaque over gives no signal
+    needed = _depth_points(
+        material, np.asarray(omega, dtype=float), omega0, thickness, carrier
+    )
     if npoints < needed:
         raise ValueError(
             f"{npoints} depth nodes under-resolve the crystal's phase mismatch: use "
@@ -826,11 +939,64 @@ def _signal_direction(
     return psi
 
 
+@dataclass(frozen=True)
+class _PairSum:
+    """The delay-independent parts of :func:`_pair_signal`, in DFT-bin order.
+
+    Built once by :func:`_pair_sum` so that each delay costs only the
+    :math:`N^2` pair sum.
+    """
+
+    w: NDArray[np.float64]  # grid offsets from the carrier (rad/s)
+    b_in: NDArray[np.float64]  # fundamental propagation constant (rad/m)
+    b_sig: NDArray[np.float64]  # signal propagation constant (rad/m)
+    amp: NDArray[np.float64]  # signal prefactor
+    path: float  # effective path (m)
+    kappa: float  # the arms' drift rate (s/m)
+    omega0: float  # pulse carrier (rad/s)
+    theta: float  # internal angle to the optic axis (rad)
+    beta1: float  # the frame's group delay per length (s/m)
+    k_x_rate: float  # transverse wavevector per (w1 - w2), signed (s/m)
+    n_o: NDArray[np.float64]  # ordinary index at each signal bin
+    n_e: NDArray[np.float64]  # principal extraordinary index at each signal bin
+    n_s: NDArray[np.float64]  # extraordinary index at theta, each signal bin
+
+
+def _pair_sum(
+    setup: CrystalSetup, omega: NDArray[np.float64], omega0: float, thickness: float
+) -> _PairSum:
+    """Precompute :class:`_PairSum` for ``setup`` on the centred grid ``omega``."""
+    carrier = setup._carrier(omega0)
+    prop = propagation(setup, omega, omega0, thickness)
+    sin_alpha = math.sin(setup.crossing_half_angle)
+    w = np.fft.ifftshift(omega)
+    amp = np.fft.ifftshift(prop.sig_amp)
+    # Indices at every signal bin that generates; the others get the carrier's,
+    # which are never used (their prefactor is zero) but keep the arrays finite.
+    ws = np.where(amp != 0.0, w + 2.0 * omega0, 2.0 * omega0)
+    lam = wlfreq(ws)
+    n_o, n_e = setup.crystal.n_o(lam), setup.crystal.n_e(lam)
+    sign = 1.0 if setup.delayed_beam == "toward_axis" else -1.0
+    return _PairSum(
+        w=w,
+        b_in=np.fft.ifftshift(prop.beta_in),
+        b_sig=np.fft.ifftshift(prop.beta_sig),
+        amp=amp,
+        path=prop.path_length,
+        kappa=prop.arm_shift,
+        omega0=omega0,
+        theta=carrier.theta,
+        beta1=_group_delay(setup.crystal, omega0, sin_alpha),
+        # positive towards a larger angle to the axis
+        k_x_rate=sign * sin_alpha / C,
+        n_o=n_o,
+        n_e=n_e,
+        n_s=extraordinary_index(n_o, n_e, carrier.theta),
+    )
+
+
 def _pair_signal(
-    setup: CrystalSetup,
-    omega: NDArray[np.float64],
-    omega0: float,
-    thickness: float,
+    pairs: _PairSum,
     amplitude: NDArray[np.float64],
     tau: float,
     *,
@@ -848,45 +1014,32 @@ def _pair_signal(
     which the model leaves out, keeps the exit-face reference, so that what the
     comparison measures is not reduced by the choice of reference.
     """
-    prop = propagation(setup, omega, omega0, thickness)
-    path = prop.path_length
-    n = omega.size
-    w = np.fft.ifftshift(omega)
-    b_in = np.fft.ifftshift(prop.beta_in)
-    b_sig = np.fft.ifftshift(prop.beta_sig)
-    amp = np.fft.ifftshift(prop.sig_amp)
+    p = pairs
+    n = p.w.size
     e = np.fft.ifftshift(amplitude).astype(complex)
-    e_tau = e * np.exp(1j * w * tau)
-    theta = setup.internal_angle(omega0)
-    sin_alpha = math.sin(setup.crossing_half_angle)
-    beta1 = _group_delay(setup.crystal, omega0, sin_alpha)
+    e_tau = e * np.exp(1j * p.w * tau)
     j = np.arange(n)
     psi = np.zeros(n, dtype=complex)
-    for k in range(n):
-        if amp[k] == 0.0:
-            continue
+    for k in np.flatnonzero(p.amp):
         m = (k - j) % n
-        bs = b_sig[k] + prop.arm_shift * (w[j] - w[m])
+        dw = p.w[j] - p.w[m]
+        bs = p.b_sig[k] + p.kappa * dw
         if tilted:
-            w1, w2 = w[j] + omega0, w[m] + omega0
-            ws = w[k] + 2.0 * omega0
-            lam = np.array([float(wlfreq(ws))])
-            n_o, n_e = setup.crystal.n_o(lam), setup.crystal.n_e(lam)
-            n_s = float(extraordinary_index(n_o, n_e, theta)[0])
-            sign = 1.0 if setup.delayed_beam == "toward_axis" else -1.0
-            # transverse wavevector, positive towards a larger angle to the axis
-            k_x = sign * (w1 - w2) * sin_alpha / C
-            direction = _signal_direction(n_o, n_e, theta, ws / C, k_x, n_s)
-            n_dir = extraordinary_index(n_o, n_e, theta + direction)
-            bs = ws / C * n_dir * np.cos(direction) - beta1 * w[k]
-        a = b_in[j] + b_in[m] - bs
+            ws = p.w[k] + 2.0 * p.omega0
+            n_o, n_e = p.n_o[k : k + 1], p.n_e[k : k + 1]
+            direction = _signal_direction(
+                n_o, n_e, p.theta, ws / C, p.k_x_rate * dw, float(p.n_s[k])
+            )
+            n_dir = extraordinary_index(n_o, n_e, p.theta + direction)
+            bs = ws / C * n_dir * np.cos(direction) - p.beta1 * p.w[k]
+        a = p.b_in[j] + p.b_in[m] - bs
         with np.errstate(divide="ignore", invalid="ignore"):
-            depth = (np.exp(1j * a * path) - 1.0) / (1j * a)
-        depth = np.where(np.abs(a * path) < 1e-12, path, depth)
+            depth = (np.exp(1j * a * p.path) - 1.0) / (1j * a)
+        depth = np.where(np.abs(a * p.path) < 1e-12, p.path, depth)
         # the first-order drift, referenced to mid-depth as in the model
-        shift = np.exp(-0.5j * prop.arm_shift * (w[j] - w[m]) * path)
-        psi[k] = amp[k] * np.sum(
-            e[j] * e_tau[m] * np.exp(1j * bs * path) * shift * depth
+        shift = np.exp(-0.5j * p.kappa * dw * p.path)
+        psi[k] = p.amp[k] * np.sum(
+            e[j] * e_tau[m] * np.exp(1j * bs * p.path) * shift * depth
         )
     return np.fft.fftshift(psi)
 
@@ -949,7 +1102,7 @@ def tilt_field_error(
     ValueError
         If ``amplitude`` is zero everywhere or ``delays`` is empty.
     """
-    if setup.geometry is None or setup.polarization != "perpendicular" or not thickness:
+    if not setup.in_principal_plane or not thickness:
         return 0.0
     omega = np.asarray(omega, dtype=float)
     amplitude = np.abs(np.asarray(amplitude, dtype=float))
@@ -958,11 +1111,11 @@ def tilt_field_error(
     delays = np.asarray(delays, dtype=float).ravel()
     if delays.size == 0:
         raise ValueError("give at least one delay to evaluate")
+    pairs = _pair_sum(setup, omega, omega0, thickness)
     worst, peak = 0.0, 0.0
     for tau in delays:
-        args = (setup, omega, omega0, thickness, amplitude, float(tau))
-        model = _pair_signal(*args, tilted=False)
-        exact = _pair_signal(*args, tilted=True)
+        model = _pair_signal(pairs, amplitude, float(tau), tilted=False)
+        exact = _pair_signal(pairs, amplitude, float(tau), tilted=True)
         worst = max(worst, float(np.max(np.abs(model - exact))))
         peak = max(peak, float(np.max(np.abs(exact))))
     return worst / peak
