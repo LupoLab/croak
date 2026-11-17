@@ -65,17 +65,61 @@ def _depth_integral(a, path):
     return np.where(np.abs(a * path) < 1e-12, path, out)
 
 
+def _reference(setup, thickness):
+    """The pair sum's constants, written out from the crystal's index functions.
+
+    Independent of ``croak.crystals.propagation``, ``_group_delay`` and
+    ``arm_shift``: the fundamental's wavevector along the bisector, the signal's
+    extraordinary index, the frame's group delay, the prefactor and the drift rate
+    are each spelled out here, with finite differences in place of the library's
+    derivatives. Only the internal angle and the effective path come from the
+    library (each tested on its own in ``test_crystals.py``). Returns, in DFT-bin
+    order, ``(w, b_in, b_sig, amp, kappa, path, theta, beta1)``.
+    """
+    crystal = setup.crystal
+    theta = setup.internal_angle(W0)
+    sin_a = math.sin(setup.crossing_half_angle)
+
+    def lam(om):
+        return 2 * np.pi * C / om
+
+    def k_fund(om):
+        # ordinary wave whose transverse wavevector is om sin(alpha) / c
+        return om / C * np.sqrt(crystal.n_o(lam(om)) ** 2 - sin_a**2)
+
+    def n_sig(om, angle):
+        no, ne = crystal.n_o(lam(om)), crystal.n_e(lam(om))
+        return 1 / np.sqrt(np.cos(angle) ** 2 / no**2 + np.sin(angle) ** 2 / ne**2)
+
+    # central differences: error ~h^2 times the third derivative, ~1e-10 relative
+    h = 1e-4 * W0
+    beta1 = float(
+        (k_fund(np.array([W0 + h])) - k_fund(np.array([W0 - h])))[0] / (2 * h)
+    )
+    dtheta = 1e-6
+    ws0 = np.array([2 * W0])
+    slope = float(
+        (n_sig(ws0, theta + dtheta) - n_sig(ws0, theta - dtheta))[0]
+        / (2 * dtheta)
+        / n_sig(ws0, theta)[0]
+    )
+    sign = 1.0 if setup.delayed_beam == "toward_axis" else -1.0
+    kappa = sign * slope * sin_a / C if setup.in_principal_plane else 0.0
+    w = scipy.fft.ifftshift(GRID.omega)
+    ws = w + 2 * W0
+    b_in = k_fund(w + W0) - beta1 * w
+    b_sig = ws / C * n_sig(ws, theta) - beta1 * w
+    amp = (ws / n_sig(ws, theta)) / (2 * W0 / n_sig(ws0, theta)[0])
+    path = setup.path_length(thickness, W0)
+    return w, b_in, b_sig, amp, kappa, path, theta, beta1
+
+
 def _pair_sum(setup, thickness, ew, tau, beta_sig_pair=None, drift=True):
     """Exact double sum over pairs, centred order; ``beta_sig_pair(j, m, k)`` may
     replace the signal's propagation constant per pair. ``drift`` references the
     first-order drift to mid-depth (off for a model without the drift)."""
-    prop = crystals.propagation(setup, GRID.omega, W0, thickness)
-    path = prop.path_length
+    w, b_in, b_sig, amp, kappa, path, _, _ = _reference(setup, thickness)
     n = GRID.n
-    w = scipy.fft.ifftshift(GRID.omega)
-    b_in = scipy.fft.ifftshift(prop.beta_in)
-    b_sig = scipy.fft.ifftshift(prop.beta_sig)
-    amp = scipy.fft.ifftshift(prop.sig_amp)
     e = scipy.fft.ifftshift(ew)
     e_tau = e * np.exp(1j * w * tau)
     j = np.arange(n)
@@ -83,12 +127,12 @@ def _pair_sum(setup, thickness, ew, tau, beta_sig_pair=None, drift=True):
     for k in range(n):
         m = (k - j) % n
         # the model: the signal along the bisector, plus the arms' delay drift
-        model = b_sig[k] + prop.arm_shift * (w[j] - w[m])
+        model = b_sig[k] + kappa * (w[j] - w[m])
         bs = model if beta_sig_pair is None else beta_sig_pair(j, m, k)
         a = b_in[j] + b_in[m] - bs
         # the first-order drift is referenced to mid-depth, as in the model
         # (CrystalSetup.arm_shift); the rest of a pair's mismatch is not
-        mid = np.exp(-0.5j * prop.arm_shift * (w[j] - w[m]) * path) if drift else 1.0
+        mid = np.exp(-0.5j * kappa * (w[j] - w[m]) * path) if drift else 1.0
         h = np.exp(1j * bs * path) * mid * _depth_integral(a, path)
         psi[k] = amp[k] * np.sum(e[j] * e_tau[m] * h)
     return scipy.fft.fftshift(psi)
@@ -182,12 +226,8 @@ def test_phase_mismatch_narrows_the_trace_band():
 # -- the neglected signal tilt ---------------------------------------------------
 def _tilted_signal(setup, thickness):
     """Per-pair signal constant including its tilt in the principal plane."""
-    prop = crystals.propagation(setup, GRID.omega, W0, thickness)
-    theta = setup.internal_angle(W0)
+    w, *_, theta, beta1 = _reference(setup, thickness)
     sin_a = math.sin(setup.crossing_half_angle)
-    beta1 = crystals._group_delay(BBO, W0, sin_a)
-    w = scipy.fft.ifftshift(GRID.omega)
-    del prop
 
     def beta_sig_pair(j, m, k):
         w1, w2 = w[j] + W0, w[m] + W0
@@ -244,8 +284,7 @@ def test_arm_drift_captures_the_signal_tilt(side):
     setup = _setup(**PRINCIPAL, delayed_beam=side)
     amp = np.abs(_pulse(GRID, gdd=0.0))
     with_drift = _worst(setup, 100e-6, amp, None)
-    prop = crystals.propagation(setup, GRID.omega, W0, 100e-6)
-    b_sig = scipy.fft.ifftshift(prop.beta_sig)
+    b_sig = _reference(setup, 100e-6)[2]
     without = _worst(setup, 100e-6, amp, lambda j, m, k: b_sig[k], drift=False)
     assert with_drift < 1e-3
     assert without > 0.01

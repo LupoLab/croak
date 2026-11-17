@@ -180,9 +180,12 @@ separation and focal length), the one place it is set.
 $\Delta k L$ rad. Gauss–Legendre integrates it to $10^{-6}$ of $L$ with
 $\lceil\lvert\Delta k\rvert L/2\rceil + 3$ nodes; {func}`croak.crystals.depth_points`
 takes the maximum over every pair of grid frequencies within the crystal's
-transparency range, and the models refuse fewer nodes. It grows with the grid's
-width: for 100 µm of BBO tuned to 800 nm, about 18 nodes on a 560–1440 nm grid and
-about 46 on a grid twice as wide.
+transparency range, and the models refuse fewer nodes. Crossing in the principal
+plane, $\Delta k$ there includes the arms' drift $\kappa(\omega_1-\omega_2)$ (below).
+It grows with the grid's width: for 100 µm of BBO tuned to 800 nm, about 18 nodes on
+a 560–1440 nm grid and about 46 on a grid twice as wide. The rule is generous at
+large $\lvert\Delta k\rvert L$, where about $0.6\,\lvert\Delta k\rvert L/2$ nodes
+would do; a tighter rule is tracked in issue #36.
 
 **The signal's tilt, and asymmetric SHG traces.** The signal of a pair
 $(\omega_1,\omega_2)$ (test, gate) inherits the transverse wavevector
