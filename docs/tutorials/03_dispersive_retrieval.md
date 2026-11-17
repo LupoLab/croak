@@ -57,7 +57,8 @@ in the deep ultraviolet.
 Passing `material`, `thickness`, `npoints` and the carrier `omega0` to
 {func}`~croak.forward.maketrace` models the propagation of both the input and the signal
 fields inside the slab. We use the **PG** interaction (the transient-grating
-kernel); dispersive propagation is supported for PG and SD, not SHG.
+kernel); a material slab serves PG and SD, and SHG takes a crystal instead (see
+[the forward model](../explanation/forward_model.md#shg-in-a-type-i-crystal)).
 
 We use a 50 µm slab. Its small physical thickness does not imply negligible
 spectral phase across this pulse's bandwidth:

@@ -24,11 +24,13 @@ $\omega_0$. This single number has two consequences:
 
 - it sets the wavelength axis of an SHG-FROG trace (handled in
   [Grids and filtering](../howto/grids_and_filtering.md));
-- it determines which geometries support **dispersive propagation**. The slab
-  propagation constant $\beta(\omega)$ is built at the fundamental carrier, so it
-  is only physically consistent for signals that stay there. **Dispersive
-  propagation is therefore supported for PG and SD, but not SHG** — croak raises a
-  `ValueError` if you request a dispersive SHG model.
+- it determines the **dispersive propagation** each geometry needs. An isotropic
+  slab's propagation constant $\beta(\omega)$ is built at the fundamental carrier,
+  which is consistent for PG and SD, whose signal stays there. The SHG signal
+  propagates near $2\omega_0$ with a constant of its own, which a Type I crystal
+  supplies ({mod}`croak.crystals`; see
+  [the forward model](forward_model.md#shg-in-a-type-i-crystal)). An isotropic slab
+  with SHG raises a `ValueError`.
 
 ```{admonition} TG-FROG uses the PG kernel
 :class: tip
