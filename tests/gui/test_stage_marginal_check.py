@@ -160,8 +160,9 @@ def test_stage_marginal_check_position_scan_and_blank_trace(stage):
     # zoom to and the marginal has too few positive samples for its moments.
     _enter(stage, _data(trace=np.zeros((LAM.size, 21)), input_unit="position"))
     assert stage.trace_view.title.text() == "Measured trace"
+    # the spectrum is there; it is the trace marginal that is missing
     assert stage.status_label.text() == (
-        "No independent spectrum: showing the trace marginal only."
+        "Too little trace marginal in the trace trust region: no centroid/width check."
     )
 
 
@@ -209,7 +210,7 @@ def test_stage_marginal_check_width_bracket_flags(stage, sigma_meas, flag):
         "width_is_hard": False,
         "rms_width": 2.0,
     }
-    stage._annotate_checks(801.0, sigma_meas, pred, "pg")
+    stage._annotate_checks(801.0, sigma_meas, pred, "pg", True)
     text = stage.status_label.text()
     assert text.startswith("PG marginal check")
     assert "(Δ +1.0 nm, hard)" in text
@@ -227,7 +228,7 @@ def test_stage_marginal_check_sd_reports_only_the_lower_bound(stage, sigma_meas,
         "width_is_hard": False,
         "rms_width": 2.0,
     }
-    stage._annotate_checks(800.0, sigma_meas, pred, "sd")
+    stage._annotate_checks(800.0, sigma_meas, pred, "sd", True)
     text = stage.status_label.text()
     assert "TL/soft" in text
     assert text.endswith(f"(σ_S) {mark}")
@@ -382,16 +383,20 @@ def test_stage_marginal_check_spectrum_trust_outside_the_spectrum_shows_no_predi
     stage._on_spec_trust(1200.0, 1300.0)  # no spectrum sample in the region
     legend = _legend(stage.marg_view)
     assert "spectrum" in legend and "predicted" not in legend
+    # there is a spectrum, so the status names the trust region, not its absence
     assert stage.status_label.text() == (
-        "No independent spectrum: showing the trace marginal only."
+        "No usable spectrum within the spectrum trust region: showing the trace "
+        "marginal only."
     )
 
 
 @pytest.mark.parametrize(
     ("entry", "extent", "expected"),
     [
-        # measured: clipped to the 190-1000 nm detector band
-        ("experimental", (600e-9, 1200e-9), (600.0, 1000.0)),
+        # measured, crossing 1 um (a Yb spectrum around 1030 nm): its full
+        # range, not clipped to the trace's 190-1000 nm default
+        ("experimental", (900e-9, 1100e-9), (900.0, 1100.0)),
+        ("experimental", (600e-9, 1200e-9), (600.0, 1200.0)),
         # measured, wholly beyond 1 um (a 1.6 um fundamental): its full range
         ("experimental", (1400e-9, 1800e-9), (1400.0, 1800.0)),
         # noise-free: the full range

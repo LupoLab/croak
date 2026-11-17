@@ -16,11 +16,10 @@ for the noise-free simulated/synthetic traces) bounds the peak finding, the
 centroid/width moments, the marginal normalisation and the trace display
 scaling, so out-of-band detector noise — strongly amplified by the tilt — cannot
 distort either the checks or the colour scaling (the cause of the load preview
-"saturating" as the exponent was raised). The **spectrum** trust region (a
-measured spectrum's range within 190–1000 nm, else its full range) windows the
-independent spectrum before the marginal is predicted from it. They are
-separate because the two are measured by different instruments and, for SHG,
-lie an octave apart.
+"saturating" as the exponent was raised). The **spectrum** trust region (the
+spectrum's full range, measured or not) windows the independent spectrum before
+the marginal is predicted from it. They are separate because the two are
+measured by different instruments and, for SHG, lie an octave apart.
 
 The marginals are plotted against frequency by default: a marginal is a
 frequency density and the convolution/centroid/width identities live in
@@ -108,10 +107,9 @@ class StageMarginalCheck(Stage):
                     "spectrum's trust region, in fundamental wavelengths. The "
                     "spectrum is Planck-tapered to it before the marginal is "
                     "predicted, so its noisy wings cannot contaminate the "
-                    "prediction. Independent of the trace's region. A measured "
-                    "spectrum defaults to its range within 190–1000 nm (its full "
-                    "range if it lies outside that band), a simulated or synthetic "
-                    "one to its full range; off without a spectrum.",
+                    "prediction. Independent of the trace's region. Defaults to "
+                    "the spectrum's full range (measured, simulated or synthetic); "
+                    "off without a spectrum.",
                 ),
             ],
         ),
@@ -293,14 +291,13 @@ class StageMarginalCheck(Stage):
     def _seed_spec_trust(self, data) -> None:
         """Default the spectrum's trust region for a freshly loaded spectrum.
 
-        A measured spectrum defaults to its range clipped to 190–1000 nm, the
-        UV–NIR band that excludes a spectrometer's noisy out-of-band wings (as the
-        single shared region did before the two were split); where the spectrum
-        lies wholly outside that band (a fundamental beyond 1 µm), to its full
-        range. Simulated and synthetic spectra carry no detector noise and
-        default to their full range. Keyed on the entry and the spectrum, so a
-        manual adjustment survives navigation while a different spectrum
-        re-defaults. Disabled without a spectrum.
+        Every spectrum, measured, simulated or synthetic, defaults to its full
+        range, as Prepare's spectrum window λs does. The trace's 190–1000 nm
+        default is a heuristic for the trace detector; applied to a spectrum it
+        would clip one that crosses 1 µm (a 1030 nm Yb spectrum on a 900–1100 nm
+        spectrometer would keep only its blue wing). Keyed on the entry and the
+        spectrum, so a manual adjustment survives navigation while a different
+        spectrum re-defaults. Disabled without a spectrum.
         """
         lam_spec = data.get("lam_spec")
         has_spectrum = lam_spec is not None and data.get("Ilam_spec") is not None
@@ -314,15 +311,10 @@ class StageMarginalCheck(Stage):
         key = (self.state.entry, *extent)
         if key == self._spec_trust_key:
             return
-        trust = extent
-        if self.state.entry == "experimental":
-            lo, hi = max(extent[0], 190.0), min(extent[1], 1000.0)
-            if lo < hi:
-                trust = (lo, hi)
-        self._spec_trust_nm = trust
+        self._spec_trust_nm = extent
         self._spec_trust_key = key
         self.spec_trust.set_bounds(*extent)
-        self.spec_trust.set_values(*trust)  # signal-safe
+        self.spec_trust.set_values(*extent)  # signal-safe
 
     def on_enter(self) -> None:
         data = self.state.load_data
@@ -584,7 +576,8 @@ class StageMarginalCheck(Stage):
             marks.append((to_x(pred["spectrum_centroid_nm"]), "measured"))
             marks.append((to_x(pred["centroid_nm"]), "predicted"))
 
-        self._annotate_checks(c_meas_nm, sigma_meas, pred, interaction)
+        has_spectrum = data.get("Ilam_spec") is not None
+        self._annotate_checks(c_meas_nm, sigma_meas, pred, interaction, has_spectrum)
         return LineView(
             curves=tuple(curves),
             title="Marginal against the spectrum",
@@ -682,10 +675,31 @@ class StageMarginalCheck(Stage):
         c = centroid(omega, weights)
         return float(wlfreq(c) / 1e-9), rms_width(omega, weights)
 
-    def _annotate_checks(self, c_meas_nm, sigma_meas, pred, interaction) -> None:
-        """Write the numeric centroid/width QC summary to the ready line."""
-        if pred is None or c_meas_nm is None:
-            self.set_status("No independent spectrum: showing the trace marginal only.")
+    def _annotate_checks(
+        self, c_meas_nm, sigma_meas, pred, interaction, has_spectrum
+    ) -> None:
+        """Write the numeric centroid/width QC summary to the ready line.
+
+        Without a summary, the status says which input is missing: no spectrum
+        at all, a spectrum with none of it usable in its trust region, or a trace
+        marginal with too little signal in the trace's trust region.
+        """
+        if pred is None:
+            if not has_spectrum:
+                self.set_status(
+                    "No independent spectrum: showing the trace marginal only."
+                )
+            else:
+                self.set_status(
+                    "No usable spectrum within the spectrum trust region: "
+                    "showing the trace marginal only."
+                )
+            return
+        if c_meas_nm is None:
+            self.set_status(
+                "Too little trace marginal in the trace trust region: no "
+                "centroid/width check."
+            )
             return
         d_centroid = c_meas_nm - pred["centroid_nm"]
         hardness = "hard" if pred["centroid_is_hard"] else "TL/soft"
