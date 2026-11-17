@@ -47,7 +47,7 @@ from .crystals import CrystalSetup
 from .focal import FocalMixture
 from .forward_jax import make_param_trace_fn
 from .result import RetrievalResult
-from .smearing import SmearingKernel
+from .smearing import SmearingKernel, check_split_fit
 from .solver import (
     Retriever,
     assemble_result,
@@ -76,7 +76,8 @@ class LM(Retriever):
         Dispersive-slab parameters; see :class:`croak.forward.ForwardModel`.
     smearing : SmearingKernel or None, optional
         Geometric time-smearing kernel of a non-collinear BOXCARS geometry
-        (default ``None`` = off). PG (TG) and SD only. See :mod:`croak.smearing`
+        (default ``None`` = off): a BOXCARS kernel for PG (TG) and SD, or the
+        two-beam kernel for SHG. See :mod:`croak.smearing`
         and :doc:`/howto/geometric_smearing`.
     focal : FocalMixture or None, optional
         Chromatic focal mixture (:mod:`croak.focal`) in place of ``smearing``:
@@ -261,6 +262,7 @@ class LM(Retriever):
         scale_tau = (
             float(np.median(np.abs(np.diff(delays)))) if delays.size > 1 else 1.0
         )
+        check_split_fit(self.smearing, self.fit_smearing_split)
         spec = ExtraParamSpec(
             fit_thickness=self.fit_thickness,
             thickness0=self.thickness,

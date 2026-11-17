@@ -51,7 +51,12 @@ from ..processing import (
     shiftnorm,
 )
 from ..result import RetrievalResult
-from ..smearing import SmearingKernel, collinear_sd_kernel, square_boxcars_kernel
+from ..smearing import (
+    SmearingKernel,
+    collinear_sd_kernel,
+    shg_two_beam_kernel,
+    square_boxcars_kernel,
+)
 from ..uncertainty import (
     NoiseModel,
     UncertaintyResult,
@@ -780,10 +785,22 @@ def smearing_kernel(p: RetrieveParams, td: TraceData) -> SmearingKernel | None:
     The mask geometry is the stored truth (the displayed delay width is a derived
     GUI convenience), and the carrier comes from the measurement itself, so the
     kernel is always evaluated at the wavelength the trace was actually taken at.
+    For SHG the kernel is the two beams' delay blur
+    (:func:`~croak.smearing.shg_two_beam_kernel`) from :func:`beam_geometry`, the
+    same beams the crystal uses, at :func:`pulse_wavelength`, without the fixed
+    multiplier ``smear_scale`` (which the mask geometry needs); collinear beams
+    give ``None``.
     """
     if not p.smearing:
         return None
-    if p.smear_layout == "sd2":
+    if td.interaction == "shg":
+        geometry = beam_geometry(p)
+        if geometry is None:
+            return None  # collinear beams: no crossing, nothing to smear
+        # the beams set the width directly; the fixed multiplier below exists for
+        # the mask geometry's unreachable widths and does not apply
+        return shg_two_beam_kernel(geometry, pulse_wavelength(td))
+    elif p.smear_layout == "sd2":
         # Two-beam self-diffraction: sigma_p is identically zero, so this is
         # NOT the "sd" branch of the boxcars closed form (which assumes two
         # separate unconjugated holes and would add a ~0.4 fs p channel).
@@ -804,6 +821,22 @@ def smearing_kernel(p: RetrieveParams, td: TraceData) -> SmearingKernel | None:
     # A fixed width multiplier, distinct from fit_smearing: the gap can only
     # reach d/D >= 0.5, so narrower kernels are otherwise unreachable.
     return kernel if p.smear_scale == 1.0 else kernel.scaled(p.smear_scale)
+
+
+def pulse_wavelength(td: TraceData) -> float:
+    """Return the pulse's wavelength (m): the spectrum's centroid, else the carrier.
+
+    The SHG smearing width scales with the wavelength (the focal spot does), and
+    the centroid of the independent spectrum is where the pulse's energy is,
+    which the grid's centre need not be.
+    """
+    omega = td.omega0_pulse
+    if td.Iomega is not None and np.sum(td.Iomega) > 0:
+        weights = np.asarray(td.Iomega, dtype=float)
+        omega = float(
+            np.sum((td.grid.omega + td.omega0_pulse) * weights) / weights.sum()
+        )
+    return 2.0 * np.pi * C / omega
 
 
 def generation_envelope(p: RetrieveParams):
@@ -839,6 +872,19 @@ def generation_envelope(p: RetrieveParams):
     return amp * np.exp(1j * p.envelope_gouy * np.arctan(u))
 
 
+def beam_geometry(p: RetrieveParams) -> TwoBeamGeometry | None:
+    """Return the two beams the settings describe, or ``None`` for collinear beams.
+
+    The one source of the crossing angle for both the crystal's phase matching
+    and the SHG delay smearing.
+    """
+    if p.beam_separation_mm <= 0:
+        return None
+    return TwoBeamGeometry(
+        p.beam_separation_mm * 1e-3, p.focal_f_mm * 1e-3, p.beam_diameter_mm * 1e-3
+    )
+
+
 def crystal_setup(p: RetrieveParams) -> CrystalSetup:
     """Build the SHG crystal the retrieval settings describe.
 
@@ -868,11 +914,7 @@ def crystal_setup(p: RetrieveParams) -> CrystalSetup:
         raise ValueError(
             f"angle_mode must be 'tilt' or 'phase-match', got {p.angle_mode!r}"
         )
-    geometry = (
-        TwoBeamGeometry(p.beam_separation_mm * 1e-3, p.focal_f_mm * 1e-3)
-        if p.beam_separation_mm > 0
-        else None
-    )
+    geometry = beam_geometry(p)
     in_plane = p.polarization == "perpendicular"
     return CrystalSetup(
         builtin_crystal(p.crystal),
@@ -925,6 +967,14 @@ def fits_thickness(p: RetrieveParams, medium: str | CrystalSetup | None) -> bool
     not applied; the GUI greys the control out for SHG data.
     """
     return p.fit_thickness and isinstance(medium, str)
+
+
+def fits_smearing(p: RetrieveParams, kernel: SmearingKernel | None) -> bool:
+    """Return whether the smearing width is fitted: only when there is a kernel.
+
+    Collinear SHG beams, or smearing switched off, give no kernel to scale.
+    """
+    return p.fit_smearing and kernel is not None
 
 
 def crystal_tilt_error(
@@ -1209,6 +1259,7 @@ def run_retrieval(
     td = apply_spectrum_frame(p, td)
     thickness, tau0, smear_scale, smear_delta = extra_param_centres(p, extras_seed)
     medium = retrieval_medium(p, td)
+    kernel = smearing_kernel(p, td)
     result = retrieve_from_tracedata(
         td,
         algorithm=p.solver,
@@ -1220,7 +1271,7 @@ def run_retrieval(
         material=medium,
         thickness=thickness,
         npoints=retrieval_npoints(p, td, medium, thickness),
-        smearing=smearing_kernel(p, td),
+        smearing=kernel,
         focal=focal,
         depth_weight=generation_envelope(p),
         reg_amp=p.reg_amp,
@@ -1240,8 +1291,8 @@ def run_retrieval(
         fit_thickness=fits_thickness(p, medium),
         fit_tau0=p.fit_tau0,
         # the smearing strength is only fittable when a kernel is being modelled
-        fit_smearing=p.fit_smearing and p.smearing,
-        fit_smearing_split=p.fit_smearing_split and p.fit_smearing and p.smearing,
+        fit_smearing=fits_smearing(p, kernel),
+        fit_smearing_split=fits_smearing(p, kernel) and p.fit_smearing_split,
         polish=p.polish_two_phase,
         delay_origin=p.delay_origin,
         tau0_bound=p.tau0_bound_fs * 1e-15,
@@ -1307,6 +1358,7 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
     """
     medium = retrieval_medium(p, td)
     thickness = p.thickness_um * 1e-6 if p.dispersive else 0.0
+    kernel = smearing_kernel(p, td)
     return {
         "algorithm": p.solver,
         "maxiters": p.maxiters,
@@ -1315,7 +1367,7 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
         "material": medium,
         "thickness": thickness,
         "npoints": retrieval_npoints(p, td, medium, thickness),
-        "smearing": smearing_kernel(p, td),
+        "smearing": kernel,
         "depth_weight": generation_envelope(p),
         "phase_only": not p.full,
         "phase_basis": p.phase_basis,
@@ -1329,8 +1381,8 @@ def bootstrap_solver_kwargs(p: RetrieveParams, td: TraceData) -> dict:
         "time_window": (p.reg_time_lo_fs * 1e-15, p.reg_time_hi_fs * 1e-15),
         "fit_thickness": fits_thickness(p, medium),
         "fit_tau0": p.fit_tau0,
-        "fit_smearing": p.fit_smearing and p.smearing,
-        "fit_smearing_split": p.fit_smearing_split and p.fit_smearing and p.smearing,
+        "fit_smearing": fits_smearing(p, kernel),
+        "fit_smearing_split": fits_smearing(p, kernel) and p.fit_smearing_split,
         "polish": p.polish_two_phase,
         "strategy": p.cma_strategy,
         "popsize": p.cma_popsize,
@@ -1349,6 +1401,7 @@ def covariance_kwargs(p: RetrieveParams, td: TraceData | None = None) -> dict:
     (:func:`retrieval_medium`); without it the slab is ``p.material``.
     """
     thickness = p.thickness_um * 1e-6 if p.dispersive else 0.0
+    kernel = smearing_kernel(p, td) if td is not None else None
     if td is None:
         medium: str | CrystalSetup | None = p.material if p.dispersive else None
         npoints = p.npoints
@@ -1359,17 +1412,15 @@ def covariance_kwargs(p: RetrieveParams, td: TraceData | None = None) -> dict:
         "material": medium,
         "thickness": thickness,
         "npoints": npoints,
-        "smearing": smearing_kernel(p, td) if td is not None else None,
+        "smearing": kernel,
         "phase_only": not p.full,
         "phase_basis": p.phase_basis,
         "n_nodes": p.n_nodes,
         "R_omega": p.R_omega,
         "fit_thickness": fits_thickness(p, medium),
         "fit_tau0": p.fit_tau0,
-        "fit_smearing": p.fit_smearing and p.smearing and td is not None,
-        "fit_smearing_split": (
-            p.fit_smearing_split and p.fit_smearing and p.smearing and td is not None
-        ),
+        "fit_smearing": fits_smearing(p, kernel),
+        "fit_smearing_split": fits_smearing(p, kernel) and p.fit_smearing_split,
     }
 
 

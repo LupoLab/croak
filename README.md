@@ -41,8 +41,9 @@ instead models the measurement physics directly:
   through the nonlinear medium, with refractive indices of glasses, crystals and
   gases from [optmat](https://optmat.readthedocs.io); for SHG, phase matching and
   group-velocity mismatch in a Type I crystal such as BBO;
-- **geometric delay smearing** of the crossed-beam (BOXCARS) geometry, with a
-  closed-form kernel set by the mask geometry, or fitted from the data;
+- **geometric delay smearing** of the crossed-beam geometry (BOXCARS for PG and
+  SD, two beams for SHG), with a closed-form kernel set by the beam geometry, or
+  fitted from the data;
 - **chromatic focusing and the collection aperture**, as a coherent chromatic
   filter on the signal (the full focal model).
 

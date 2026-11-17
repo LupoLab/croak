@@ -168,7 +168,11 @@ the delay axis) and the gate-shape parameter $p$ (a symmetric split of the gate
 pair, which for a chirped gate shears the trace along frequency). The joint
 multiplier scales both together, which is the right physical prior — both
 derive from the same $d/D$ — but as a *diagnostic* it conflates them. Setting
-`fit_smearing_split=True` fits the two widths as independent multipliers:
+`fit_smearing_split=True` fits the two widths as independent multipliers. It needs
+a kernel with a shape channel: a two-beam kernel (SD's
+{func}`~croak.smearing.collinear_sd_kernel`, SHG's
+{func}`~croak.smearing.shg_two_beam_kernel`) has none, and the split is refused
+({func}`~croak.smearing.check_split_fit`):
 
 ```python
 res = croak.retrieve(
@@ -242,19 +246,64 @@ raise.
 |---|---|---|
 | `smearing` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `lbfgs-optx`, `cma-es` | PG (TG) or SD; uniform delay axis |
 | `fit_smearing` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | a `smearing` kernel |
-| `fit_smearing_split` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | `fit_smearing` |
+| `fit_smearing_split` | `warm-lbfgs`, `lbfgs-ad`, `lm`, `lm-optx`, `cma-es` | `fit_smearing`; a kernel with a shape channel |
 
 `copra`, `copra-jax`, `lbfgs` and `lbfgs-hand` cannot model smearing: the
 incoherent average over the kernel breaks COPRA's magnitude-replacement projection,
 and the hand-derived adjoint is not extended to it. Asking for smearing with them
 raises rather than silently dropping the kernel.
 
-SHG raises too: geometric smearing here is defined for the three-arm PG/SD forms.
+## Two-beam SHG
+
+An SHG FROG has two beams, not three, so the arrival times leave only the
+relative delay $\delta$ and no shape parameter $p$: the measured trace is the
+unsmeared one convolved along delay. For Gaussian beams of 1/e² diameter $D$ at a
+focusing optic of focal length $f$, separated by $d$, each focuses to the waist
+$w_0 = 2\lambda f/(\pi D)$; across the crossing plane each beam's intensity is
+$e^{-2x^2\cos^2\alpha/w_0^2}$, the signal from position $x$ is weighted by their
+product, and it sees the relative delay $2x\sin\alpha/c$ with
+$\tan\alpha = d/(2f)$ (Taft et al., IEEE J. Select. Topics Quantum Electron. 2,
+575 (1996), Eq. 7). So
+
+$$\sigma_\delta = \frac{w_0\tan\alpha}{\sqrt2\,c} = \frac{\lambda d}{\sqrt2\,\pi D c},$$
+
+0.60 fs rms for beams separated by their diameter at 800 nm, whatever the focal
+length. {func}`~croak.smearing.shg_two_beam_kernel` builds this kernel from the same
+{class}`~croak.geometry.TwoBeamGeometry` that gives a crystal its crossing angle:
+
+```python
+from croak.geometry import TwoBeamGeometry
+from croak.smearing import shg_two_beam_kernel
+
+beams = TwoBeamGeometry(beam_separation=5e-3, focal_length=0.1, beam_diameter=3e-3)
+kernel = shg_two_beam_kernel(beams, wavelength=800e-9)   # sigma_delta = 1.00 fs
+
+res = croak.retrieve(trace, g.omega, delays, "shg", algorithm="lbfgs-ad",
+                     smearing=kernel)
+```
+
+It works with or without a crystal ([SHG with a thick crystal](shg_crystal.md)).
+The solver support is as above. The kernel has no shape channel, so a split fit
+(`fit_smearing_split`) is refused; `fit_smearing` scales its one width, but how
+well an SHG trace determines that width has not been established, so prefer the
+width from the measured geometry and treat a fitted one with care. A kernel with a shape parameter is refused for SHG
+({func}`~croak.smearing.check_kernel`). The width scales with the wavelength, so
+take it at the pulse's centroid; a session does
+({func}`~croak.session.pipeline.pulse_wavelength`), and does not apply the mask
+geometry's fixed multiplier `smear_scale`. It assumes Gaussian beams collimated
+at the optic, a crystal thin against the Rayleigh range and full collection of
+the signal beam, which a thick crystal's angular acceptance or an aperture breaks.
+Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999), Eqs. 28-29) give
+$\lambda/(2\pi c) \approx 0.4$ fs for the same layout, as the broadening of the
+pulse duration inferred from the trace; that is $\sigma_\delta/\sqrt2$, the same
+result when durations are rms widths and diameters 1/e² ones.
 
 ## In the GUI
 
-The Retrieve stage has a **Geometrical smearing** group, greyed out unless the
-chosen solver supports it:
+For SHG data the smearing is in the Retrieve stage's **Beam geometry** group: the
+beams' separation, focal length and diameter, *Model the delay smearing*, and a
+read-out of the width in rms and FWHM. For PG and SD, the Retrieve stage has a
+**Geometrical smearing** group, greyed out unless the chosen solver supports it:
 
 - *Enable geometrical smearing*
 - *Hole diameter (mm)* and *Hole spacing (mm)* (edge to edge) — the physical inputs

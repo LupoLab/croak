@@ -360,6 +360,10 @@ class RetrieveParams:
     #: Beam separation (mm) at the focusing optic of focal length ``focal_f_mm``:
     #: the crossing half-angle is atan(d / 2f). ``0`` models collinear beams.
     beam_separation_mm: float = 5.0
+    #: 1/e² diameter (mm) of each beam at the focusing optic. With ``smearing`` it
+    #: sets the focal spot and so the SHG delay smearing
+    #: (croak.smearing.shg_two_beam_kernel).
+    beam_diameter_mm: float = 3.0
     # Default node count kept consistent with the tied defaults below:
     # thickness_um / delta_z_um = 10 µm / 1 µm = 10.
     npoints: int = 10
@@ -369,8 +373,10 @@ class RetrieveParams:
     # ``npoints`` back-computes the step. Only ``npoints`` reaches the forward
     # model (:class:`croak.forward.ForwardModel`) — ``delta_z_um`` is the GUI knob.
     delta_z_um: float = 1.0
-    # Geometric time smearing of a non-collinear BOXCARS geometry (PG/SD only,
-    # autodiff solvers only). The mask hole diameter and edge-to-edge spacing are
+    # Geometric time smearing (autodiff solvers only). For PG/SD a non-collinear
+    # BOXCARS mask; for SHG the two beams of beam_separation_mm, focal_f_mm and
+    # beam_diameter_mm (croak.smearing.shg_two_beam_kernel), and the mask fields
+    # below do not apply. The mask hole diameter and edge-to-edge spacing are
     # the physical inputs; the resulting delay-offset width is tied to them via
     # croak.smearing.square_boxcars_delay_width at the measured carrier, so editing
     # either geometry field updates the width and editing the width back-computes

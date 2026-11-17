@@ -351,9 +351,19 @@ def test_stage_retrieve_smear_width_is_none_without_a_kernel(stage):
     assert stage._smear_width_fs(1.1, td) is None
 
 
-def test_stage_retrieve_smear_width_is_none_for_shg(stage):
-    stage.state.retrieve.smearing = True
-    td = SimpleNamespace(interaction="shg", omega0_pulse=2.35e15)
+def test_stage_retrieve_smear_width_for_shg_is_the_two_beams_blur(stage):
+    from croak.session.pipeline import beam_geometry
+    from croak.smearing import shg_two_beam_kernel
+
+    p = stage.state.retrieve
+    p.smearing = True
+    td = SimpleNamespace(interaction="shg", omega0_pulse=2.35e15, Iomega=None)
+    sigma = shg_two_beam_kernel(beam_geometry(p), 2 * np.pi * 299792458.0 / 2.35e15)
+    assert stage._smear_width_fs(2.0, td) == pytest.approx(
+        2.0 * sigma.sigma_delta / 1e-15
+    )
+    # collinear beams have no smearing to show
+    p.beam_separation_mm = 0.0
     assert stage._smear_width_fs(1.0, td) is None
 
 
@@ -397,8 +407,9 @@ def test_stage_retrieve_extras_readout_marks_fitted_values(with_trace, run):
     assert shown("tau0") == ("2.00 fs", "τ₀ · fit")
     assert readout.text("smearing").endswith(" fs")
     assert readout.name("smearing") == "Smearing · ×1.100 fit"
-    # a kernel the trace cannot carry (SHG) falls back to the bare factor
+    # without a kernel (SHG with collinear beams) it falls back to the bare factor
     with_trace.state.tracedata = replace(run[2], interaction="shg")
+    p.beam_separation_mm = 0.0
     with_trace._update_extras_readout(fitted)
     assert shown("smearing") == ("×1.100", "Smearing · fit")
     # nothing fitted, no slab: dashes and the nominal fixed values
@@ -464,7 +475,7 @@ def _shg_trace(stage):
     from croak.grid import Grid
 
     stage.state.tracedata = SimpleNamespace(
-        interaction="shg", grid=Grid(64, dt=3e-15), omega0_pulse=2.3546e15
+        interaction="shg", grid=Grid(64, dt=3e-15), omega0_pulse=2.3546e15, Iomega=None
     )
     stage.on_enter()
     return stage
@@ -528,14 +539,18 @@ def test_stage_retrieve_delayed_beam_matters_only_in_the_principal_plane(stage):
     stage.separation_spin.setValue(0.0)  # collinear: no crossing plane at all
     assert not stage.polarization_combo.isEnabled()
     assert not stage.delayed_beam_combo.isEnabled()
-    assert stage.geometry_readout.text() == "Collinear beams"
+    assert stage.geometry_readout.text() == "Collinear beams: no delay smearing"
+    assert not stage.shg_smearing_check.isEnabled()
 
 
 def test_stage_retrieve_crystal_readout_describes_the_crystal(stage):
     _shg_trace(stage)
     stage.separation_spin.setValue(5.0)
     stage.geometry_f_spin.setValue(100.0)
-    assert stage.geometry_readout.text() == "Crossing half-angle α = 1.432°"
+    # d = 5 mm, D = 3 mm, f = 100 mm at 800 nm: sigma = lambda d / (sqrt2 pi D c)
+    assert stage.geometry_readout.text() == (
+        "Crossing half-angle α = 1.432°\nDelay smearing σ = 1.00 fs rms (2.36 fs FWHM)"
+    )
     stage.crystal_thickness_spin.setValue(100.0)
     text = stage.crystal_readout.text()
     assert "θ inside" in text and "path =" in text and "depth nodes =" in text
@@ -605,7 +620,7 @@ def test_stage_retrieve_focal_length_is_one_setting_for_both_groups(stage):
     stage.separation_spin.setValue(5.0)
     stage.focal_f_spin.setValue(200.0)
     assert stage.geometry_f_spin.value() == 200.0
-    assert stage.geometry_readout.text() == "Crossing half-angle α = 0.716°"
+    assert stage.geometry_readout.text().startswith("Crossing half-angle α = 0.716°")
 
 
 def test_stage_retrieve_unknown_stored_crystal_setting_is_explained(stage):
@@ -613,3 +628,65 @@ def test_stage_retrieve_unknown_stored_crystal_setting_is_explained(stage):
     stage._seed_widgets()
     _shg_trace(stage)
     assert stage.crystal_readout.text().startswith("No valid crystal: angle_mode")
+
+
+def test_stage_retrieve_shg_smearing_lives_in_beam_geometry(stage):
+    _shg_trace(stage)
+    assert stage.smear_box.isHidden()  # the mask geometry is PG/SD's
+    stage.separation_spin.setValue(5.0)
+    stage.shg_smearing_check.setChecked(True)
+    assert stage.state.retrieve.smearing is True
+    assert stage.smearing_check.isChecked()  # one switch for both groups
+    stage.beam_diameter_spin.setValue(1.5)
+    assert stage.state.retrieve.beam_diameter_mm == 1.5
+    # half the diameter, twice the focal spot and the blur
+    assert "σ = 2.00 fs rms" in stage.geometry_readout.text()
+    stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
+    stage.on_enter()
+    assert not stage.smear_box.isHidden()
+
+
+def test_stage_retrieve_smearing_switch_follows_the_mask_group(stage):
+    stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
+    stage.on_enter()
+    stage.smearing_check.setChecked(True)
+    stage.state.retrieve.beam_diameter_mm = 4.0
+    _shg_trace(stage)
+    assert stage.shg_smearing_check.isChecked()
+    assert stage.beam_diameter_spin.value() == 4.0
+
+
+def test_stage_retrieve_shg_smearing_needs_a_capable_solver_and_crossing_beams(stage):
+    _shg_trace(stage)
+    stage.separation_spin.setValue(5.0)
+    stage.solver_combo.setCurrentText("copra")
+    assert not stage.shg_smearing_check.isEnabled()
+    stage.solver_combo.setCurrentText("lbfgs-ad")
+    assert stage.shg_smearing_check.isEnabled()
+    stage.shg_smearing_check.setChecked(True)
+    assert stage.fit_smearing_check.isEnabled()
+    stage.separation_spin.setValue(0.0)  # collinear: no kernel to fit
+    assert not stage.shg_smearing_check.isEnabled()
+    assert not stage.fit_smearing_check.isEnabled()
+
+
+def test_stage_retrieve_focal_mixture_is_hidden_for_shg_and_unticks_smearing(stage):
+    _shg_trace(stage)
+    assert stage.focal_box.isHidden()
+    stage.shg_smearing_check.setChecked(True)
+    stage._on_focal_changed(True)
+    assert stage.state.retrieve.smearing is False
+    assert not stage.shg_smearing_check.isChecked()
+    assert not stage.smearing_check.isChecked()
+
+
+def test_stage_retrieve_switches_off_a_focal_mixture_left_from_pg_data(stage):
+    stage.state.tracedata = SimpleNamespace(interaction="pg", omega0_pulse=2.35e15)
+    stage.on_enter()
+    stage.focal_check.setChecked(True)
+    assert stage.state.retrieve.focal is True
+    _shg_trace(stage)
+    # its box is hidden for SHG, where it cannot be modelled: off, and said so
+    assert stage.state.retrieve.focal is False
+    assert not stage.focal_check.isChecked()
+    assert any("focal mixture is for PG/SD" in text for text in stage.said)

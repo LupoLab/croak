@@ -1954,14 +1954,13 @@ def test_gas_controls_reach_millibar_and_long_paths(qtbot):
         assert stage.gas_path.value() == pytest.approx(cm)
 
 
-def test_retrieval_readout_smearing_survives_an_shg_trace(qtbot):
-    """Reporting smearing on an SHG trace must not raise.
+def test_retrieval_readout_reports_the_smearing_of_an_shg_trace(qtbot):
+    """The read-out gives an SHG trace's two-beam smearing width.
 
-    Regression: the read-out asks for the smearing width whenever the option is
-    ticked, but ``square_boxcars_kernel`` refuses SHG (no three-arm form), so an
-    SHG trace with smearing enabled used to raise straight out of the update.
+    Regression: SHG used to have no smearing kernel, and the read-out raised
+    when the option was ticked; now it reports the two beams' delay blur.
     """
-    from croak.gui.readout import DASH
+    from croak.session.pipeline import smearing_kernel
 
     w = Driver(qtbot)
     w.start("synthetic")
@@ -1970,10 +1969,12 @@ def test_retrieval_readout_smearing_survives_an_shg_trace(qtbot):
     rs = w.stages[3]
     rs.state.retrieve.smearing = True
 
-    rs._update_extras_readout(None)  # must not raise
-    assert rs.readout.text("smearing") == DASH
-    # SHG has no smearing kernel, so there is no width to report
-    assert rs._smear_width_fs(1.5, w.state.tracedata) is None
+    rs._update_extras_readout(None)
+    kernel = smearing_kernel(rs.state.retrieve, w.state.tracedata)
+    assert rs.readout.text("smearing") == f"{kernel.sigma_delta / 1e-15:.2f} fs"
+    assert rs._smear_width_fs(1.5, w.state.tracedata) == pytest.approx(
+        1.5 * kernel.sigma_delta / 1e-15
+    )
 
 
 def test_preprocess_tau_exclude_auto_button(qtbot, experiment_h5, experiment):

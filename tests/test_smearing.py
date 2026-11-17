@@ -525,7 +525,8 @@ def test_smearing_broadens_the_delay_marginal(setup, interaction):
 def test_smearing_rejects_shg_and_nonuniform_delays(setup):
     g, ew, delays = setup
     kernel = SmearingKernel(sigma_p=0.3e-15, sigma_delta=0.3e-15)
-    with pytest.raises(ValueError, match="three-arm"):
+    # SHG has two beams: a kernel with a shape parameter has no meaning for it
+    with pytest.raises(ValueError, match="two beams.*shg_two_beam_kernel"):
         maketrace(g.omega, delays, ew, "shg", smearing=kernel)
     with pytest.raises(ValueError, match="uniformly spaced"):
         maketrace(g.omega, np.sort(np.append(delays, 1e-15)), ew, "pg", smearing=kernel)

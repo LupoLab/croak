@@ -62,7 +62,7 @@ from ._jax_pulse import ExtraParamSpec, augment, ls_parameterisation
 from .crystals import CrystalSetup
 from .forward_jax import make_param_trace_fn  # enables jax_enable_x64 at import
 from .result import RetrievalResult
-from .smearing import SmearingKernel
+from .smearing import SmearingKernel, check_split_fit
 from .uncertainty import (
     NoiseModel,
     UncertaintyResult,
@@ -269,6 +269,7 @@ def _compute_core(
     )
     delays = np.asarray(result.delays, dtype=float)
     scale_tau = float(np.median(np.abs(np.diff(delays)))) if delays.size > 1 else 1.0
+    check_split_fit(smearing, fit_smearing_split)
     spec = ExtraParamSpec(
         fit_thickness=fit_thickness,
         thickness0=central_thickness,

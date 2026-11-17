@@ -449,8 +449,9 @@ shows `ε(Iₜ)` alone rather than a number derived from something else.
 replaced by *Nonlinear crystal* (the crystal, its thickness, cut angle,
 phase-matched wavelength or external tilt, the polarisation relative to the
 crossing plane and the delayed beam's side) and *Beam geometry* (the beam
-separation and focal length that set the crossing angle), with a read-out of the
-internal angle, the tilt, the path and the depth nodes
+separation and focal length that set the crossing angle, and the beams' diameter
+and the switch for the two beams' delay smearing), with read-outs of the
+internal angle, the tilt, the path, the depth nodes and the smearing width
 ([SHG with a thick crystal](shg_crystal.md)). *Geometrical smearing*
 models the tilted-pulse-front temporal blur of a non-collinear BOXCARS setup
 from the mask hole diameter and edge-to-edge spacing, with the resulting delay

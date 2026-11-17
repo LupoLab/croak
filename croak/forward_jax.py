@@ -62,6 +62,7 @@ from .interactions import get_interaction  # noqa: E402 - see the x64 note above
 from .maths import wlfreq  # noqa: E402 - see the x64 note above
 from .smearing import (  # noqa: E402 - see the x64 note above
     SmearingKernel,
+    check_kernel,
     delay_frequency_grid,
 )
 
@@ -107,8 +108,8 @@ _JAX_INTERACTION_ADJOINTS: dict[
 }
 
 #: JAX twin of :meth:`croak.interactions.Interaction.smeared_signal`: combine the
-#: ``p``-independent replica with the pair at ``varying_base -/+ p/2``. SHG is absent —
-#: geometric smearing is only defined for the three-arm PG/SD forms.
+#: ``p``-independent replica with the pair at ``varying_base -/+ p/2``. SHG is absent:
+#: with two beams its smearing has no ``p`` and is a pure delay convolution.
 _JAX_SMEARED_INTERACTIONS: dict[
     str, Callable[[jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray]
 ] = {
@@ -659,11 +660,8 @@ def make_param_trace_fn(
         also be a length-2 vector for split channel scaling.
     """
     inter = get_interaction(interaction)
-    if smearing is not None and inter.name not in _JAX_SMEARED_INTERACTIONS:
-        raise ValueError(
-            f"geometrical smearing is not supported for the {inter.name.upper()} "
-            f"interaction; only PG (TG) and SD have the required three-arm form"
-        )
+    if smearing is not None:
+        check_kernel(inter, smearing)
     # Same guard as the forward model: SHG needs a crystal (croak.crystals).
     crystals.check_medium(
         inter,
@@ -1130,13 +1128,31 @@ def make_param_trace_fn(
     # (s_p, s_d) at fixed rho maps the node positions to s_p*p_k and the conditional
     # delay moments to s_d*mu_k and s_d*sigma_cond — so a split scale is exact, not
     # an approximation.
+    omega_delay = jnp.asarray(delay_frequency_grid(delays, smearing.sigma_delta))
+    if inter.name == "shg":
+        # Two beams: only the delay offset survives (check_kernel), so the smeared
+        # trace is the unsmeared one (each arm with its own propagator, which a
+        # crystal needs) convolved along delay with N(0, sigma_delta^2).
+        sigma_delta = smearing.sigma_delta
+
+        def shg_trace(ew, thickness_v, tau0_v, smear_scale=1.0):
+            _, scale_d = _smear_scale_pair(smear_scale)
+            psis = jax.vmap(lambda tau: signal(ew, tau, thickness_v, tau0_v))(delays_j)
+            kernel = jnp.exp(-0.5 * (scale_d * sigma_delta) ** 2 * omega_delay**2)
+            spec = jnp.fft.fft(jnp.abs(psis) ** 2, axis=0)
+            t = jnp.real(jnp.fft.ifft(spec * kernel[:, None], axis=0)).T
+            if normalize:
+                t = t / jnp.max(t)
+            return t
+
+        return shg_trace
+
     smeared_map = _JAX_SMEARED_INTERACTIONS[inter.name]
     p_nodes_np, p_weights_np = smearing.nodes_weights()
     mu_np, sigma_delta_cond = smearing.conditional_delay(p_nodes_np)
     p_nodes = jnp.asarray(p_nodes_np)
     p_weights = jnp.asarray(p_weights_np)
     mu_nodes = jnp.asarray(mu_np)
-    omega_delay = jnp.asarray(delay_frequency_grid(delays, smearing.sigma_delta))
 
     def signal_smeared(ew, tau, thickness_v, tau0_v, scale_p):
         ew_bin = jnp.fft.ifftshift(ew)

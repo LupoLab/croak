@@ -1,4 +1,9 @@
-r"""Geometric (pulse-front-tilt) time smearing in a non-collinear BOXCARS geometry.
+r"""Geometric (pulse-front-tilt) time smearing in a non-collinear geometry.
+
+Most of this module concerns the three-arm BOXCARS geometry of PG (TG) and SD. Two-beam
+SHG is simpler: only the relative delay of the two arms varies across the focus, so
+its kernel (:func:`shg_two_beam_kernel`) has no shape parameter and the trace is the
+unsmeared one convolved along delay.
 
 In a non-collinear geometry the input beams reach the interaction plane with tilted
 pulse fronts, so the relative arrival time between arms varies linearly across the
@@ -103,10 +108,14 @@ import numpy as np
 from numpy.polynomial.hermite_e import hermegauss
 from numpy.typing import ArrayLike, NDArray
 
+from .geometry import TwoBeamGeometry
 from .interactions import Interaction, get_interaction
 
 __all__ = [
+    "check_kernel",
+    "check_split_fit",
     "collinear_sd_kernel",
+    "shg_two_beam_kernel",
     "AIRY6_RMS_COEFF",
     "deconvolve_delay",
     "SmearingKernel",
@@ -587,6 +596,145 @@ def square_boxcars_kernel(
     if reverse_delay:
         kernel = replace(kernel, rho=-kernel.rho)
     return kernel
+
+
+def check_kernel(interaction: str | Interaction, kernel: SmearingKernel) -> None:
+    """Check that a smearing kernel has a meaning for the interaction.
+
+    PG and SD take any kernel. SHG has two beams, so only the delay offset
+    survives: its kernel must have ``sigma_p = 0`` (:func:`shg_two_beam_kernel`).
+
+    Parameters
+    ----------
+    interaction : str or Interaction
+        The interaction.
+    kernel : SmearingKernel
+        The kernel.
+
+    Raises
+    ------
+    ValueError
+        If ``interaction`` is SHG and ``kernel.sigma_p`` is not zero.
+    """
+    if get_interaction(interaction).name == "shg" and kernel.sigma_p != 0.0:
+        raise ValueError(
+            "an SHG trace has two beams, so its smearing is a pure delay blur with "
+            f"no shape parameter; got sigma_p={kernel.sigma_p!r}. Build the kernel "
+            "with croak.smearing.shg_two_beam_kernel"
+        )
+
+
+def check_split_fit(kernel: SmearingKernel | None, fit_smearing_split: bool) -> None:
+    """Refuse a split smearing fit for a kernel with no shape channel.
+
+    A split fit scales the shape (``p``) and delay channels separately. A kernel
+    with ``sigma_p = 0`` (two-beam SHG, :func:`shg_two_beam_kernel`; two-beam SD,
+    :func:`collinear_sd_kernel`) has no ``p`` channel, so its multiplier would not
+    move the trace: fitted, it stays where it started, and a covariance reports a
+    falsely exact zero uncertainty for it.
+
+    Parameters
+    ----------
+    kernel : SmearingKernel or None
+        The kernel.
+    fit_smearing_split : bool
+        Whether the two channels are fitted separately.
+
+    Raises
+    ------
+    ValueError
+        If ``fit_smearing_split`` is set and ``kernel.sigma_p`` is zero.
+    """
+    if fit_smearing_split and kernel is not None and kernel.sigma_p == 0.0:
+        raise ValueError(
+            "fit_smearing_split needs a kernel with a shape channel (sigma_p > 0); "
+            "this kernel has none (two beams), so fit the one width with "
+            "fit_smearing alone"
+        )
+
+
+def shg_two_beam_kernel(geometry: TwoBeamGeometry, wavelength: float) -> SmearingKernel:
+    r"""Delay-smearing kernel of a two-beam (non-collinear) SHG FROG.
+
+    With two beams the signal is :math:`E_1(t)\,E_2(t-\tau+\delta)`: the
+    two arrival times leave one combination, the relative delay :math:`\delta`,
+    and no shape parameter :math:`p`. So the measured trace is the unsmeared one
+    convolved along delay with the distribution of :math:`\delta` across the
+    focus (Taft et al., IEEE J. Select. Topics Quantum Electron. 2, 575 (1996),
+    doi:10.1109/2944.571757, Eq. 7).
+
+    Each Gaussian beam of 1/e² diameter :math:`D` at the focusing optic (focal
+    length :math:`f`) focuses to the waist :math:`w_0 = 2\lambda f/(\pi D)`
+    (1/e² radius), and the two spots coincide at the crossing point. Across the
+    crossing plane, at :math:`x` from the bisector, each beam's intensity is
+    :math:`e^{-2x^2\cos^2\alpha/w_0^2}` (its own transverse coordinate is
+    :math:`x\cos\alpha`), and the signal is weighted by their product, so
+    :math:`x` has rms :math:`w_0/(2\sqrt2\cos\alpha)`. There the arms' tilted
+    wavefronts give the relative delay :math:`\delta = 2x\sin\alpha/c`. Hence
+
+    .. math::
+
+        \sigma_\delta = \frac{w_0\tan\alpha}{\sqrt2\,c}
+                       = \frac{\lambda d}{\sqrt2\,\pi D c},
+
+    with :math:`\tan\alpha = d/(2f)` and :math:`d` the beam separation: exactly
+    independent of the focal length. For beams separated by their diameter
+    (:math:`d = D`) at 800 nm this is 0.60 fs rms.
+
+    This matches Baltuška et al. (IEEE J. Quantum Electron. 35, 459 (1999),
+    doi:10.1109/3.753651, Eqs. 28-29), who give :math:`\delta t = \lambda/(2\pi c)`,
+    0.42 fs, for that layout, as the term that adds in quadrature to the pulse's
+    duration inferred from the trace: for Gaussian pulses the trace's delay
+    marginal is the intensity autocorrelation, whose width grows by
+    :math:`\sigma_\delta` in quadrature, so the inferred duration grows by
+    :math:`\sigma_\delta/\sqrt2 = \lambda/(2\pi c)`. The match holds with rms
+    durations and :math:`d` and :math:`D` read as 1/e² diameters; with FWHM
+    beam profiles throughout, the figures differ by :math:`2\ln 2`.
+
+    Validity: Gaussian beams, collimated at the optic; a crystal thin against the
+    Rayleigh range (the spots stay superposed through it); full collection of the
+    signal beam, which a thick crystal's angular acceptance (it filters the
+    signal's transverse wavevector) or an aperture violates; and the spot size at
+    the single ``wavelength`` given (it scales with the wavelength across a broad
+    spectrum).
+
+    Parameters
+    ----------
+    geometry : TwoBeamGeometry
+        The beams; ``beam_diameter`` must be set. The same object should describe
+        the crystal (:class:`croak.crystals.CrystalSetup`), so the phase matching
+        and the smearing use one crossing angle.
+    wavelength : float
+        Wavelength (m) the spot size is taken at, e.g. the pulse's centroid.
+
+    Returns
+    -------
+    SmearingKernel
+        ``sigma_p = 0``, one node, ``sigma_delta`` as above.
+
+    Raises
+    ------
+    ValueError
+        If ``geometry.beam_diameter`` is ``None`` or ``wavelength`` is not positive.
+
+    Examples
+    --------
+    >>> g = TwoBeamGeometry(beam_separation=1e-3, focal_length=0.1, beam_diameter=1e-3)
+    >>> round(shg_two_beam_kernel(g, 800e-9).sigma_delta * 1e15, 2)
+    0.6
+    """
+    if geometry.beam_diameter is None:
+        raise ValueError(
+            "the two-beam smearing kernel needs the beams' diameter: set "
+            "TwoBeamGeometry.beam_diameter (1/e² diameter at the focusing optic)"
+        )
+    if not (math.isfinite(wavelength) and wavelength > 0.0):
+        raise ValueError(f"wavelength must be finite and positive, got {wavelength!r}")
+    waist = (
+        2.0 * wavelength * geometry.focal_length / (math.pi * geometry.beam_diameter)
+    )
+    sigma = waist * math.tan(geometry.crossing_half_angle) / (math.sqrt(2.0) * _C_LIGHT)
+    return SmearingKernel(sigma_p=0.0, sigma_delta=sigma, rho=0.0, npoints=1)
 
 
 def deconvolve_delay(

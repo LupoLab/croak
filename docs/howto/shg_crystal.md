@@ -95,13 +95,33 @@ can generate an SHG trace through the same crystal, at a thickness set there;
 switching the crystal on for the retrieval, at that thickness, is a separate
 step in the Retrieve stage.
 
+## Delay smearing
+
+The two crossing beams' relative delay varies across the focus, which blurs the
+trace along delay. For few-cycle pulses this matters: beams of 20 µm waist crossing
+at a half-angle of 2.9° blur the delay by 2.4 fs rms (5.5 fs FWHM), against a 6 fs
+pulse. Give the beams their diameter and pass the two-beam kernel built from the
+same geometry ([two-beam SHG smearing](geometric_smearing.md#two-beam-shg)):
+
+```python
+from croak.smearing import shg_two_beam_kernel
+
+beams = TwoBeamGeometry(beam_separation=5e-3, focal_length=0.1, beam_diameter=3e-3)
+crystal = CrystalSetup(builtin_crystal("BBO"), math.radians(29.2),
+                       phase_match_wavelength=800e-9, geometry=beams,
+                       polarization="parallel")
+res = croak.retrieve(
+    trace, g.omega, delays, "shg", algorithm="lbfgs-ad",
+    material=crystal, thickness=thickness, npoints=npoints, omega0=omega0,
+    smearing=shg_two_beam_kernel(beams, wavelength=800e-9),
+)
+```
+
+In a session, `smearing` switches it on and `beam_diameter_mm` gives the
+diameter; the GUI shows both in *Beam geometry*.
+
 ## What is not modelled yet
 
-- **Delay smearing.** The two crossing beams' local delay varies across the
-  focus, which blurs the trace along delay. croak's smearing kernels do not yet
-  cover SHG, and for few-cycle pulses this matters: beams of 20 µm waist
-  crossing at a half-angle of 2.9° blur the delay by 2.4 fs rms (5.5 fs FWHM),
-  against a 6 fs pulse.
 - **Fitting the crystal.** Its thickness and angle are inputs, not fitted
   parameters ([issue #26](https://github.com/LupoLab/croak/issues/26)); a
   session's `fit_thickness` is not applied to a crystal.

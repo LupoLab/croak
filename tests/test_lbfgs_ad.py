@@ -158,7 +158,8 @@ def test_lbfgs_ad_smearing_rejects_shg():
     kernel = square_boxcars_kernel(
         "pg", hole_diameter=1e-3, hole_spacing=0.5e-3, wavelength=800e-9
     )
-    with pytest.raises(ValueError, match="three-arm"):
+    # a three-arm (PG) kernel has a shape parameter, which two SHG beams cannot have
+    with pytest.raises(ValueError, match="two beams"):
         LBFGSAD(maxiters=10, smearing=kernel).run(
             trace, g.omega, delays, "shg", guess=ew
         )
