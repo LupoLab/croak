@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.14"
 
 [[package]]
@@ -368,7 +368,7 @@ requires-dist = [
     { name = "nlopt", specifier = ">=2.10.0" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "optimistix", specifier = ">=0.1.0" },
-    { name = "optmat", extras = ["gas"], specifier = ">=0.8.1" },
+    { name = "optmat", extras = ["gas"], specifier = ">=0.10.0" },
     { name = "pyqtgraph", marker = "extra == 'gui'", specifier = ">=0.14" },
     { name = "pyside6-essentials", marker = "extra == 'gui'", specifier = ">=6.10.1" },
     { name = "scipy", specifier = ">=1.17.1" },
@@ -1324,16 +1324,16 @@ wheels = [
 
 [[package]]
 name = "optmat"
-version = "0.8.1"
+version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jaxtyping" },
     { name = "numpy" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/72/1d/70957d38e53bfca14cf362559d6b3c21255d01ad7f6ee8b32139cf655b0a/optmat-0.8.1.tar.gz", hash = "sha256:3eb902731b39716a35df369b7bdd5bae2889b4dfba130eee4f44c7c6d814bc2a", size = 17527157, upload-time = "2026-10-16T21:46:14.09Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/76/a9a66b2af5d5bbd90bd6f7f14529f728275c336bb7d664b9d317131d8ef9/optmat-0.10.0.tar.gz", hash = "sha256:02bb82795eee9768623338fec84c32be4229ae1f9e69abc5b62ddfba6894694b", size = 17643182, upload-time = "2026-11-17T12:37:38.984Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1d/2e/fbd99043f6b2a0068654003713c468c683fb5ba59d5ef100783a4c598748/optmat-0.8.1-py3-none-any.whl", hash = "sha256:266dfe57c8a3deb8eaf3e540da49de74b08685dc27f72404cef9c1901eee331f", size = 17648193, upload-time = "2026-10-16T21:46:10.82Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/0e/aa8de92e8d798a1af3addd8944984116910bc09e9dc4ee3c5b83feea25ba/optmat-0.10.0-py3-none-any.whl", hash = "sha256:215b28360f3904a09160a175d29df7aa1c25a216cc6daca70c7c2c6957de1e40", size = 17809459, upload-time = "2026-11-17T12:37:34.911Z" },
 ]
 
 [package.optional-dependencies]
