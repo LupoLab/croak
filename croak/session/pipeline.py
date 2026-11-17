@@ -663,6 +663,10 @@ def assemble_simulated_tracedata(p: SimulatedLoadParams) -> TraceData:
         Ilam_spec_meas=Ilam_spec,
         Ilam_spec_filt=Ilam_spec,
         scalecurve=np.ones(lam_frog.shape),
+        # The native-grid spectrum is not windowed: its window is its full extent.
+        lams_lims=(
+            None if lam_spec is None else (float(lam_spec[0]), float(lam_spec[-1]))
+        ),
     )
 
 
@@ -692,6 +696,21 @@ def build_tracedata(
     """
     ds = _FAST_BASELINE_DOWNSAMPLE if fast_baseline else 1
     skip = _FAST_BASELINE_SKIP_BELOW if fast_baseline else 0.0
+    if (p.lams_min_nm is None) != (p.lams_max_nm is None):
+        raise ValueError(
+            "the spectrum window needs both lams_min_nm and lams_max_nm, or neither "
+            f"(the spectrum's full extent); got {p.lams_min_nm!r} and "
+            f"{p.lams_max_nm!r}"
+        )
+    # The spectrum window only means something with a spectrum; a window left
+    # over from one that has since been removed is dropped, not an error.
+    lams_lims = None
+    if (
+        data["lam_spec"] is not None
+        and p.lams_min_nm is not None
+        and p.lams_max_nm is not None
+    ):
+        lams_lims = (p.lams_min_nm * 1e-9, p.lams_max_nm * 1e-9)
     return preprocess.load_and_clean(
         data["trace"],
         data["lam"],
@@ -700,6 +719,7 @@ def build_tracedata(
         lam_min=p.lam_min_nm * 1e-9,
         lam_max=p.lam_max_nm * 1e-9,
         lamm_lims=(p.lamm_min_nm * 1e-9, p.lamm_max_nm * 1e-9),
+        lams_lims=lams_lims,
         input_unit=data["input_unit"],
         trange=p.trange_fs * 1e-15,
         tau_crop=(p.tau_min_fs * 1e-15, p.tau_max_fs * 1e-15),
@@ -1107,10 +1127,13 @@ def apply_post_filter(
     """Window the result to the measurement λ/τ ranges if the toggles are set.
 
     Mirrors the retrieve stage's post-filter pane: a spectral and/or temporal
-    window to the measurement extents (``td.lamm_lims`` / ``td.tau_lims``), not
-    the full grid. Returns the result unchanged when neither toggle is on.
+    window to the measurement extents (``td.fundamental_window`` /
+    ``td.tau_lims``), not the full grid. The spectral window is the one at the
+    fundamental, where the retrieved field lives; see
+    :attr:`~croak.preprocess.TraceData.fundamental_window`. Returns the result
+    unchanged when neither toggle is on (or no window applies).
     """
-    lam_lims = td.lamm_lims if p.post_filter_lam else None
+    lam_lims = td.fundamental_window if p.post_filter_lam else None
     tau_lims = td.tau_lims if p.post_filter_tau else None
     if lam_lims is None and tau_lims is None:
         return result

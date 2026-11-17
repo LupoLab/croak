@@ -1237,3 +1237,150 @@ def test_load_and_clean_carries_the_independent_spectrum():
     # the 1600 nm fundamental peaks at the pulse carrier (grid centre), within
     # 5 % of the grid's half-span
     assert abs(td.grid.omega[int(np.argmax(td.Iomega))]) < 0.05 * td.grid.omega.max()
+
+
+def _shg_clean(**kw):
+    """``load_and_clean`` of the SHG experiment with its fundamental spectrum."""
+    exp, lam_spec, Ilam_spec, lam_min, lam_max = _shg_experiment()
+    return preprocess.load_and_clean(
+        exp.trace,
+        exp.lam_nm * 1e-9,
+        exp.delay_fs * 1e-15,
+        "shg",
+        lam_min=lam_min,
+        lam_max=lam_max,
+        input_unit="delay",
+        taper_warn_level=0.0,
+        lam_spec=lam_spec,
+        Ilam_spec=Ilam_spec,
+        **kw,
+    )
+
+
+def test_load_and_clean_spectrum_window_defaults_to_the_spectrum_extent():
+    _, lam_spec, _, _, _ = _shg_experiment()
+    td = _shg_clean()
+    assert td.lams_lims == pytest.approx((lam_spec.min(), lam_spec.max()))
+
+
+def test_load_and_clean_trace_window_leaves_the_spectrum_alone():
+    # A narrow SHG trace window (around 800 nm) used to be doubled onto the
+    # fundamental spectrum (1600 nm) and cut it; the two are now independent.
+    # 700-850 nm doubled is 1400-1700 nm, which would cut the 1600 nm spectrum.
+    narrow = (700e-9, 850e-9)
+    full = _shg_clean()
+    cut = _shg_clean(lamm_lims=narrow)
+    assert cut.Ilam_spec_filt is not None and full.Ilam_spec_filt is not None
+    np.testing.assert_array_equal(cut.Ilam_spec_filt, full.Ilam_spec_filt)
+    assert not np.array_equal(cut.Ifrog_filt, full.Ifrog_filt)
+
+
+def test_load_and_clean_spectrum_window_leaves_the_trace_alone():
+    lams = (1500e-9, 1700e-9)
+    full = _shg_clean()
+    cut = _shg_clean(lams_lims=lams)
+    assert cut.lams_lims == lams
+    np.testing.assert_array_equal(cut.trace, full.trace)
+    np.testing.assert_array_equal(cut.Ifrog_filt, full.Ifrog_filt)
+    # outside the window the spectrum is tapered to zero; inside it is kept
+    assert cut.Ilam_spec_filt is not None and cut.lam_spec is not None
+    outside = (cut.lam_spec < 1400e-9) | (cut.lam_spec > 1800e-9)
+    assert np.all(cut.Ilam_spec_filt[outside] == 0.0)
+    assert cut.Ilam_spec_filt.max() == pytest.approx(1.0)
+
+
+def test_load_and_clean_spectrum_window_without_a_spectrum_is_none(experiment):
+    exp = experiment
+    td = preprocess.load_and_clean(
+        exp.trace,
+        exp.lam_nm * 1e-9,
+        exp.delay_fs * 1e-15,
+        exp.interaction,
+        lam_min=exp.lam_min,
+        lam_max=exp.lam_max,
+        input_unit="delay",
+    )
+    assert td.lams_lims is None
+
+
+def test_load_and_clean_rejects_a_spectrum_window_without_a_spectrum(experiment):
+    exp = experiment
+    with pytest.raises(ValueError, match="lams_lims needs an independent spectrum"):
+        preprocess.load_and_clean(
+            exp.trace,
+            exp.lam_nm * 1e-9,
+            exp.delay_fs * 1e-15,
+            exp.interaction,
+            lam_min=exp.lam_min,
+            lam_max=exp.lam_max,
+            input_unit="delay",
+            lams_lims=(700e-9, 900e-9),
+        )
+
+
+def test_fundamental_window_of_shg_is_the_spectrum_window():
+    td = _shg_clean(lams_lims=(1500e-9, 1700e-9))
+    assert td.fundamental_window == (1500e-9, 1700e-9)
+
+
+def test_fundamental_window_of_pg_is_the_trace_window(experiment):
+    # PG: the trace is at the fundamental, so its λm is the signal's measured
+    # support, and a spectrum window does not replace it.
+    exp = experiment
+    kw = dict(lam_min=exp.lam_min, lam_max=exp.lam_max, input_unit="delay")
+    args = (exp.trace, exp.lam_nm * 1e-9, exp.delay_fs * 1e-15)
+    lamm = (exp.lam_min * 1.05, exp.lam_max * 0.95)
+    pg = preprocess.load_and_clean(*args, "pg", lamm_lims=lamm, **kw)
+    assert pg.fundamental_window == lamm
+    lam = exp.lam_nm * 1e-9
+    with_spectrum = preprocess.load_and_clean(
+        *args,
+        "pg",
+        lamm_lims=lamm,
+        lam_spec=lam,
+        Ilam_spec=np.ones_like(lam),
+        lams_lims=(exp.lam_min, exp.lam_max),
+        **kw,
+    )
+    assert with_spectrum.fundamental_window == lamm
+    # SHG without a spectrum: λm is at the second harmonic, so there is no
+    # fundamental window to offer (a ×2 map of it is not a support bound).
+    shg = preprocess.load_and_clean(
+        *args, "shg", lamm_lims=lamm, taper_warn_level=0.0, **kw
+    )
+    assert shg.fundamental_window is None
+
+
+@pytest.mark.parametrize(
+    ("lams", "match"),
+    [
+        ((1700e-9, 1500e-9), "low edge below its high edge"),
+        ((1600e-9, 1600e-9), "low edge below its high edge"),
+        ((2300e-9, 3000e-9), "holds no sample of the spectrum"),
+        # the spectrum is sampled every ~1.25 nm from 1200 nm: a window between
+        # two samples holds none strictly inside it
+        ((1200.1e-9, 1201.0e-9), "holds no sample of the spectrum"),
+    ],
+)
+def test_load_and_clean_rejects_an_unusable_spectrum_window(lams, match):
+    with pytest.raises(ValueError, match=match):
+        _shg_clean(lams_lims=lams)
+
+
+def test_load_and_clean_rejects_a_spectrum_window_without_signal():
+    exp, lam_spec, _, lam_min, lam_max = _shg_experiment()
+    dark = np.where(lam_spec < 1300e-9, 0.0, 1.0)
+    with pytest.raises(ValueError, match="no positive spectral intensity"):
+        preprocess.load_and_clean(
+            exp.trace,
+            exp.lam_nm * 1e-9,
+            exp.delay_fs * 1e-15,
+            "shg",
+            lam_min=lam_min,
+            lam_max=lam_max,
+            input_unit="delay",
+            taper_warn_level=0.0,
+            lam_spec=lam_spec,
+            Ilam_spec=dark,
+            lams_lims=(1210e-9, 1290e-9),
+        )

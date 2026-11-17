@@ -1,0 +1,1 @@
+The post-retrieval spectral window no longer removes the whole retrieved field for SHG: the session pipeline and the retrieve stage now window with `TraceData.fundamental_window` (for SHG the spectrum window λs, for PG/SD the trace window λm as before) rather than the trace window, which for SHG lies at the second harmonic (#22).

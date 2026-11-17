@@ -378,7 +378,10 @@ def save_uncertainty(
 #: Schema version of the options TOML; bump when the option layout changes.
 #: 2 added the ``entry`` key and the ``[simulated]`` table (the simulated-scan
 #: loader's options), so a simulated session records the trace it came from.
-OPTIONS_VERSION = 2
+#: 3 added the independent spectrum's window ``lams_*`` to ``[preproc]``; an
+#: older file's spectrum window is migrated on read (see
+#: :meth:`croak.session.options.SessionOptions.from_dict`).
+OPTIONS_VERSION = 3
 
 
 def _croak_version() -> str:

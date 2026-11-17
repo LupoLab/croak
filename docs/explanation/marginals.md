@@ -216,9 +216,12 @@ How the three PG checks carry over:
 - Width and centroid estimates can be sensitive to noise and cropping; the full-shape
   overlay is the most sensitive to scatter and detector nonlinearity but also the
   most affected by the TL assumption for PG/SD. Restrict the moments and the
-  normalisation to a **spectral trust region** (in the GUI, 190–1000 nm for a
-  measured trace, or the full loaded range for the noise-free simulated/synthetic
-  traces) so out-of-band detector noise cannot dominate.
+  normalisation to **spectral trust regions**, one for the trace (in the GUI,
+  190–1000 nm for a measured trace, or the full loaded range for the noise-free
+  simulated/synthetic traces) and one for the independent spectrum (in the GUI,
+  the spectrum's full range by default), so out-of-band detector noise cannot
+  dominate. They are separate because the two come from different instruments
+  and, for SHG, lie an octave apart.
 - For the rigorous SHG and PG-centroid checks, report the numeric discrepancy
   (measured vs predicted) as a QC metric alongside the retrieval error.
 
@@ -230,7 +233,8 @@ marginal by a power law $(\lambda/\mu\mathrm{m})^n$
 **hard** anchor for PG/TG (and the fundamental anchor for SD/SHG),
 {func}`croak.marginal_checks.auto_third_order_exponent` picks the exponent $n$
 whose corrected-marginal centroid lands on the predicted centroid. The tilt
-shifts the centroid monotonically in $n$, so the match is at most one root over a non-degenerate positive trace; it is
-restricted to the trust region so amplified out-of-band noise cannot bias it.
-This is the physically grounded replacement for fitting the marginal *shape* to
-the spectrum.
+shifts the centroid monotonically in $n$, so the match is at most one root over a
+non-degenerate positive trace; it is restricted to the trace's trust region so
+amplified out-of-band noise cannot bias it, and the target is formed from the
+spectrum within its own trust region. This is the physically grounded replacement
+for fitting the marginal *shape* to the spectrum.

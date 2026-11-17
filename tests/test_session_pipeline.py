@@ -714,7 +714,7 @@ def test_apply_post_filter_windows_only_when_toggled(monkeypatch, lam, tau, expe
         "post_filter",
         lambda result, *, lam_lims, tau_lims: calls.append((lam_lims, tau_lims)),
     )
-    td = SimpleNamespace(lamm_lims=(1e-7, 2e-7), tau_lims=(-5e-14, 5e-14))
+    td = SimpleNamespace(fundamental_window=(1e-7, 2e-7), tau_lims=(-5e-14, 5e-14))
     p = RetrieveParams(post_filter_lam=lam, post_filter_tau=tau)
     out = apply_post_filter(p, "result", td)
     if expected is None:

@@ -669,3 +669,174 @@ def test_fit_thickness_requires_dispersive_in_kwargs():
 
     p = RetrieveParams(fit_thickness=True, dispersive=False)
     assert covariance_kwargs(p)["fit_thickness"] is False
+
+
+def _captured_load_and_clean(monkeypatch) -> dict:
+    """Patch ``load_and_clean`` to record its keyword arguments."""
+    seen: dict = {}
+    monkeypatch.setattr(
+        croak.preprocess, "load_and_clean", lambda *a, **kw: seen.update(kw)
+    )
+    return seen
+
+
+def _data_with_spectrum(experiment) -> dict:
+    lam = experiment.lam_nm * 1e-9
+    return dict(
+        trace=experiment.trace,
+        lam=lam,
+        scanaxis=experiment.delay_fs * 1e-15,
+        interaction=experiment.interaction,
+        input_unit="delay",
+        lam_spec=lam,
+        Ilam_spec=np.ones_like(lam),
+    )
+
+
+def test_build_tracedata_passes_the_spectrum_window(monkeypatch, experiment):
+    seen = _captured_load_and_clean(monkeypatch)
+    p = PreprocParams(lams_min_nm=700.0, lams_max_nm=900.0)
+    build_tracedata(p, _data_with_spectrum(experiment))
+    assert seen["lams_lims"] == pytest.approx((700e-9, 900e-9))
+
+
+def test_build_tracedata_unset_spectrum_window_means_full_extent(
+    monkeypatch, experiment
+):
+    seen = _captured_load_and_clean(monkeypatch)
+    build_tracedata(PreprocParams(), _data_with_spectrum(experiment))
+    assert seen["lams_lims"] is None
+
+
+def test_build_tracedata_ignores_the_spectrum_window_without_a_spectrum(
+    monkeypatch, experiment
+):
+    # A window left over from an earlier spectrum must not make load_and_clean
+    # raise once the spectrum is gone.
+    seen = _captured_load_and_clean(monkeypatch)
+    data = _data_with_spectrum(experiment) | dict(lam_spec=None, Ilam_spec=None)
+    build_tracedata(PreprocParams(lams_min_nm=700.0, lams_max_nm=900.0), data)
+    assert seen["lams_lims"] is None
+
+
+def test_an_unset_spectrum_window_round_trips_as_unset(tmp_path):
+    # None is omitted from the TOML; a current file must read it back as "full
+    # extent", not migrate it from the narrowed λm as an old file would be.
+    options = SessionOptions(preproc=PreprocParams(lamm_min_nm=380.0))
+    options.to_toml(str(tmp_path / "options.toml"))
+    back = SessionOptions.from_toml(str(tmp_path / "options.toml"))
+    assert back.preproc.lams_min_nm is None and back.preproc.lams_max_nm is None
+    assert back == options
+    # a mapping with no version header (an in-memory to_dict) is not migrated
+    unversioned = SessionOptions.from_dict({"preproc": {"lamm_min_nm": 400.0}})
+    assert unversioned.preproc.lams_min_nm is None
+
+
+def _old_options_file(path: Path, entry: str, interaction: str, preproc: str) -> str:
+    """Write an ``options_version = 2`` file, as croak wrote before λs existed."""
+    loader = "load" if entry == "experimental" else "simulated"
+    path.write_text(
+        f'options_version = 2\nentry = "{entry}"\n\n'
+        f'[{loader}]\ninteraction = "{interaction}"\n\n'
+        f"[preproc]\n{preproc}"
+    )
+    return str(path)
+
+
+@pytest.mark.parametrize(
+    ("entry", "interaction", "expected"),
+    [
+        # PG/SD: the trace is at the fundamental, so λm windowed the spectrum as is
+        ("experimental", "pg", (750.0, 850.0)),
+        ("experimental", "sd", (750.0, 850.0)),
+        # SHG: λm, at the second harmonic, was doubled onto the fundamental
+        ("experimental", "shg", (1500.0, 1700.0)),
+        ("simulated", "shg", (1500.0, 1700.0)),
+    ],
+)
+def test_an_old_options_file_keeps_its_spectrum_window(
+    tmp_path, monkeypatch, experiment, entry, interaction, expected
+):
+    path = _old_options_file(
+        tmp_path / "options.toml",
+        entry,
+        interaction,
+        "lamm_min_nm = 750.0\nlamm_max_nm = 850.0\n",
+    )
+    preproc = SessionOptions.from_toml(path).preproc
+    assert (preproc.lams_min_nm, preproc.lams_max_nm) == expected
+    # the bounds are the spectrum's extent: they come from the data, not the file
+    assert preproc.lams_bound_min_nm is None and preproc.lams_bound_max_nm is None
+    # and the pipeline windows the spectrum where the old code did, λm × scale
+    seen = _captured_load_and_clean(monkeypatch)
+    build_tracedata(preproc, _data_with_spectrum(experiment))
+    assert seen["lams_lims"] == pytest.approx(np.array(expected) * 1e-9)
+
+
+@pytest.mark.parametrize(
+    ("entry", "version", "preproc"),
+    [
+        # a current file: an absent λs means "full extent" by design
+        ("experimental", 3, "lamm_min_nm = 750.0\nlamm_max_nm = 850.0\n"),
+        # an old file without λm has no window to migrate
+        ("experimental", 2, "lam_min_nm = 700.0\n"),
+        # a synthetic session names no loader interaction and is re-seeded
+        ("synthetic", 2, "lamm_min_nm = 750.0\nlamm_max_nm = 850.0\n"),
+    ],
+)
+def test_options_files_that_are_not_migrated(tmp_path, entry, version, preproc):
+    path = tmp_path / "options.toml"
+    path.write_text(
+        f'options_version = {version}\nentry = "{entry}"\n\n[preproc]\n{preproc}'
+    )
+    loaded = SessionOptions.from_toml(str(path)).preproc
+    assert loaded.lams_min_nm is None and loaded.lams_max_nm is None
+
+
+def test_an_old_options_file_with_a_spectrum_window_keeps_it(tmp_path):
+    # λs written into an old-version file (by hand) is taken as written
+    path = _old_options_file(
+        tmp_path / "options.toml",
+        "experimental",
+        "shg",
+        "lamm_min_nm = 750.0\nlamm_max_nm = 850.0\n"
+        "lams_min_nm = 700.0\nlams_max_nm = 900.0\n",
+    )
+    preproc = SessionOptions.from_toml(path).preproc
+    assert (preproc.lams_min_nm, preproc.lams_max_nm) == (700.0, 900.0)
+
+
+def test_build_tracedata_rejects_a_half_set_spectrum_window(experiment):
+    with pytest.raises(ValueError, match="both lams_min_nm and lams_max_nm"):
+        build_tracedata(
+            PreprocParams(lams_min_nm=700.0), _data_with_spectrum(experiment)
+        )
+
+
+def test_apply_post_filter_keeps_an_shg_field(experiment_h5, experiment):
+    # Regression for issue #22, through the real pipeline: the SHG trace window
+    # (around 400 nm for an 800 nm pulse) used to be passed to post_filter, whose
+    # taper then removed the whole field.
+    from dataclasses import replace
+
+    from croak.session.pipeline import apply_post_filter
+
+    options = _options_for(experiment_h5, experiment)
+    td = build_tracedata(options.preproc, assemble_load_data(options.load))
+    result = run_retrieval(
+        RetrieveParams(solver="copra", maxiters=3), td, rng=np.random.default_rng(0)
+    )
+    shg = replace(
+        td,
+        interaction="shg",
+        omega0_trace=2.0 * td.omega0_pulse,
+        lamm_lims=(350e-9, 450e-9),
+        lams_lims=(700e-9, 900e-9),
+    )
+    params = RetrieveParams(post_filter_lam=True)
+    kept = apply_post_filter(params, result, shg).spectrum
+    energy = float(np.sum(np.abs(kept) ** 2)) / float(
+        np.sum(np.abs(result.spectrum) ** 2)
+    )
+    # a 6 fs pulse at 800 nm keeps most of its energy inside 700-900 nm
+    assert energy > 0.5

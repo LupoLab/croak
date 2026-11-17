@@ -35,7 +35,12 @@ from .home import ENTRY_TILES
 from .retrieval_views import ResultPage
 from .stage import PageBase
 from .stage_dispersion import StageDispersion
-from .stage_load import StageLoad, compute_preproc_defaults, trace_signature
+from .stage_load import (
+    StageLoad,
+    adopt_spectrum_bounds,
+    compute_preproc_defaults,
+    trace_signature,
+)
 from .stage_marginal_check import StageMarginalCheck
 from .stage_preprocess import StagePreprocess
 from .stage_retrieve import StageRetrieve
@@ -147,6 +152,7 @@ class DataPage(PageBase):
         state.set_load_data(data)
         state.trace_sig = trace_signature(state.load)
         state.preproc_defaults = compute_preproc_defaults(data)
+        adopt_spectrum_bounds(state.preproc, state.preproc_defaults)
         # A measured session's loader is a StageLoad (the entry chose it).
         cast(StageLoad, self.entry_page)._draw(data)
         return True
@@ -173,6 +179,7 @@ class DataPage(PageBase):
         state.set_load_data(data)
         state.trace_sig = simulated_signature(state.simulated)
         state.preproc_defaults = compute_preproc_defaults(data)
+        adopt_spectrum_bounds(state.preproc, state.preproc_defaults)
         loader._draw(data)
         if state.simulated.raw_direct:
             try:

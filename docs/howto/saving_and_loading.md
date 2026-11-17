@@ -108,7 +108,7 @@ starts with a small header and then one table per stage:
 
 ```toml
 croak_version = "0.1.0"
-options_version = 2
+options_version = 3
 entry = "simulated"
 
 [load]        # the measured-trace loader (files, datasets, units, backgrounds)
@@ -128,7 +128,12 @@ its provenance (which scansave file, which trace window, which thickness slice,
 which loaded band) would be lost. {func}`croak.session.engine.run_session`, `croak replay` and
 `croak script` all dispatch on it, so a simulated session replays headlessly like
 a measured one. Files written before `options_version = 2` have no `entry` and
-read back as experimental.
+read back as experimental. Files written before `options_version = 3` have no
+spectrum window λs (`lams_min_nm`/`lams_max_nm` in `[preproc]`): their spectrum
+was windowed by the trace window λm, mapped to the fundamental (×2 for SHG), so
+a measured or simulated session reads back with λs set to that window and
+prepares its spectrum as before. The version, not the keys, tells the two apart:
+a current file also omits an unset λs, which means the spectrum's full extent.
 
 The `"synthetic"` entry is recorded but cannot be replayed: the generator's
 settings live only in its GUI controls and are not yet serialised, so reloading

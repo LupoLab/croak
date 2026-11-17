@@ -160,8 +160,9 @@ def test_stage_marginal_check_position_scan_and_blank_trace(stage):
     # zoom to and the marginal has too few positive samples for its moments.
     _enter(stage, _data(trace=np.zeros((LAM.size, 21)), input_unit="position"))
     assert stage.trace_view.title.text() == "Measured trace"
+    # the spectrum is there; it is the trace marginal that is missing
     assert stage.status_label.text() == (
-        "No independent spectrum: showing the trace marginal only."
+        "Too little trace marginal in the trace trust region: no centroid/width check."
     )
 
 
@@ -177,11 +178,11 @@ def test_stage_marginal_check_predict_returns_none_without_usable_spectrum(
     stage, monkeypatch
 ):
     spec = np.exp(-(((LAM - 800e-9) / 30e-9) ** 2))
-    # all of the spectrum outside the trust region
-    stage._trust_nm = (1200.0, 1300.0)
+    # all of the spectrum outside its trust region
+    stage._spec_trust_nm = (1200.0, 1300.0)
     assert stage._predict(LAM, spec, "pg") is None
     # a single in-band sample spans no band to predict on
-    stage._trust_nm = (700.0, 900.0)
+    stage._spec_trust_nm = (700.0, 900.0)
     assert stage._predict(np.array([800e-9]), np.array([1.0]), "pg") is None
 
     def refuse(*args, **kwargs):
@@ -209,7 +210,7 @@ def test_stage_marginal_check_width_bracket_flags(stage, sigma_meas, flag):
         "width_is_hard": False,
         "rms_width": 2.0,
     }
-    stage._annotate_checks(801.0, sigma_meas, pred, "pg")
+    stage._annotate_checks(801.0, sigma_meas, pred, "pg", True)
     text = stage.status_label.text()
     assert text.startswith("PG marginal check")
     assert "(Δ +1.0 nm, hard)" in text
@@ -227,7 +228,7 @@ def test_stage_marginal_check_sd_reports_only_the_lower_bound(stage, sigma_meas,
         "width_is_hard": False,
         "rms_width": 2.0,
     }
-    stage._annotate_checks(800.0, sigma_meas, pred, "sd")
+    stage._annotate_checks(800.0, sigma_meas, pred, "sd", True)
     text = stage.status_label.text()
     assert "TL/soft" in text
     assert text.endswith(f"(σ_S) {mark}")
@@ -320,3 +321,91 @@ def test_peak_norm_falls_back_outside_the_mask():
     # all-zero data is returned unchanged
     np.testing.assert_allclose(_peak_norm(np.zeros(3), np.ones(3, bool)), 0.0)
     assert _peak_norm(np.zeros(0), np.zeros(0, bool)).size == 0
+
+
+# -- separate trust regions for the trace and the spectrum ---------------------
+def _shg_data_an_octave_apart():
+    """An SHG trace near 400 nm with its fundamental spectrum near 800 nm."""
+    data = _data("shg")
+    data["lam"] = LAM / 2.0
+    return data
+
+
+def test_stage_marginal_check_spectrum_trust_defaults_to_the_spectrum(stage):
+    _enter(stage, _shg_data_an_octave_apart())
+    assert stage._trust_nm == (190.0, 1000.0)
+    assert stage._spec_trust_nm == (700.0, 900.0)
+    assert stage.spec_trust.isEnabled()
+    # with the trust regions an octave apart the prediction still forms (one
+    # shared region cannot hold a 400 nm trace and an 800 nm spectrum)
+    stage._on_trust(340.0, 460.0)
+    spec = np.exp(-(((LAM - 800e-9) / 30e-9) ** 2))
+    assert stage._predict(LAM, spec, "shg") is not None
+
+
+def test_stage_marginal_check_spectrum_trust_is_kept_for_the_same_spectrum(stage):
+    _enter(stage, _data())
+    stage._on_spec_trust(720.0, 880.0)
+    assert stage._spec_trust_nm == (720.0, 880.0)
+    stage.on_enter()  # same spectrum: the manual region is kept
+    assert stage._spec_trust_nm == (720.0, 880.0)
+    data = _data()
+    data["lam_spec"] = np.linspace(600e-9, 1000e-9, 64)
+    _enter(stage, data)  # a different spectrum re-defaults
+    assert stage._spec_trust_nm == (600.0, 1000.0)
+
+
+def test_stage_marginal_check_spectrum_trust_is_off_without_a_spectrum(stage):
+    _enter(stage, _data(spectrum=False))
+    assert not stage.spec_trust.isEnabled()
+
+
+def test_stage_marginal_check_auto_passes_both_trust_regions(stage, monkeypatch):
+    seen = {}
+
+    def fit(*args, **kwargs):
+        seen.update(kwargs)
+        return 1.0
+
+    monkeypatch.setattr(stage_marginal_check, "auto_third_order_exponent", fit)
+    _enter(stage, _shg_data_an_octave_apart())
+    stage._on_trust(340.0, 460.0)
+    stage._on_spec_trust(720.0, 880.0)
+    stage._auto_exponent()
+    assert seen["trace_window"] == pytest.approx((340e-9, 460e-9))
+    assert seen["spectrum_window"] == pytest.approx((720e-9, 880e-9))
+
+
+def test_stage_marginal_check_spectrum_trust_outside_the_spectrum_shows_no_prediction(
+    stage,
+):
+    _enter(stage, _data())
+    stage._on_spec_trust(1200.0, 1300.0)  # no spectrum sample in the region
+    legend = _legend(stage.marg_view)
+    assert "spectrum" in legend and "predicted" not in legend
+    # there is a spectrum, so the status names the trust region, not its absence
+    assert stage.status_label.text() == (
+        "No usable spectrum within the spectrum trust region: showing the trace "
+        "marginal only."
+    )
+
+
+@pytest.mark.parametrize(
+    ("entry", "extent", "expected"),
+    [
+        # measured, crossing 1 um (a Yb spectrum around 1030 nm): its full
+        # range, not clipped to the trace's 190-1000 nm default
+        ("experimental", (900e-9, 1100e-9), (900.0, 1100.0)),
+        ("experimental", (600e-9, 1200e-9), (600.0, 1200.0)),
+        # measured, wholly beyond 1 um (a 1.6 um fundamental): its full range
+        ("experimental", (1400e-9, 1800e-9), (1400.0, 1800.0)),
+        # noise-free: the full range
+        ("synthetic", (600e-9, 1200e-9), (600.0, 1200.0)),
+        ("simulated", (600e-9, 1200e-9), (600.0, 1200.0)),
+    ],
+)
+def test_stage_marginal_check_spectrum_trust_default(stage, entry, extent, expected):
+    data = _data()
+    data["lam_spec"] = np.linspace(*extent, 64)
+    _enter(stage, data, entry=entry)
+    assert stage._spec_trust_nm == expected

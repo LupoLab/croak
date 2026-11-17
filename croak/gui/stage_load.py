@@ -49,6 +49,8 @@ _PREPROC_BOUND_FIELDS = (
     "tau_bound_max_fs",
     "lamm_bound_min_nm",
     "lamm_bound_max_nm",
+    "lams_bound_min_nm",
+    "lams_bound_max_nm",
     "lam_bound_min_nm",
     "lam_bound_max_nm",
 )
@@ -109,6 +111,16 @@ def compute_preproc_defaults(data) -> PreprocParams:
     pp.lamm_min_nm, pp.lamm_max_nm = lmin, lmax
     pp.lamm_bound_min_nm, pp.lamm_bound_max_nm = lmin, lmax
 
+    # independent-spectrum window (fundamental λ): its own extents, if present
+    if data["lam_spec"] is not None:
+        # round off the m→nm conversion error first, so a spectrum ending at
+        # exactly 1000 nm does not ceil to 1001 nm
+        spec_nm = np.round(np.asarray(data["lam_spec"]) / 1e-9, 6)
+        smin = float(np.floor(spec_nm.min()))
+        smax = float(np.ceil(spec_nm.max()))
+        pp.lams_min_nm, pp.lams_max_nm = smin, smax
+        pp.lams_bound_min_nm, pp.lams_bound_max_nm = smin, smax
+
     # retrieval grid λ: default to the trace extents × ω0 scaling (= fundamental
     # range). Bounds stay generous so the user can widen the grid if needed.
     scale = get_interaction(data["interaction"]).omega0_scale
@@ -146,9 +158,44 @@ def _clamp_preproc_to_bounds(pp: PreprocParams) -> None:
     pp.lamm_max_nm = min(
         max(pp.lamm_max_nm, pp.lamm_bound_min_nm), pp.lamm_bound_max_nm
     )
+    _clamp_spectrum_window(pp)
     for attr in ("tau_min_fs", "tau_max_fs", "taum_min_fs", "taum_max_fs"):
         v = getattr(pp, attr)
         setattr(pp, attr, min(max(v, pp.tau_bound_min_fs), pp.tau_bound_max_fs))
+
+
+def _clamp_spectrum_window(pp: PreprocParams) -> None:
+    """Clamp the spectrum window λs into its bounds, the spectrum's extent."""
+    if pp.lams_bound_min_nm is None or pp.lams_bound_max_nm is None:
+        # no spectrum (any more): its window goes with it
+        pp.lams_min_nm = pp.lams_max_nm = None
+    elif pp.lams_min_nm is not None and pp.lams_max_nm is not None:
+        lo, hi = pp.lams_bound_min_nm, pp.lams_bound_max_nm
+        low = min(max(pp.lams_min_nm, lo), hi)
+        high = min(max(pp.lams_max_nm, lo), hi)
+        # A window that misses a replaced spectrum would clamp to zero width at
+        # its edge; fall back to the full extent rather than keep a useless one.
+        if low < high:
+            pp.lams_min_nm, pp.lams_max_nm = low, high
+        else:
+            pp.lams_min_nm = pp.lams_max_nm = None
+
+
+def adopt_spectrum_bounds(pp: PreprocParams, defaults: PreprocParams) -> None:
+    """Take λs's bounds from the reloaded data when a reopened session lacks them.
+
+    A session written before the spectrum window existed has its λs migrated
+    from λm (:meth:`~croak.session.options.SessionOptions.from_dict`) but no
+    bounds, which are the spectrum's extent and so come from the data. Without
+    them the Prepare stage would show λs disabled while the window still applies.
+    The window is then clamped into them; a migrated window that misses the
+    spectrum falls back to the full extent. Bounds already saved are kept.
+    """
+    if pp.lams_bound_min_nm is not None and pp.lams_bound_max_nm is not None:
+        return
+    pp.lams_bound_min_nm = defaults.lams_bound_min_nm
+    pp.lams_bound_max_nm = defaults.lams_bound_max_nm
+    _clamp_spectrum_window(pp)
 
 
 def seed_preproc_defaults(state, *, reset_values: bool = True) -> None:

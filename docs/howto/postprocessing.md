@@ -290,10 +290,12 @@ publication figure ({func}`~croak.plotting.export.views_figure`,
 
 To trim ringing or out-of-band energy from the *result* before plotting (without
 re-running the retrieval), apply {func}`croak.processing.post_filter` — a
-reversible temporal/spectral Planck taper that returns a new result. Pass the
-measurement windows `td.lamm_lims` / `td.tau_lims` (λm/τm) as `lam_lims` /
-`tau_lims`. The stored trace and error still describe the unfiltered retrieval.
-See
+reversible temporal/spectral Planck taper that returns a new result. Pass
+`td.fundamental_window` as `lam_lims` (a window at the fundamental, also for
+SHG; for SHG it is the spectrum window λs, which by default spans the
+spectrometer's full range, so the spectral taper does essentially nothing until
+λs is narrowed) and `td.tau_lims` (τm) as `tau_lims`. The stored trace and error
+still describe the unfiltered retrieval. See
 [Grids and filtering](grids_and_filtering.md).
 
 ## Residual dispersion
